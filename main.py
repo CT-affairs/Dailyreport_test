@@ -1,46 +1,60 @@
-from flask import Flask
+from flask import Flask, request, abort
 import os
-from datetime import datetime
+import hmac
+import hashlib
+import base64
+import json
 
+from datetime import datetime
 from google.auth import default
 from googleapiclient.discovery import build
 
 app = Flask(__name__)
 
-SPREADSHEET_ID = "1vbIIfOhXIZjB6TPi8QjjhNBYlPch2c38Hu-zPKiKF0k"
+CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
+
+SPREADSHEET_ID = "ここにシートID"
 SHEET_NAME = "log"
 
-@app.route("/")
-def index():
-    return "Cloud Run OK"
 
-@app.route("/sheet-test")
-def sheet_test():
-    # Cloud Run のサービスアカウントを自動使用
+def validate_signature(body, signature):
+    hash = hmac.new(
+        CHANNEL_SECRET.encode("utf-8"),
+        body,
+        hashlib.sha256
+    ).digest()
+    return base64.b64encode(hash).decode() == signature
+
+
+@app.route("/callback", methods=["POST"])
+def callback():
+    body = request.get_data(as_text=False)
+    signature = request.headers.get("X-Line-Signature", "")
+
+    if not validate_signature(body, signature):
+        abort(400)
+
+    data = json.loads(body)
+
     creds, _ = default()
+    service = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
-    service = build(
-        "sheets",
-        "v4",
-        credentials=creds,
-        cache_discovery=False
-    )
+    for event in data.get("events", []):
+        if event.get("type") == "message":
+            message = event["message"].get("text", "")
+            user_id = event["source"].get("userId", "")
 
-    values = [[
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "cloud-run",
-        "sheet write test"
-    ]]
+            values = [[
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                user_id,
+                message
+            ]]
 
-    service.spreadsheets().values().append(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"{SHEET_NAME}!A:C",
-        valueInputOption="RAW",
-        body={"values": values}
-    ).execute()
+            service.spreadsheets().values().append(
+                spreadsheetId=SPREADSHEET_ID,
+                range=f"{SHEET_NAME}!A:C",
+                valueInputOption="RAW",
+                body={"values": values}
+            ).execute()
 
-    return "Sheet write OK"
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    return "OK"
