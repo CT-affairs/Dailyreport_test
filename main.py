@@ -33,8 +33,8 @@ def callback():
     print("BODY RECEIVED")
     signature = request.headers.get("X-Line-Signature", "")
 
-    # if not validate_signature(body, signature):
-    #     abort(400)
+    if not validate_signature(body, signature):
+        abort(400)
 
     data = json.loads(body)
 
