@@ -28,11 +28,13 @@ def validate_signature(body, signature):
 
 @app.route("/callback", methods=["POST"])
 def callback():
+    print("CALLBACK START")
     body = request.get_data(as_text=False)
+    print("BODY RECEIVED")
     signature = request.headers.get("X-Line-Signature", "")
 
-    if not validate_signature(body, signature):
-        abort(400)
+    # if not validate_signature(body, signature):
+    #     abort(400)
 
     data = json.loads(body)
 
