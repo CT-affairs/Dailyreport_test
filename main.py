@@ -13,7 +13,7 @@ app = Flask(__name__)
 
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 
-SPREADSHEET_ID = "ここにシートID"
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 SHEET_NAME = "log"
 
 
