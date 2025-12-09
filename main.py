@@ -60,3 +60,8 @@ def callback():
             ).execute()
 
     return "OK"
+
+@app.route("/ping", methods=["GET", "POST"])
+def ping():
+    print("PING CALLED")
+    return "pong"
