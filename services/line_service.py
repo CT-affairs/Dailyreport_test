@@ -48,24 +48,25 @@ class LineService:
 
     @staticmethod
     def send_reply(reply_token: str, message: dict):
-        if not LineService.CHANNEL_ACCESS_TOKEN:
+        access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+        if not access_token:
             raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN is not set")
+
+        url = "https://api.line.me/v2/bot/message/reply"
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {LineService.CHANNEL_ACCESS_TOKEN}"
+            "Authorization": f"Bearer {access_token}",
         }
 
-        payload = {
+        body = {
             "replyToken": reply_token,
-            "messages": [message]
+            "messages": [message], 
         }
 
-        response = requests.post(
-            LineService.REPLY_ENDPOINT,
-            headers=headers,
-            json=payload,
-            timeout=5
-        )
+        response = requests.post(url, headers=headers, json=body)
 
-        response.raise_for_status()
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"LINE reply failed: {response.status_code} {response.text}"
+            )
