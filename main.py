@@ -5,16 +5,15 @@ import hashlib
 import base64
 import json
 
-from datetime import datetime
-from google.auth import default
-from googleapiclient.discovery import build
+from dotenv import load_dotenv
+
+from services.google_sheets_service import GoogleSheetsService
+
+load_dotenv()
 
 app = Flask(__name__)
 
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
-
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
-SHEET_NAME = "log"
 
 
 def validate_signature(body, signature):
@@ -33,31 +32,20 @@ def callback():
     print("BODY RECEIVED")
     signature = request.headers.get("X-Line-Signature", "")
 
-    if not validate_signature(body, signature):
-        abort(400)
+    if os.environ.get("LOCAL_DEV") != "1":
+        signature = request.headers.get("X-Line-Signature", "")
+        if not validate_signature(body, signature):
+            abort(400)
 
     data = json.loads(body)
 
-    creds, _ = default()
-    service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+    sheets_service = GoogleSheetsService()
 
     for event in data.get("events", []):
         if event.get("type") == "message":
             message = event["message"].get("text", "")
             user_id = event["source"].get("userId", "")
-
-            values = [[
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                user_id,
-                message
-            ]]
-
-            service.spreadsheets().values().append(
-                spreadsheetId=SPREADSHEET_ID,
-                range=f"{SHEET_NAME}!A:C",
-                valueInputOption="RAW",
-                body={"values": values}
-            ).execute()
+            sheets_service.append_log(user_id, message)
 
     return "OK"
 
