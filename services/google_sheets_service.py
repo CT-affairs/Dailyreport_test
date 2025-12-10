@@ -12,6 +12,16 @@ SHEET_NAME = "log"
 
 class GoogleSheetsService:
     @staticmethod
+    def _get_service():
+        creds, _ = default()
+        return build(
+            "sheets",
+            "v4",
+            credentials=creds,
+            cache_discovery=False
+        )    
+    
+    @staticmethod
     def append_yes_no(record):
         values = [[
             record["timestamp"],
@@ -26,7 +36,6 @@ class GoogleSheetsService:
             valueInputOption="RAW",
             body={"values": values}
         ).execute()
-
 
     def append_log(self, user_id: str, message: str):
         values = [[

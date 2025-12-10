@@ -3,7 +3,6 @@ import requests
 from datetime import datetime
 
 class LineService:
-    CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     REPLY_ENDPOINT = "https://api.line.me/v2/bot/message/reply"
 
     @staticmethod
@@ -15,16 +14,8 @@ class LineService:
                 "type": "buttons",
                 "text": "今日は対応できましたか？",
                 "actions": [
-                    {
-                        "type": "postback",
-                        "label": "Yes",
-                        "data": "answer=YES"
-                    },
-                    {
-                        "type": "postback",
-                        "label": "No",
-                        "data": "answer=NO"
-                    }
+                    {"type": "postback", "label": "Yes", "data": "answer=YES"},
+                    {"type": "postback", "label": "No",  "data": "answer=NO"},
                 ]
             }
         }
@@ -32,27 +23,17 @@ class LineService:
     @staticmethod
     def parse_postback(event):
         data = event["postback"]["data"]
-        answer = data.split("=")[1]
-        user_id = event["source"].get("userId")
-
         return {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "user_id": user_id,
-            "answer": answer
+            "user_id": event["source"].get("userId"),
+            "answer": data.split("=")[1],
         }
-
-    @staticmethod
-    def _get_service():
-        creds, _ = default()
-        return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
     @staticmethod
     def send_reply(reply_token: str, message: dict):
         access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
         if not access_token:
             raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN is not set")
-
-        url = "https://api.line.me/v2/bot/message/reply"
 
         headers = {
             "Content-Type": "application/json",
@@ -61,12 +42,9 @@ class LineService:
 
         body = {
             "replyToken": reply_token,
-            "messages": [message], 
+            "messages": [message],
         }
 
-        response = requests.post(url, headers=headers, json=body)
-
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"LINE reply failed: {response.status_code} {response.text}"
-            )
+        r = requests.post(LineService.REPLY_ENDPOINT, headers=headers, json=body)
+        if r.status_code != 200:
+            raise RuntimeError(f"LINE reply failed: {r.status_code} {r.text}")
