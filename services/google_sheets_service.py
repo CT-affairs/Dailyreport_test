@@ -11,25 +11,22 @@ SHEET_NAME = "log"
 
 
 class GoogleSheetsService:
-    """Googleスプレッドシート連携サービス"""
+    @staticmethod
+    def append_yes_no(record):
+        values = [[
+            record["timestamp"],
+            record["user_id"],
+            record["answer"]
+        ]]
 
-    def __init__(self):
-        self.service = self._build_client()
+        service = GoogleSheetsService._get_service()
+        service.spreadsheets().values().append(
+            spreadsheetId=SPREADSHEET_ID,
+            range="log!A:C",
+            valueInputOption="RAW",
+            body={"values": values}
+        ).execute()
 
-    def _build_client(self):
-        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-
-        # ローカル：JSONキーあり
-        if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-            creds = service_account.Credentials.from_service_account_file(
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"],
-                scopes=scopes
-            )
-        # Cloud Run：ADC
-        else:
-            creds, _ = default(scopes=scopes)
-
-        return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
     def append_log(self, user_id: str, message: str):
         values = [[

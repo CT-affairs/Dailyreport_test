@@ -10,6 +10,7 @@ if os.path.exists(".env"):
     from dotenv import load_dotenv
     load_dotenv()
 
+from services.line_service import LineService
 from services.google_sheets_service import GoogleSheetsService
 
 app = Flask(__name__)
@@ -30,32 +31,26 @@ def validate_signature(body: bytes, signature: str) -> bool:
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    print("CALLBACK START")
+    body = request.get_json()
+    events = body.get("events", [])
 
-    body = request.get_data(as_text=False)
+    for event in events:
+        event_type = event.get("type")
 
-    # Cloud Run（＝ .env が無い）場合のみ署名検証
-    if not os.path.exists(".env"):
-        signature = request.headers.get("X-Line-Signature", "")
-        if not validate_signature(body, signature):
-            abort(400)
+        if event_type == "message":
+            reply_token = event["replyToken"]
+            message = LineService.build_yes_no_buttons()
+            LineService.send_reply(reply_token, message)
 
-    data = json.loads(body)
-    sheets_service = GoogleSheetsService()
-
-    for event in data.get("events", []):
-        if event.get("type") == "message":
-            message = event["message"].get("text", "")
-            user_id = event.get("source", {}).get("userId", "UNKNOWN")
-            sheets_service.append_log(user_id, message)
+        elif event_type == "postback":
+            record = LineService.parse_postback(event)
+            GoogleSheetsService.append_yes_no(record)
 
     return "OK"
-
 
 @app.route("/ping", methods=["GET"])
 def ping():
     return "pong"
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
