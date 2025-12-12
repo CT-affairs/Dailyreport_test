@@ -23,19 +23,19 @@ def set_rich_menu():
     # 1. リッチメニューの構造を定義
     # 画像サイズは 2500x843 を想定
     rich_menu_object = {
-        "size": {"width": 2500, "height": 843},
+        "size": {"width": 2500, "height": 1398},
         "selected": False,
         "name": "Default Rich Menu",
         "chatBarText": "メニュー",
         "areas": [
             {
                 # 左半分の領域
-                "bounds": {"x": 0, "y": 0, "width": 1250, "height": 843},
+                "bounds": {"x": 0, "y": 1000, "width": 1250, "height": 398},
                 "action": {"type": "postback", "label": "業務内容を入力", "data": "action=input_report"}
             },
             {
                 # 右半分の領域
-                "bounds": {"x": 1250, "y": 0, "width": 1250, "height": 843},
+                "bounds": {"x": 1250, "y": 1000, "width": 1250, "height": 398},
                 "action": {"type": "postback", "label": "過去分を確認", "data": "action=view_history"}
             }
         ]
@@ -54,9 +54,9 @@ def set_rich_menu():
 
     # 3. リッチメニューに画像をアップロード
     print("画像をアップロード中...")
-    image_path = "rich_menu.png"  # 画像ファイルへのパス
+    image_path = "rich_menu.jpg"  # 画像ファイルへのパス
     with open(image_path, "rb") as f:
-        headers["Content-Type"] = "image/png"
+        headers["Content-Type"] = "image/jpeg"
         r_img = requests.post(
             f"https://api-data.line.me/v2/bot/richmenu/{rich_menu_id}/content",
             headers=headers,

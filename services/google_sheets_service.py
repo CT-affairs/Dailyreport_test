@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -9,6 +9,7 @@ from google.auth import default
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 SHEET_NAME = "log"
 
+JST = timezone(timedelta(hours=9), 'JST')
 
 class GoogleSheetsService:
     @staticmethod
@@ -39,7 +40,7 @@ class GoogleSheetsService:
 
     def append_log(self, user_id: str, message: str):
         values = [[
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"),
             user_id,
             message
         ]]
