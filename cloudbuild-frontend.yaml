@@ -16,8 +16,14 @@ steps:
     do
       [ -f "$file" ] || continue
 
+      # backend除外
       echo "$file" | grep -q '\.py$' && continue
+
+      # git系除外
       echo "$file" | grep -q '^.git' && continue
+
+      # 隠しファイル除外
+      echo "$file" | grep -q '^.' && continue
 
       dir=$(dirname "$file")
 
@@ -25,7 +31,7 @@ steps:
 
       lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "
         set ftp:ssl-allow no;
-        mkdir -p $dir;
+        [ \"$dir\" != \".\" ] && mkdir -p $dir;
         put \"$file\" -o $file;
         bye
       "
