@@ -9,9 +9,10 @@ steps:
     apk add --no-cache git lftp
 
     echo "Changed files:"
-    COMMIT="${COMMIT_SHA:-HEAD}"
     # Cloud Build では COMMIT_SHA が入る。入らない場合は HEAD を使用。
-    git diff-tree --no-commit-id --name-only -r "$COMMIT" > changed.txt
+    commit="$COMMIT_SHA"
+    [ -n "$commit" ] || commit=HEAD
+    git diff-tree --no-commit-id --name-only -r "$commit" > changed.txt
     cat changed.txt
 
     echo ""
