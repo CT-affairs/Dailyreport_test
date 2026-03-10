@@ -12,18 +12,20 @@ steps:
     git show --name-only --pretty="" HEAD > changed.txt
     cat changed.txt
 
+    echo ""
+    echo "Deploy whitelist (deploy_frontend.txt):"
+    if [ ! -f deploy_frontend.txt ]; then
+      echo "ERROR: deploy_frontend.txt not found." >&2
+      exit 1
+    fi
+    cat deploy_frontend.txt
+
     while IFS= read -r file
     do
       [ -f "$file" ] || continue
 
-      # backend除外
-      echo "$file" | grep -q '\.py$' && continue
-
-      # git系除外
-      echo "$file" | grep -q '^\.git' && continue
-
-      # 隠しファイル除外
-      echo "$file" | grep -q '^\.' && continue
+      # deploy_frontend.txt に含まれるものだけデプロイ対象
+      grep -Fxq "$file" deploy_frontend.txt || continue
 
       dir=$(dirname "$file")
 
