@@ -1,0 +1,47 @@
+<h1>カレンダー</h1>
+
+<!-- ユーザー情報を表示するエリア -->
+<div id="user-info-display-calendar" class="user-info-bar">
+    <!-- JavaScriptによってユーザー情報がここに挿入されます -->
+</div>
+
+<div id="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1em;">
+    <button id="prev-month-button" class="calendar-nav-button">&lt; 前月度</button>
+    <h2 id="calendar-title" style="margin: 0; font-size: 1.2em;">----年--月度</h2>
+    <button id="next-month-button" class="calendar-nav-button">翌月度 &gt;</button>
+</div>
+
+<div id="calendar-view">
+    <div id="calendar-table-container">
+        <!-- スケルトンスクリーン -->
+        <div id="calendar-skeleton">
+            <table class="custom-calendar-table skeleton-table">
+                <thead>
+                    <tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr>
+                </thead>
+                <tbody>
+                    <!-- 6週分のスケルトン行を生成 -->
+                    <script>
+                        const skeletonRows = 6;
+                        const daysInWeek = 7;
+                        let tableBody = '';
+                        for (let i = 0; i < skeletonRows; i++) {
+                            tableBody += '<tr>';
+                            for (let j = 0; j < daysInWeek; j++) {
+                                tableBody += `
+                                    <td>
+                                        <div class="day-cell-content">
+                                            <div class="skeleton-day-number"></div>
+                                            <div class="skeleton-content"></div>
+                                        </div>
+                                    </td>`;
+                            }
+                            tableBody += '</tr>';
+                        }
+                        document.write(tableBody);
+                    </script>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

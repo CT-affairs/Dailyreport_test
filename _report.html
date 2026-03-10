@@ -1,0 +1,65 @@
+<h1>工数入力</h1>
+<!-- ユーザー情報を表示するエリア -->
+<div id="user-info-display-report" class="user-info-bar">
+    <!-- JavaScriptによってユーザー情報がここに挿入されます -->
+</div>
+<div id="report-form-wrapper">
+    <form id="report-form">
+        <!-- 報告日入力行 -->
+        <div class="form-row">
+            <label for="report-date">報告日:</label>
+            <input type="date" id="report-date" required>
+            <button type="button" id="get-work-time-button" class="sub-button">更新</button>
+        </div>
+
+        <div class="form-row" style="justify-content: flex-start;">
+            <label for="report-work" id="work-time-notes-trigger" class="clickable-label">勤務時間(分):</label>
+            <input type="number" id="report-work" class="time-input" inputmode="numeric" required>
+            <div id="report-status-badges" style="margin-left: 10px; display: flex; flex-grow: 1; justify-content: space-evenly; font-weight: bold; font-size: 0.9em;"></div>
+        </div>
+
+        <!-- 工数入力エリア -->
+        <div class="task-header">
+            <label>工数内訳: <span style="font-size: 0.8em; color: #888;"> -UI切替可-</span></label>
+            <div class="task-header-buttons">
+                <button type="button" id="add-task-button" class="sub-button add-task-button">＋</button>
+            </div>
+        </div>
+        <div id="task-entries-container" style="margin-top: 0.5em;">
+            <!-- ここに動的にタスク入力行が追加されます -->
+        </div>
+
+        <!-- 時間サマリー -->
+        <div id="work-time-summary" style="margin-top: 0.5em; padding: 0.5em; background-color: #f8f9fa; border-radius: 4px; border: 1px solid #ddd;">
+            <span style="font-size: 0.8em;">勤務: <strong id="total-work-time-display">0</strong> 分</span>
+            <span style="font-size: 0.8em;"> | 工数: <strong id="allocated-time-display">0</strong> 分</span>
+            <span style="font-size: 0.8em;"> | 残り: <strong id="remaining-time-display" style="color: #d9534f;">0</strong> 分</span>
+        </div>
+
+
+        <button type="submit" id="submit-button" disabled>送信</button>
+    </form>
+</div>
+
+<div id="report-message" class="message"></div>
+
+<!-- 送信完了画面 -->
+<div id="completion-screen" style="display: none; text-align: center; padding: 1em;">
+    <p id="completion-message" class="message success" style="margin-bottom: 1.5em;"></p>
+    <button type="button" id="continue-button" class="sub-button" style="margin-right: 10px;">続けて入力する</button>
+    <button type="button" id="close-button" class="sub-button" style="background-color: #777;">閉じる</button>
+</div>
+
+
+<!-- 勤務時間の注意事項モーダル -->
+<div id="work-time-notes-modal" class="modal">
+    <div class="modal-content">
+        <span class="modal-close" id="modal-close-button">&times;</span>
+        <h4>勤務時間について</h4>
+        <p class="note">受信した勤務時間は、残業等について、承認前の時間は含んでいません</p>
+        <p class="note">退勤前は、休憩時間が考慮されていない場合があります。</p>        
+        <p class="note">毎月「20日締め」の数日後には、全勤務日の日報が入力されているようお願いします</p>
+        <h4>宿泊、現場手当について</h4>
+        <p class="note">「宿泊」「現場」の表示は、ジョブカンの記録となります。実際との食い違いに気づいた場合は、ジョブカン側を修正お願いします</p>        
+    </div>
+</div>

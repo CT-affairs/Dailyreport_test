@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>業務報告</title>
+    <style>
+        body { font-family: sans-serif; padding: 1em; background-color: #f0f4f8; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; background-color: #fff; padding: 2em; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #00B900; text-align: center; }
+        label { display: block; margin-top: 1em; font-weight: bold; color: #555; }
+        input[type="date"], input[type="text"], textarea {
+            width: 100%;
+            padding: 0.8em;
+            margin-top: 0.5em;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea { height: 120px; resize: vertical; }
+        button {
+            width: 100%;
+            padding: 1em;
+            margin-top: 1.5em;
+            background-color: #00B900;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        button:hover:not(:disabled) { background-color: #00a300; }
+        .message { margin-top: 1em; text-align: center; font-weight: bold; min-height: 1.2em; }
+        .success { color: #00B900; }
+        .error { color: #d9534f; }
+        .note { font-size: 0.8em; color: #666; margin-top: 0.5em; }
+        #loading-container { text-align: center; padding: 2em; }
+    </style>
+</head>
+<body>
+
+<div id="loading-container">
+    <p id="loading-message">LIFFアプリを初期化しています...</p>
+</div>
+
+<!-- ID登録画面 -->
+<div id="register-container" class="container" style="display: none;">
+    <h1>ID登録</h1>
+    <form id="register-form">
+        <label for="employee-id">会社発行の社員ID (半角数字6桁):</label>
+        <input type="text" id="employee-id" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" placeholder="例: 123456" required title="半角数字6桁で入力してください" oninput="this.value = this.value.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, '')">
+        <p>※このID登録の作業は原則1度のみ行う必要があります。</p>
+        <p>※LINEアカウントを作り直した場合は、ID再登録の前にシステム管理者へご連絡ください。</p>
+        <button type="submit" id="register-button">登録</button>
+    </form>
+    <div id="register-message" class="message"></div>
+</div>
+
+<!-- 工数入力画面 -->
+<div id="report-container" class="container" style="display: none;">
+    <h1>工数入力</h1>
+    <div id="report-form-wrapper">
+        <form id="report-form">
+            <label for="report-date">報告日:</label>
+            <input type="date" id="report-date" required>
+
+            <label for="report-work">勤務時間:</label>
+            <input type="text" id="report-work" required>
+            <p class="note">表示された勤務時間は、ジョブカンでの残業申請等が承認前のものです</p>
+            <p class="note">管理者の承認後、正確な勤務時間での工数入力が可能になります</p>
+            
+            <label for="report-content">業務内容:</label>
+            <textarea id="report-content" placeholder="業務内容を入力してください" required></textarea>
+
+            <button type="submit" id="submit-button">送信</button>
+        </form>
+    </div>
+    <div id="report-message" class="message"></div>
+</div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+    // --- 設定 ---
+    const LIFF_ID = "2008638177-G9M9XKOd";
+    const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
+
+    /**
+     * ログイン状態を確認し、有効なIDトークンを取得する。
+     * 取得できない場合は例外をスローする。
+     * @returns {Promise<string>} 取得したIDトークン
+     */
+    async function getVerifiedIdToken() {
+        if (!liff.isLoggedIn()) {
+            throw new Error("ログインしていません。処理を中断しました。");
+        }
+        const idToken = await liff.getIDToken();
+        // idTokenがnullだった場合、デバッグ情報を追加してエラーをスローする
+        if (!idToken) {
+            throw new Error("IDトークンの取得に失敗しました。再度お試しください。");
+        }
+        return idToken;
+    }
+
+    /**
+     * 認証情報付きでAPIにリクエストを送信するfetchのラッパー関数
+     * @param {string} url リクエストURL
+     * @param {object} options fetchのオプション
+     * @returns {Promise<Response>} fetchのレスポンス
+     */
+    async function fetchWithAuth(url, options = {}) {
+        // この関数内で再度トークンを取得・検証する
+        const idToken = await getVerifiedIdToken();
+
+        const headers = {
+            ...options.headers,
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+        };
+        return fetch(url, { ...options, headers });
+    }
+
+    // ID登録フォームの送信処理
+    async function handleRegisterSubmit(e) {
+        if (e) e.preventDefault();
+
+        const registerButton = document.getElementById('register-button');
+        const messageDiv = document.getElementById('register-message');
+        const employeeId = document.getElementById('employee-id').value;
+        const form = document.getElementById('register-form');
+
+        registerButton.disabled = true;
+        messageDiv.className = 'message';
+        messageDiv.textContent = "IDを検証中...";
+
+        try {
+            // ステップ1: IDを検証して名前を取得
+            const verifyResponse = await fetchWithAuth(`${API_BASE_URL}/api/verify-employee`, {
+                method: 'POST',
+                body: JSON.stringify({ employeeId })
+            });
+
+            if (!verifyResponse.ok) {
+                const errorData = await verifyResponse.json().catch(() => null);
+                const errorMessage = errorData?.message || `IDの検証に失敗しました (コード: ${verifyResponse.status})`;
+                throw new Error(errorMessage);
+            }
+
+            const verifyResult = await verifyResponse.json();
+            const { name } = verifyResult;
+
+            // ステップ2: ユーザーに確認を求める
+            form.style.display = 'none'; // 元のフォームを非表示
+            messageDiv.innerHTML = `
+                <p>「${name}」さん、ID「${employeeId}」で登録します。よろしいですか？</p>
+                <button id="confirm-ok">OK</button>
+                <button id="confirm-cancel" style="background-color: #777; margin-top: 0.5em;">キャンセル</button>
+            `;
+
+            document.getElementById('confirm-ok').onclick = async () => {
+                await proceedWithRegistration(employeeId);
+            };
+
+            document.getElementById('confirm-cancel').onclick = () => {
+                form.style.display = 'block';
+                messageDiv.innerHTML = '';
+                registerButton.disabled = false;
+            };
+
+        } catch (error) {
+            console.error('Verification failed:', error);
+            messageDiv.textContent = `エラー: ${error.message}`;
+            messageDiv.className = 'message error';
+            registerButton.disabled = false;
+        }
+    }
+
+    // 確認後、実際の登録処理を実行する関数
+    async function proceedWithRegistration(employeeId) {
+        const messageDiv = document.getElementById('register-message');
+        messageDiv.className = 'message';
+        messageDiv.textContent = "登録処理を実行中...";
+
+        try {
+            // ステップ3: 実際の登録処理
+            const response = await fetchWithAuth(`${API_BASE_URL}/api/register`, {
+                method: 'POST',
+                body: JSON.stringify({ employeeId })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => null);
+                const errorMessage = errorData?.description || errorData?.message || `サーバーエラーが発生しました (コード: ${response.status})`;
+                throw new Error(errorMessage);
+            }
+
+            const result = await response.json();
+            if (result.status === 'created') {
+                messageDiv.textContent = `社員ID「${result.employeeId}」を新規登録しました！このウィンドウを閉じてください。`;
+            } else if (result.status === 'updated') {
+                messageDiv.textContent = `社員IDを「${result.employeeId}」に更新しました！このウィンドウを閉じてください。`;
+            } else if (result.status === 'no_change') {
+                messageDiv.textContent = `社員ID「${result.employeeId}」は既に登録済みです。変更はありません。`;
+            }
+            messageDiv.className = 'message success';
+
+        } catch (error) {
+            console.error('Registration failed:', error);
+            messageDiv.textContent = `エラー: ${error.message}`;
+            messageDiv.className = 'message error';
+            // エラー発生時はリセット
+            document.getElementById('register-form').style.display = 'block';
+            document.getElementById('register-button').disabled = false;
+        }
+    }
+
+    // 工数入力フォームの送信処理
+    async function handleReportSubmit(e) {
+        e.preventDefault();
+        const submitButton = document.getElementById('submit-button');
+        const messageDiv = document.getElementById('report-message');
+
+        submitButton.disabled = true;
+        messageDiv.className = 'message';
+        messageDiv.textContent = "送信中...";
+
+        try {
+            const requestBody = {
+                date: document.getElementById('report-date').value,
+                workTime: document.getElementById('report-work').value,
+                content: document.getElementById('report-content').value
+            };
+            const response = await fetchWithAuth(`${API_BASE_URL}/api/reports`, {
+                method: 'POST',
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                // サーバーからのJSONエラーレスポンスを解析
+                const errorData = await response.json().catch(() => null);
+                const errorMessage = errorData?.description || errorData?.message || `サーバーエラーが発生しました (コード: ${response.status})`;
+                throw new Error(errorMessage);
+            }
+
+            messageDiv.textContent = "報告が完了しました！このウィンドウを閉じてください。";
+            messageDiv.className = 'message success';
+
+            // setTimeout(() => liff.closeWindow(), 2000); // この行を削除またはコメントアウト
+        } catch (error) {
+            console.error('Report submission failed:', error);
+            messageDiv.textContent = `エラー: ${error.message}`;
+            messageDiv.className = 'message error';
+            submitButton.disabled = false;
+        }
+    }
+
+    async function main() {
+        const loadingContainer = document.getElementById('loading-container');
+        const loadingMessage = document.getElementById('loading-message');
+
+        try {
+            await liff.init({ liffId: LIFF_ID });
+            if (!liff.isLoggedIn()) {
+                loadingMessage.innerText = "LINEにログインしてください。";
+                liff.login();
+                return;
+            }
+
+            // URLのクエリパラメータを解析して表示を切り替える
+            const urlParams = new URLSearchParams(window.location.search);
+            const page = urlParams.get('page');
+
+            loadingContainer.style.display = 'none'; // ローディング表示を消す
+
+            if (page === 'register') {
+                // ID登録画面を表示
+                document.title = "ID登録";
+                document.getElementById('register-container').style.display = 'block';
+                document.getElementById('register-form').addEventListener('submit', handleRegisterSubmit);
+            } else {
+                // 工数入力画面を表示
+                document.title = "工数入力";
+                document.getElementById('report-container').style.display = 'block';
+                // 日付の初期値を今日に設定
+                document.getElementById('report-date').valueAsDate = new Date();
+                document.getElementById('report-form').addEventListener('submit', handleReportSubmit);
+            }
+
+        } catch (error) {
+            console.error('LIFF initialization failed', error);
+            loadingMessage.innerText = "LIFFアプリの初期化に失敗しました。";
+        }
+    }
+
+    main();
+</script>
+
+</body>
+
+</html>

@@ -1,0 +1,67 @@
+<h1>管理者画面</h1>
+
+<!-- ユーザー情報を表示するエリア -->
+<div id="user-info-display-manager-categories" class="user-info-bar">
+    <!-- JavaScriptによってユーザー情報がここに挿入されます -->
+</div>
+
+<div style="display: flex; align-items: center; gap: 10px;">
+    <h2>カテゴリ管理</h2>
+    <span id="category-notes-trigger" class="clickable-label">※注意事項※</span>
+</div>
+
+<!-- 注意事項モーダル -->
+<div id="category-notes-modal" class="modal">
+    <div class="modal-content">
+        <span class="modal-close" id="category-notes-modal-close">&times;</span>
+        <h4>カテゴリ管理機能の注意事項</h4>
+        <div class="notes-box" style="margin-top: 1em;">
+            <p>※現状では工務の工事番号追加のみ可能です。</p>
+            <p>※次のような場合はシステム管理者へご連絡ください。</p>
+            <p>・カテゴリを完全に削除したい</p>
+            <p>・カテゴリ名を変更したい</p>
+            <p>・ネット事業部のカテゴリを追加したい</p>
+            <p>・カテゴリの表示順を変更したい</p>   
+        </div>
+    </div>
+</div>
+
+<!-- 部署選択プルダウン -->
+<div class="form-row" style="margin-top: 0.5em;">
+    <label for="category-department-select">対象部署:</label>
+    <select id="category-department-select" style="padding: 0.6em; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; background-color: #eee;">
+        <option value="koumu" selected>工務部</option>
+        <option value="net" disabled>ネット事業部</option>
+    </select>
+</div>
+
+<button id="get-existing-categories-button" class="sub-button" type="button" style="background-color: #4a5568; width: 100%; margin-top: 1em;">既存カテゴリ情報を取得</button>
+
+<!-- カテゴリリスト表示エリア -->
+<div id="category-list-container" style="margin-top: 0.5em;">
+    <!-- ここに取得したカテゴリが表示されます -->
+</div>
+
+<!-- 新しいカテゴリを追加ボタン -->
+<button id="add-new-category-button" type="button" class="sub-button" style="background-color: #e67e22; width: 100%; margin-top: 1em;">カテゴリ追加/再表示</button>
+
+<!-- ボタンコンテナ -->
+<div style="display: flex; justify-content: flex-start; gap: 10px; margin-top: 0.5em;">
+    <!-- メニューに戻るボタン -->
+    <button id="back-to-manager-menu-button-categories" type="button" class="sub-button" style="background-color: #6c757d;">メニューに戻る</button>
+    <!-- 更新ボタン -->
+    <button id="update-categories-button" type="button" class="sub-button" style="background-color: #397939;">表示/非表示反映</button>
+</div>
+
+<!-- カテゴリ追加用入力モーダル -->
+<div id="category-input-modal" class="modal">
+    <div class="modal-content">
+        <h4 id="category-input-modal-title" style="margin-top: 0;">カテゴリ追加/再表示</h4>
+        <p>追加/再表示したいカテゴリ名（工事番号等）を入力してください:</p>
+        <input type="text" id="category-input-text" placeholder="半角文字で入力">
+        <div class="slider-actions" style="gap: 25px;">
+            <button type="button" id="category-input-cancel-button" class="sub-button" style="background-color: #777; width: 35%;">キャンセル</button>
+            <button type="button" id="category-input-ok-button" class="sub-button" style="width: 35%;">OK</button>
+        </div>
+    </div>
+</div>

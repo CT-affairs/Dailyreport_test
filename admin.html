@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理画面 - 業務報告システム</title>
+    <!-- 管理画面専用のCSSを読み込み -->
+    <link rel="stylesheet" href="css/admin.css">
+    <style>
+        .nav-header {
+            color: #7f8c8d; /* リンクより落ち着いた色 */
+            padding: 10px 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            display: block;
+            cursor: default; /* クリックできないことを示す */
+        }
+        /* モーダル内のフォームスタイル */
+        .modal-body .form-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .modal-body label {
+            width: 100px;
+            font-weight: bold;
+        }
+        .modal-body input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .modal-body input[readonly] {
+            background-color: #e9ecef;
+            color: #6c757d;
+        }
+        /* 一覧テーブル内のチェックボックススタイル */
+        .office-check {
+            accent-color: #bdc3c7; /* 薄めのグレー */
+            cursor: pointer;
+        }
+        /* フィルタチップのスタイル */
+        .filter-chip {
+            padding: 6px 12px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+        .filter-chip.active {
+            background: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+        /* ソート可能なヘッダーのスタイル */
+        th.sortable-th {
+            background-color: #eaf4fc; /* 薄い青 */
+            color: #0056b3;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s;
+        }
+        th.sortable-th:hover {
+            background-color: #d0e4f5; /* ホバー時は少し濃く */
+        }
+        /* トースト通知のスタイル */
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            min-width: 250px;
+            padding: 15px 20px;
+            border-radius: 4px;
+            color: white;
+            font-size: 0.95em;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            opacity: 1;
+            transition: opacity 0.5s ease-in-out;
+            animation: slideIn 0.3s ease-out;
+        }
+        .toast-success { background-color: #898a89; color: #555; }
+        .toast-error { background-color: #ca685e; }
+        .toast-info { background-color: #5596c2; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff; z-index: 9999; display: flex; justify-content: center; align-items: center; flex-direction: column;">
+    <div style="font-size: 1.2em; color: #333; font-weight: bold;">Loading...</div>
+</div>
+
+<div class="app-container" style="display: none;">
+    <!-- 左サイドバー: ナビゲーション -->
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <h2>Clean-techno</h2>
+        </div>
+        <ul class="nav-links">
+            <li><span class="nav-header">＜事業部共通＞</span></li>
+            <li><a href="#" class="nav-item active" data-target="home">ダッシュボード</a></li>
+
+            <!-- 未実装のため一時的に非表示
+            <li><a href="#" class="nav-item" data-target="users">ユーザー設定</a></li>
+            <li><a href="#" class="nav-item" data-target="groups">グループ設定</a></li>
+            -->
+
+            <li class="menu-koumu"><span class="nav-header">＜工務部＞</span></li>
+            <li class="menu-koumu"><a href="#" class="nav-item" data-target="dashboard">日報_拠点ごと一覧</a></li>
+            <li class="menu-koumu"><a href="#" class="nav-item" data-target="staff_calendar">日報_スタッフ個別</a></li>
+            <li class="menu-koumu"><a href="#" class="nav-item" data-target="categories">工事番号一覧</a></li>
+            <li class="menu-koumu"><a href="#" class="nav-item" data-target="tasks_current">工番別集計</a></li>
+            <li class="menu-koumu"><a href="#" class="nav-item" data-target="category_a_settings">業務種別設定</a></li>
+
+            <li class="menu-net"><span class="nav-header">＜ネット事業部＞</span></li>
+            <li class="menu-net"><a href="#" class="nav-item" data-target="dashboard_net">日報_一覧</a></li>
+            <li class="menu-net"><a href="#" class="nav-item" data-target="staff_calendar_net">日報_個別</a></li>
+            <li class="menu-net"><a href="#" class="nav-item" data-target="categories_net">業務カテゴリ一覧</a></li>
+
+        </ul>
+        <div class="sidebar-footer">
+            <div id="admin-user-info">未ログイン</div>
+        </div>
+    </nav>
+
+    <!-- 右メインコンテンツ -->
+    <main class="main-content">
+        <header class="top-bar">
+            <h1 id="page-title">ダッシュボード</h1>
+            <div class="top-bar-actions" style="display: none;">
+                <!-- 必要に応じて日付選択や更新ボタンなどを配置 -->
+                <select id="target-group" style="padding: 6px; border: 1px solid #ccc; border-radius: 4px; margin-right: 10px;">
+                    <option value="4,5,6,7,8" selected>全拠点</option>
+                    <option value="7">7: 本社現場</option>
+                    <option value="8">8: 本社加工</option>
+                    <option value="4">4: 四日市</option>
+                    <option value="5">5: 花巻</option>
+                    <option value="6">6: 千歳</option>
+                </select>
+                <input type="date" id="target-date" style="padding: 6px; border: 1px solid #ccc; border-radius: 4px; margin-right: 10px;">
+                <button id="refresh-button" class="btn-secondary">データ受信</button>
+            </div>
+        </header>
+
+        <!-- コンテンツエリア -->
+        <div id="content-area" style="padding: 20px;"></div>
+
+    </main>
+</div>
+
+<!-- 今後作成する管理画面用JS -->
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+<!-- 新規カテゴリ作成モーダル -->
+<div id="add-category-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <div class="modal-content" style="max-width: 500px; background: #fff; padding: 20px; border-radius: 8px; width: 90%; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        <div class="modal-header">
+            <h2>新規工事番号作成</h2>
+            <span class="modal-close" id="add-category-modal-close">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="add-category-form" onsubmit="return false;">
+                <div class="form-group">
+                    <label for="new-cat-label">工事番号 <span class="required">*</span></label>
+                    <input type="text" id="new-cat-label" required>
+                </div>
+                <div class="form-group">
+                    <label for="new-cat-client">顧客</label>
+                    <input type="text" id="new-cat-client">
+                </div>
+                <div class="form-group">
+                    <label for="new-cat-project">案件</label>
+                    <input type="text" id="new-cat-project">
+                </div>
+                <div class="form-group" style="align-items: flex-start;">
+                    <label style="margin-top: 3px;">事業所 <span class="required">*</span></label>
+                    <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 10px;">
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="new-cat-office" value="本社現場"> 本社現場</label>
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="new-cat-office" value="本社加工"> 本社加工</label>
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="new-cat-office" value="四日市"> 四日市</label>
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="new-cat-office" value="花巻"> 花巻</label>
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="new-cat-office" value="千歳"> 千歳</label>
+                    </div>
+                </div>
+                <div class="form-group"><label>事業部</label><input type="text" value="engineering" readonly></div>
+                <div class="form-group"><label>状態</label><input type="text" value="有効 (自動設定)" readonly></div>
+                <div class="form-group"><label>順序</label><input type="text" value="自動採番" readonly></div>
+                <div id="add-category-message" class="message" style="display: none;"></div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" id="add-category-cancel-btn" class="btn-secondary">キャンセル</button>
+            <button type="button" id="add-category-save-btn" class="btn-primary">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 編集用カテゴリモーダル -->
+<div id="edit-category-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <div class="modal-content" style="max-width: 500px; background: #fff; padding: 20px; border-radius: 8px; width: 90%; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        <div class="modal-header">
+            <h2>工事番号 編集</h2>
+            <span class="modal-close" id="edit-category-modal-close">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="edit-category-form" onsubmit="return false;">
+                <input type="hidden" id="edit-cat-id">
+                <div class="form-group">
+                    <label for="edit-cat-label">工事番号</label>
+                    <input type="text" id="edit-cat-label" readonly>
+                </div>
+                <div class="form-group">
+                    <label for="edit-cat-client">顧客</label>
+                    <input type="text" id="edit-cat-client" readonly>
+                </div>
+                <div class="form-group">
+                    <label for="edit-cat-project">案件</label>
+                    <input type="text" id="edit-cat-project">
+                </div>
+                <div class="form-group" style="align-items: flex-start;">
+                    <label style="margin-top: 3px;">事業所 <span class="required">*</span></label>
+                    <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 10px;">
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="edit-cat-office" value="本社現場"> 本社現場</label>
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="edit-cat-office" value="本社加工"> 本社加工</label>
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="edit-cat-office" value="四日市"> 四日市</label>
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="edit-cat-office" value="花巻"> 花巻</label>
+                        <label style="width: auto; font-weight: normal; cursor: pointer;"><input type="checkbox" name="edit-cat-office" value="千歳"> 千歳</label>
+                    </div>
+                </div>
+                <div class="form-group"><label>事業部</label><input type="text" id="edit-cat-department" readonly></div>
+                <div id="edit-category-message" class="message" style="display: none;"></div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" id="edit-category-cancel-btn" class="btn-secondary">キャンセル</button>
+            <button type="button" id="edit-category-save-btn" class="btn-primary">更新</button>
+        </div>
+    </div>
+</div>
+
+<script src="js/admin-app.js?v=2.1.03"></script>
+
+<!-- トースト通知用コンテナ -->
+<div id="toast-container"></div>
+
+</body>
+</html>

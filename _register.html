@@ -1,0 +1,21 @@
+<h1>ID登録</h1>
+
+<!-- ユーザー情報を表示するエリア -->
+<div id="user-info-display-register" class="user-info-bar">
+    <!-- JavaScriptによってユーザー情報がここに挿入されます -->
+</div>
+
+<form id="register-form">
+    <label for="employee-id">会社発行の社員ID (半角数字6桁):</label>
+    <input type="text" id="employee-id" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" placeholder="例: 123456" required title="半角数字6桁で入力してください" oninput="this.value = this.value.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, '')">
+    <div class="notes-box">
+        <p>※ID登録は基本1度だけ行う必要があります。</p>
+        <p>※以下の場合のみ、ID再登録が必要です。まずはシステム管理者へご連絡ください。</p>
+        <ul>
+            <li>LINEアカウントを作り直した</li>
+            <li>管理者になった、または外れた</li>
+        </ul>
+    </div>
+    <button type="submit" id="register-button">登録</button>
+</form>
+<div id="register-message" class="message"></div>

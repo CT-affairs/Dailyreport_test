@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timezone, timedelta
+from typing import List
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -52,5 +53,42 @@ class GoogleSheetsService:
                 valueInputOption="RAW",
                 body={"values": values}
             ).execute()
+        except HttpError as e:
+            print(f"[Sheets Error] {e}")
+
+    @staticmethod
+    def get_values(sheet_range: str) -> List[List[str]]:
+        """指定された範囲の値を取得する"""
+        try:
+            service = GoogleSheetsService._get_service()
+            result = service.spreadsheets().values().get(
+                spreadsheetId=SPREADSHEET_ID,
+                range=sheet_range
+            ).execute()
+            return result.get('values', [])
+        except HttpError as e:
+            print(f"[Sheets Error] {e}")
+            return []
+
+    @staticmethod
+    def batch_update(data: List[dict]):
+        """
+        複数のセルの値を一括で更新する
+        data: [{"range": "シート名!A1", "values": [[値]]}, ...]
+        """
+        if not data:
+            return
+
+        try:
+            service = GoogleSheetsService._get_service()
+            body = {
+                'valueInputOption': 'USER_ENTERED',
+                'data': data
+            }
+            service.spreadsheets().values().batchUpdate(
+                spreadsheetId=SPREADSHEET_ID,
+                body=body
+            ).execute()
+            print(f"{len(data)}個のセルを更新しました。")
         except HttpError as e:
             print(f"[Sheets Error] {e}")

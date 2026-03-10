@@ -1,0 +1,20 @@
+# This file specifies files that are *not* uploaded to Google Cloud when
+# running gcloud commands. It follows the same syntax as .gitignore.
+
+# Python build artifacts
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+.venv/
+
+# Local environment variables
+.env
+
+# Files not needed for the Cloud Run service
+get_*.py
+update_*.py
+request_*.py
+サマリー概要やデプロイ手順など.csv
+rich_menu_liff.jpg

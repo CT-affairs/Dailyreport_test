@@ -1,0 +1,52 @@
+API受信項目,内容,補足
+date,対象日,
+employee_id,スタッフID,
+errors,エラー,
+holiday_type,休日種別,
+late,遅刻(分),workに含まれるのか確認必要
+leave_early,早退(分),workに含まれるのか確認必要
+night,深夜勤務時間,workに含まれるのか確認必要
+night_over,深夜残業時間,workあるいはoverに含まれるのか確認必要
+original_work_end,打刻_退勤,まるめる前の実際の打刻時間が入ってくる
+original_work_start,打刻_出勤,まるめる前の実際の打刻時間が入ってくる
+over,残業,申請して承認された分数がはいってくるはず
+rest,昼休憩,原則、設定値が入ってくる（5時間以上勤務で自動的に60分）
+salary,手当,
+shift_over,シフト超過時間,残業にはならない、所定時間外労働時間？調査必要
+suspend_type,勤務状態,休職中などを設定できる項目
+training,研修時間,無視で問題ないはず
+vacation_time,休暇取得時間,
+vacation_type,休暇種別,
+work,勤務時間,
+work_end,退勤,まるめ後の勤務終了時刻なのか、シフトとしての退勤時刻なのか、確認必要
+work_start,出勤,まるめ後の勤務開始時刻なのか、シフトとしての出勤時刻なのか、確認必要
+
+※注意※
+社内ルールとして、申請は速やかに行うようにすべき
+
+※実行例※ 特定社員の指定日にて、APIを叩く場合
+python get_work_summary.py --employee_id "16" --dates "2026-01-07"
+
+
+## デプロイ手順 (Google Cloud Run) ##
+
+# 1. 前提
+# - Google Cloud SDK (gcloudコマンド) がインストール・認証済みであること。
+# - プロジェクトに `Dockerfile` が存在すること。
+
+# 2. デプロイコマンドの実行
+# プロジェクトのルートディレクトリで以下のコマンドを実行する。
+
+gcloud run deploy dailyreport-service --source . --region asia-northeast1 --allow-unauthenticated
+
+# 3. 環境変数の設定
+# デプロイ後、Google CloudコンソールのCloud Runサービス画面で、以下の環境変数を設定する。
+# - LINE_CHANNEL_SECRET
+# - LINE_CHANNEL_ACCESS_TOKEN
+# - LINE_LOGIN_CHANNEL_ID
+# - LIFF_APP_ORIGIN (LIFFアプリのホスティング先URL)
+
+# 4. サービスアカウントの設定
+# Firestoreやその他のGoogle Cloudサービスにアクセスするために、
+# Cloud Runサービスの「セキュリティ」タブで適切な権限を持つサービスアカウントを関連付ける。
+# (例: "Firebase Admin" や "Cloud Datastore ユーザー" のロールを持つサービスアカウント)

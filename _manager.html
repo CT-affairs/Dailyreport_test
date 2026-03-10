@@ -1,0 +1,32 @@
+<h1>管理者画面</h1>
+
+<!-- ユーザー情報を表示するエリア -->
+<div id="user-info-display-manager" class="user-info-bar">
+    <!-- JavaScriptによってユーザー情報がここに挿入されます -->
+</div>
+
+<h2>メニュー</h2>
+
+<div class="manager-menu">
+    <button id="user-settings-button" class="manager-menu-button" type="button">ユーザー設定</button>
+    <button id="category-settings-button" class="manager-menu-button" type="button">カテゴリ設定</button>
+    <button id="data-export-button" class="manager-menu-button" type="button">速報値(日次データ)集計</button>
+</div>
+
+<!-- メッセージ表示エリア -->
+<div id="manager-message" class="message" style="margin-top: 1.5em;"></div>
+
+<!-- グループ選択モーダル -->
+<div id="group-selection-modal" class="modal">
+    <div class="modal-content">
+        <span id="group-selection-modal-close" class="close">&times;</span>
+        <p>日付/期間とグループを指定してください。</p>
+        <div id="group-selection-list" style="max-height: 75vh; overflow-y: auto; text-align: left; margin: 10px 0; border: 1px solid #eee; padding: 10px;">
+            <!-- JavaScriptでラジオボタンを生成 -->
+        </div>
+        <div style="margin-top: 15px; text-align: right;">
+            <button id="group-selection-cancel" class="sub-button" style="background-color: #999; margin-right: 10px;">キャンセル</button>
+            <button id="group-selection-ok" class="sub-button">集計開始</button>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,310 @@
+/* ベーススタイル */
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: 'Meiryo', 'メイリオ', "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif;
+    color: #333;
+    background-color: #f4f6f9;
+}
+
+/* レイアウトコンテナ: 画面全体 */
+.app-container {
+    display: flex;
+    height: 100vh; /* ビューポートの高さ100% */
+    overflow: hidden; /* 全体のスクロールを抑制 */
+}
+
+/* --- サイドバー --- */
+.sidebar {
+    width: 200px;
+    background-color: #2c3e50; /* 濃い紺色 */
+    color: #ecf0f1;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0; /* 幅を固定 */
+}
+
+.sidebar-header {
+    padding: 20px;
+    background-color: #1a252f;
+}
+
+.sidebar-header h2 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: normal;
+}
+
+.nav-links {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    flex-grow: 1;
+}
+
+.nav-item {
+    display: block;
+    padding: 15px 20px;
+    color: #bdc3c7;
+    text-decoration: none;
+    border-bottom: 1px solid #34495e;
+    transition: background 0.3s, color 0.3s;
+}
+
+.nav-item:hover {
+    background-color: #34495e;
+    color: #fff;
+}
+
+.nav-item.active {
+    background-color: #397939; /* テーマカラーの緑 */
+    color: #fff;
+    border-left: 4px solid #2ecc71;
+}
+
+.sidebar-footer {
+    padding: 15px;
+    background-color: #1a252f;
+    font-size: 0.85rem;
+    text-align: center;
+    color: #7f8c8d;
+}
+
+/* --- メインコンテンツ --- */
+.main-content {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* 内部スクロール用 */
+}
+
+.top-bar {
+    background-color: #fff;
+    padding: 15px 30px;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.top-bar h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: #2c3e50;
+}
+
+#content-area {
+    flex: 1; /* 親要素(.main-content)の残りの高さをすべて使う */
+    overflow-y: auto; /* 内容がはみ出た場合に縦スクロールバーを表示 */
+}
+
+.content-wrapper {
+    flex-grow: 1;
+    padding: 20px 30px;
+    overflow-y: scroll; /* スクロールバーを常に表示して画面のガタつきを防ぐ */
+}
+
+/* --- 汎用ボタン --- */
+.btn-secondary {
+    background-color: #fff;
+    border: 1px solid #ccc;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+.btn-secondary:hover {
+    background-color: #e9ecef;
+}
+
+/* --- データテーブル (Excel風) --- */
+.table-container {
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    overflow-x: auto; /* 横スクロール対応 */
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 800px; /* 横幅を確保して狭くなりすぎないようにする */
+}
+
+.data-table th, .data-table td {
+    padding: 12px 15px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+}
+
+.data-table th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+    color: #555;
+    border-bottom: 2px solid #ddd;
+    white-space: nowrap; /* ヘッダーの折り返し防止 */
+}
+
+.data-table tr:hover {
+    background-color: #f1f1f1;
+}
+
+/* --- 差分表示用のスタイル --- */
+.diff-plus {
+    color: #e74c3c; /* 赤: プラス（工数過多） */
+    font-weight: bold;
+}
+
+.diff-minus {
+    color: #f39c12; /* オレンジ: マイナス（工数不足） */
+    font-weight: bold;
+}
+
+.diff-zero {
+    color: #2ecc71; /* 緑: 一致 */
+}
+
+/* --- 高密度テーブル (カテゴリ設定用) --- */
+.data-table.dense {
+    table-layout: fixed; /* 列幅制御のために固定レイアウトにする */
+}
+
+.data-table.dense th, .data-table.dense td {
+    padding: 6px 10px; /* パディングを半分程度に */
+    font-size: 0.85rem; /* 文字サイズを小さく */
+    line-height: 1.2;
+    /* テキスト省略表示の設定 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* --- ページネーション --- */
+.pagination-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 15px 0;
+    gap: 15px;
+}
+
+.pagination-btn {
+    min-width: 80px;
+}
+.pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* --- 工番別集計テーブルのスタイル --- */
+.project-summary-table-container {
+    overflow-x: auto;
+    max-width: 100%;
+    border: 1px solid #ddd;
+    max-height: 80vh; /* 縦方向も長すぎる場合はスクロール */
+}
+
+.project-summary-table {
+    border-collapse: separate; /* stickyヘッダーのために必要 */
+    border-spacing: 0;
+}
+
+/* 日付列 (左端に固定) */
+.project-summary-table .col-date {
+    position: sticky;
+    left: 0;
+    z-index: 2; /* 他のセルより手前に表示 */
+    background-color: #f8f9fa; /* ヘッダーの背景色 */
+    min-width: 70px;
+    max-width: 70px;
+    border-right: 2px solid #ddd;
+}
+/* ボディとフッターの日付列の背景色を上書き */
+.project-summary-table tbody .col-date {
+    background-color: #fff;
+}
+.project-summary-table tfoot .col-date {
+    z-index: 3; /* ヘッダーよりさらに手前に */
+}
+
+/* 作業者列 */
+.project-summary-table .col-worker {
+    min-width: 50px;
+    max-width: 50px;
+    border-right: 2px solid #ddd;    
+}
+
+/* 計列 */
+.project-summary-table .col-total {
+    min-width: 35px;
+    max-width: 35px;
+    text-align: right;
+    border-left: 2px solid #ddd;
+}
+
+/* 総合計セル */
+.project-summary-table tfoot .col-total {
+    background-color: #e9ecef;
+    font-weight: bold;
+}
+
+/* --- ソート可能なヘッダー --- */
+th.sortable-th {
+    background-color: #eaf4fc; /* 薄い青 */
+    color: #0056b3;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+}
+th.sortable-th:hover {
+    background-color: #d0e4f5; /* ホバー時は少し濃く */
+}
+
+/* --- 全社連絡フォーム (ダッシュボード) --- */
+.company-announcement-section {
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.company-announcement-section h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+    font-size: 1.2em;
+    color: #2c3e50;
+}
+
+.company-announcement-section textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    resize: vertical;
+    margin-bottom: 15px;
+}
+
+/* ダッシュボード用共通アクションボタン */
+.btn-dashboard-action {
+    padding: 8px 20px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: background-color 0.2s;
+}
+
+.btn-dashboard-action:hover {
+    background-color: #2980b9;
+}
