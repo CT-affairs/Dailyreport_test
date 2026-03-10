@@ -4010,7 +4010,7 @@ function renderProxyTimetable() {
             slotCell.className = 'timetable-slot';
             slotCell.style.cssText = `
                 border-bottom: 1px ${minute === 45 ? 'solid #ddd' : 'dotted #ddd'};
-                height: 1.8em;
+                height: 1.5em;
                 cursor: pointer;
                 position: relative; /* for selection highlight */
             `;
@@ -4097,9 +4097,9 @@ function setupProxyTimetableDragSelection() {
         allRows.forEach((row, index) => {
             const slot = row.querySelector('.timetable-slot');
             if (index >= minIndex && index <= maxIndex) {
-                slot.style.backgroundColor = 'rgb(194, 196, 161)'; // くすんだ黄色のハイライト
+                slot.style.backgroundColor = '#edeecf'; 
             } else {
-                slot.style.backgroundColor = ''; // ハイライト解除
+                slot.style.backgroundColor = ''; 
             }
         });
     }
@@ -4196,8 +4196,8 @@ function addProxyTimetableTask() {
     taskElement.className = 'timetable-task';
     
     const slots = duration / 15;
-    // セルの高さ(1.8em)とボーダー(1px)を考慮して高さを計算
-    const taskHeight = `calc(${slots * 1.8}em + ${slots}px)`;
+    // セルの高さ(1.5em)とボーダー(1px)を考慮して高さを計算
+    const taskHeight = `calc(${slots * 1.5}em + ${slots}px)`;
 
     taskElement.style.cssText = `
         position: absolute;
@@ -4285,7 +4285,7 @@ function renderExistingTimetableTask(task) {
     taskElement.className = 'timetable-task';
     
     const slots = duration / 15;
-    const taskHeight = `calc(${slots * 1.8}em + ${slots}px)`;
+    const taskHeight = `calc(${slots * 1.5}em + ${slots}px)`;
 
     taskElement.style.cssText = `
         position: absolute;
