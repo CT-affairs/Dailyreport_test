@@ -489,6 +489,13 @@ function handleNavigation(target, params = {}, options = { push: true }) {
             if (groupSelectKoumu) {
                 groupSelectKoumu.disabled = false;
                 groupSelectKoumu.style.display = '';
+
+                // 工務画面ではネット事業部(3)を選択不可にする（キャッシュ等で残っていても削除）
+                const netOption = groupSelectKoumu.querySelector('option[value="3"]');
+                if (netOption) netOption.remove();
+                if (String(groupSelectKoumu.value) === '3') {
+                    groupSelectKoumu.value = '4,5,6,7,8';
+                }
             }
             // 突合テーブルのHTML構造を復元
             contentArea.innerHTML = `
