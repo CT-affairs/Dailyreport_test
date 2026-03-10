@@ -7,7 +7,7 @@ steps:
     apk add --no-cache git lftp
 
     echo "Changed files:"
-    git diff --name-only $BEFORE_SHA $COMMIT_SHA > changed.txt
+    git diff --name-only HEAD~1 HEAD > changed.txt
     cat changed.txt
 
     while read file
