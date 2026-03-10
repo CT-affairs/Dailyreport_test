@@ -4,22 +4,19 @@ steps:
   args:
   - -c
   - |
+    set -e
+
     apk add --no-cache git lftp
 
     echo "Changed files:"
     git show --name-only --pretty="" HEAD > changed.txt
     cat changed.txt
 
-    while read file
+    for file in $(cat changed.txt)
     do
-      if echo "$file" | grep -q '\.py$'; then
-        echo "skip backend file: $file"
-        continue
-      fi
-
-      if echo "$file" | grep -q '^.git'; then
-        continue
-      fi
+      # backend除外
+      echo "$file" | grep -q '\.py$' && continue
+      echo "$file" | grep -q '^.git' && continue
 
       dir=$(dirname "$file")
 
@@ -31,8 +28,7 @@ steps:
         put $file -o /public_html/$file
         bye
       "
-
-    done < changed.txt
+    done
 
 options:
   logging: CLOUD_LOGGING_ONLY
