@@ -36,39 +36,31 @@
             <div style="display: flex; gap: 30px; align-items: flex-start;">
                 <!-- 左カラム: 日付・勤務時間 -->
                 <div style="flex: 1.85; min-width: 0;">
-                    <!-- 日付入力はUI上は不要だが、JSが参照するため要素は保持する -->
-                    <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+                    <!-- 日付入力はUI上は不要だが、JSが参照するため要素は保持する（同期ボタンの配置アンカーにもする） -->
+                    <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px;">
                         <input type="date" id="proxy-report-date" style="display:none;" readonly>
+
+                        <label id="proxy-work-time-notes-trigger" style="font-weight: bold; cursor: pointer; text-decoration: underline; color: #007bff; white-space: nowrap;">
+                            本日の勤務時間 (分)
+                        </label>
+                        <input type="number" id="proxy-report-work" placeholder="例: 480" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 180px;">
+                        <button type="button" id="proxy-get-work-time-button" class="btn-secondary">受信</button>
                     </div>
 
-                    <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 15px;">
-                        <div style="flex: 1;">
-                            <label id="proxy-work-time-notes-trigger" style="display: block; font-weight: bold; margin-bottom: 5px; cursor: pointer; text-decoration: underline; color: #007bff;">
-                                本日の勤務時間 (分)
-                            </label>
-                            <div style="display: flex; gap: 10px;">
-                                <input type="number" id="proxy-report-work" placeholder="例: 480" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 150px;">
-                                <button type="button" id="proxy-get-work-time-button" class="btn-secondary">受信</button>
+                    <div id="proxy-time-summary" style="background-color: #f8f9fa; padding: 12px 15px; border-radius: 4px; margin-bottom: 15px;">
+                        <div style="display: flex; gap: 18px; align-items: baseline; flex-wrap: wrap;">
+                            <div style="display:flex; gap:6px; align-items: baseline;">
+                                <span style="color:#555;">勤務時間</span>
+                                <span style="font-weight:700;"><span id="proxy-total-work-time-display">0</span>分</span>
                             </div>
-                        </div>
-                        <div id="proxy-time-summary" style="flex: 1; background-color: #f8f9fa; padding: 15px; border-radius: 4px;">
-                            <table style="width: 100%; border-collapse: collapse;">
-                                <tr>
-                                    <td style="padding: 4px; text-align: left;">勤務時間:</td>
-                                    <td style="padding: 4px; text-align: right;"><span id="proxy-total-work-time-display">0</span></td>
-                                    <td style="padding: 4px; text-align: left;">分</td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 4px; text-align: left;">入力済み:</td>
-                                    <td style="padding: 4px; text-align: right;"><span id="proxy-allocated-time-display">0</span></td>
-                                    <td style="padding: 4px; text-align: left;">分</td>
-                                </tr>
-                                <tr style="border-top: 1px solid #ddd; font-weight: bold;">
-                                    <td style="padding: 8px 4px 4px; text-align: left;">残り:</td>
-                                    <td style="padding: 8px 4px 4px; text-align: right;"><span id="proxy-remaining-time-display" style="color: #d9534f;">0</span></td>
-                                    <td style="padding: 8px 4px 4px; text-align: left;">分</td>
-                                </tr>
-                            </table>
+                            <div style="display:flex; gap:6px; align-items: baseline;">
+                                <span style="color:#555;">入力済み</span>
+                                <span style="font-weight:700;"><span id="proxy-allocated-time-display">0</span>分</span>
+                            </div>
+                            <div style="display:flex; gap:6px; align-items: baseline;">
+                                <span style="color:#555;">残り</span>
+                                <span style="font-weight:800; color:#d9534f;"><span id="proxy-remaining-time-display">0</span>分</span>
+                            </div>
                         </div>
                     </div>
 
