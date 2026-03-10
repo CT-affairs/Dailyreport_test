@@ -6,6 +6,9 @@ steps:
   - |
     apk add --no-cache git lftp
 
+    # shallow clone 対策
+    git fetch --unshallow || true
+
     echo "Changed files:"
     git diff --name-only HEAD~1 HEAD > changed.txt
     cat changed.txt
