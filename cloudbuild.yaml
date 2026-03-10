@@ -1,16 +1,33 @@
 steps:
-  - name: 'gcr.io/cloud-builders/gcloud'
+  # 1. Docker イメージ作成
+  - name: 'gcr.io/cloud-builders/docker'
     args:
       [
-        'run',
-        'deploy',
-        'dailyreport-service',
-        '--source',
-        '.',
-        '--region',
-        'asia-northeast1',
+        'build',
+        '-t', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/dailyreport/app',
+        '.'
+      ]
+
+  # 2. Docker イメージを Artifact Registry に push
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [
+        'push',
+        'asia-northeast1-docker.pkg.dev/$PROJECT_ID/dailyreport/app'
+      ]
+
+  # 3. Cloud Run に deploy
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    args:
+      [
+        'gcloud', 'run', 'deploy', 'dailyreport-service',
+        '--image', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/dailyreport/app',
+        '--region', 'asia-northeast1',
         '--allow-unauthenticated'
       ]
+
+images:
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/dailyreport/app'
 
 options:
   logging: CLOUD_LOGGING_ONLY
