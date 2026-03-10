@@ -13,13 +13,11 @@ steps:
     while read file
     do
 
-      # .py は除外
       if echo "$file" | grep -q '\.py$'; then
         echo "skip backend file: $file"
         continue
       fi
 
-      # .git 系除外
       if echo "$file" | grep -q '^.git'; then
         continue
       fi
@@ -36,3 +34,6 @@ steps:
       "
 
     done < changed.txt
+
+options:
+  logging: CLOUD_LOGGING_ONLY
