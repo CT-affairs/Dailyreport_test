@@ -25,8 +25,8 @@ steps:
 
       lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "
         set ftp:ssl-allow no;
-        mkdir -p liff/$dir;
-        put \"$file\" -o liff/$file;
+        mkdir -p $dir;
+        put \"$file\" -o $file;
         bye
       "
 
