@@ -2971,8 +2971,10 @@ async function initializeProxyReportScreen() {
     
     // 対象者情報の表示
     document.getElementById('proxy-target-info').innerHTML = `
-        <strong>対象者:</strong> ${escapeHTML(name)} (ID: ${employeeId})<br>
-        <strong>対象日:</strong> ${date}
+        <div style="display:flex; gap: 28px; align-items: baseline; flex-wrap: wrap;">
+            <div><strong>対象日:</strong> ${date}</div>
+            <div><strong>対象者:</strong> ${escapeHTML(name)} (ID: ${employeeId})</div>
+        </div>
     `;
     document.getElementById('proxy-report-date').value = date;
 
@@ -3005,11 +3007,16 @@ async function initializeProxyReportScreen() {
     syncBtn.removeEventListener('click', handleProxyGetWorkTime); // 古いリスナーを削除
     syncBtn.addEventListener('click', handleProxySyncData); // 新しいリスナーを設定
 
-    // ボタンの位置を変更
-    const dateInput = document.getElementById('proxy-report-date');
-    if (dateInput && dateInput.parentElement) {
-        dateInput.parentElement.appendChild(syncBtn); // 日付入力と同じ行の末尾に移動
-        dateInput.parentElement.style.gap = '10px';
+    // ボタンの位置を変更（ネット用テンプレートでは専用アンカーを優先）
+    const syncAnchor = document.getElementById('proxy-sync-anchor');
+    if (syncAnchor) {
+        syncAnchor.appendChild(syncBtn);
+    } else {
+        const dateInput = document.getElementById('proxy-report-date');
+        if (dateInput && dateInput.parentElement) {
+            dateInput.parentElement.appendChild(syncBtn); // 日付入力と同じ行の末尾に移動
+            dateInput.parentElement.style.gap = '10px';
+        }
     }
 
     document.getElementById('proxy-add-task-button').addEventListener('click', () => addProxyTaskEntry());
