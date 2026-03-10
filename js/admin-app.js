@@ -2938,6 +2938,7 @@ async function openProxyReport(employeeId, name, date, groupId) {
         const templateFile = (groupId && String(groupId) === '3')
             ? '_manager_proxy_report_net.html'
             : '_manager_proxy_report.html';
+        const isNetTemplate = (groupId && String(groupId) === '3');
         const html = await fetchHtmlAsString(templateFile);
         contentArea.innerHTML = html;
         
@@ -2956,7 +2957,7 @@ async function openProxyReport(employeeId, name, date, groupId) {
         }
 
         // 画面初期化
-        await initializeProxyReportScreen();
+        await initializeProxyReportScreen(isNetTemplate);
     } catch (error) {
         console.error('代理入力画面の読み込みエラー:', error);
         alert('画面の読み込みに失敗しました。');
@@ -2966,7 +2967,7 @@ async function openProxyReport(employeeId, name, date, groupId) {
 /**
  * 代理入力画面の初期化
  */
-async function initializeProxyReportScreen() {
+async function initializeProxyReportScreen(isNetTemplate) {
     const { employeeId, name, date } = currentProxyTarget;
     
     // 対象者情報の表示
@@ -3019,7 +3020,15 @@ async function initializeProxyReportScreen() {
         }
     }
 
-    document.getElementById('proxy-add-task-button').addEventListener('click', () => addProxyTaskEntry());
+    if (isNetTemplate) {
+        // ネット事業部用のタイムテーブルUIの初期化
+        initializeProxyTimetable();
+    } else {
+        // 工務用のUI初期化
+        document.getElementById('proxy-add-task-button').addEventListener('click', () => addProxyTaskEntry());
+        setupProxySliderEvents();
+    }
+
     document.getElementById('proxy-report-work').addEventListener('input', updateProxyWorkTimeSummary);
     document.getElementById('proxy-report-form').addEventListener('submit', handleProxyReportSubmit);
 
@@ -3066,9 +3075,6 @@ async function initializeProxyReportScreen() {
     // ★自動保存タイマーを開始
     if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
     proxyAutoSaveTimer = setInterval(saveProxyDraftReport, 10000);
-
-    // スライダー関連のイベント
-    setupProxySliderEvents();
 }
 
 /**
@@ -3824,5 +3830,214 @@ async function handleProxyReportSubmit(e) {
         alert(`エラー: ${error.message}`);
         submitBtn.disabled = false;
         submitBtn.textContent = '代理報告を送信';
+    }
+}
+
+/**
+ * 代理入力（ネット事業部版）のタイムテーブルUIを初期化する
+ */
+function initializeProxyTimetable() {
+    // 初期表示（標準範囲）
+    renderProxyTimetable(7, 21);
+
+    // ズームボタンのイベントリスナー
+    const zoomOutBtn = document.getElementById('timetable-zoom-out');
+    const zoomInBtn = document.getElementById('timetable-zoom-in');
+
+    if (zoomOutBtn) {
+        zoomOutBtn.addEventListener('click', () => {
+            renderProxyTimetable(5, 23); // 拡大
+            zoomOutBtn.disabled = true;
+            zoomInBtn.disabled = false;
+        });
+    }
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener('click', () => {
+            renderProxyTimetable(7, 21); // 縮小（標準）
+            zoomOutBtn.disabled = false;
+            zoomInBtn.disabled = true;
+        });
+        // 初期状態は標準なので縮小ボタンは無効
+        zoomInBtn.disabled = true;
+    }
+
+    // ドラッグ選択機能のセットアップ
+    setupProxyTimetableDragSelection();
+
+    // 右側の時刻入力フォームが変更されたら、合計時間も更新する
+    const startTimeInput = document.getElementById('task-start-time');
+    const endTimeInput = document.getElementById('task-end-time');
+    if (startTimeInput && endTimeInput) {
+        startTimeInput.addEventListener('change', updateTaskDuration);
+        endTimeInput.addEventListener('change', updateTaskDuration);
+    }
+}
+
+/**
+ * タイムテーブルを描画する
+ * @param {number} startHour - 表示開始時間 (hour)
+ * @param {number} endHour - 表示終了時間 (hour)
+ */
+function renderProxyTimetable(startHour, endHour) {
+    const tbody = document.getElementById('timetable-rows');
+    if (!tbody) return;
+
+    tbody.innerHTML = ''; // 既存の行をクリア
+
+    for (let hour = startHour; hour < endHour; hour++) {
+        for (let minute = 0; minute < 60; minute += 15) {
+            const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+            
+            const tr = document.createElement('tr');
+            tr.dataset.time = timeStr;
+
+            // 時刻表示セル (00分の時だけ表示)
+            const timeCell = document.createElement('td');
+            timeCell.style.cssText = `
+                width: 70px;
+                text-align: center;
+                font-size: 0.8em;
+                color: #666;
+                border-right: 1px solid #eee;
+                vertical-align: top;
+                padding-top: 2px;
+            `;
+            if (minute === 0) {
+                timeCell.textContent = timeStr;
+            }
+            
+            // コメント入力/選択セル
+            const slotCell = document.createElement('td');
+            slotCell.className = 'timetable-slot';
+            slotCell.style.cssText = `
+                border-bottom: 1px ${minute === 45 ? 'solid #ddd' : 'dotted #ddd'};
+                height: 1.8em;
+                cursor: pointer;
+                position: relative; /* for selection highlight */
+            `;
+            
+            tr.appendChild(timeCell);
+            tr.appendChild(slotCell);
+            tbody.appendChild(tr);
+        }
+    }
+}
+
+/**
+ * タイムテーブルのドラッグ選択機能をセットアップする
+ */
+function setupProxyTimetableDragSelection() {
+    const timetableBody = document.getElementById('timetable-body');
+    const startTimeInput = document.getElementById('task-start-time');
+    const endTimeInput = document.getElementById('task-end-time');
+
+    if (!timetableBody || !startTimeInput || !endTimeInput) return;
+
+    let isDragging = false;
+    let startRow = null;
+    let endRow = null;
+
+    timetableBody.addEventListener('mousedown', (e) => {
+        const targetRow = e.target.closest('tr');
+        if (!targetRow) return;
+
+        e.preventDefault(); // テキスト選択などを防ぐ
+        isDragging = true;
+        startRow = targetRow;
+        endRow = targetRow;
+        
+        updateSelectionHighlight();
+    });
+
+    timetableBody.addEventListener('mouseover', (e) => {
+        if (!isDragging) return;
+
+        const targetRow = e.target.closest('tr');
+        if (targetRow && targetRow !== endRow) {
+            endRow = targetRow;
+            updateSelectionHighlight();
+        }
+    });
+
+    // ドラッグがテーブル外に出てもmouseupを検知できるようにwindowに設定
+    window.addEventListener('mouseup', (e) => {
+        if (!isDragging) return;
+
+        isDragging = false;
+        updateFormTimes();
+    });
+
+    function updateSelectionHighlight() {
+        const allRows = Array.from(timetableBody.querySelectorAll('tbody tr'));
+        let inSelection = false;
+
+        const startIndex = allRows.indexOf(startRow);
+        const endIndex = allRows.indexOf(endRow);
+        
+        const minIndex = Math.min(startIndex, endIndex);
+        const maxIndex = Math.max(startIndex, endIndex);
+
+        allRows.forEach((row, index) => {
+            const slot = row.querySelector('.timetable-slot');
+            if (index >= minIndex && index <= maxIndex) {
+                slot.style.backgroundColor = 'rgba(255, 235, 59, 0.5)'; // 黄色ハイライト
+            } else {
+                slot.style.backgroundColor = ''; // ハイライト解除
+            }
+        });
+    }
+
+    function updateFormTimes() {
+        const allRows = Array.from(timetableBody.querySelectorAll('tbody tr'));
+        const startIndex = allRows.indexOf(startRow);
+        const endIndex = allRows.indexOf(endRow);
+
+        const firstRow = allRows[Math.min(startIndex, endIndex)];
+        const lastRow = allRows[Math.max(startIndex, endIndex)];
+
+        const startTime = firstRow.dataset.time;
+        
+        // 終了時刻は、選択した最後のセルの15分後
+        const lastTimeParts = lastRow.dataset.time.split(':');
+        const lastDate = new Date();
+        lastDate.setHours(parseInt(lastTimeParts[0], 10), parseInt(lastTimeParts[1], 10), 0, 0);
+        lastDate.setMinutes(lastDate.getMinutes() + 15);
+        const endTime = `${String(lastDate.getHours()).padStart(2, '0')}:${String(lastDate.getMinutes()).padStart(2, '0')}`;
+
+        startTimeInput.value = startTime;
+        endTimeInput.value = endTime;
+
+        // 合計時間も更新
+        updateTaskDuration();
+    }
+}
+
+/**
+ * タスク詳細フォームの合計時間（分）を更新する
+ */
+function updateTaskDuration() {
+    const startTimeInput = document.getElementById('task-start-time');
+    const endTimeInput = document.getElementById('task-end-time');
+    const durationInput = document.getElementById('task-duration');
+
+    if (!startTimeInput.value || !endTimeInput.value) {
+        durationInput.value = '';
+        return;
+    }
+
+    try {
+        const start = new Date(`1970-01-01T${startTimeInput.value}:00`);
+        const end = new Date(`1970-01-01T${endTimeInput.value}:00`);
+        
+        // 日付をまたぐ場合を考慮
+        if (end < start) {
+            end.setDate(end.getDate() + 1);
+        }
+
+        const diffMinutes = (end - start) / 1000 / 60;
+        durationInput.value = diffMinutes;
+    } catch (e) {
+        console.error("時間計算エラー:", e);
+        durationInput.value = '';
     }
 }
