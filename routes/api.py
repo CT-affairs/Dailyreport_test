@@ -356,6 +356,142 @@ def post_report():
 
     return jsonify({"status": "success"}), 200
 
+@api_bp.route("/reports_net", methods=["POST"])
+@token_required
+def post_net_report():
+    """
+    【ネット事業部専用】タイムテーブル形式（開始・終了時刻付き）の業務報告を受け取り、Firestoreに保存する。
+    既存の /api/reports とは独立して動作する。
+    """
+    user_id = g.line_user_id
+
+    report_data = request.get_json()
+    if not report_data:
+        abort(400, "Request body is missing or not a valid JSON.")
+
+    # --- 新しい形式のデータをパース ---
+    date = report_data.get("date")
+    work_time = report_data.get("taskTotalMinutes")
+    jobcan_work_minutes = report_data.get("jobcanWorkMinutes")
+    tasks_from_req = report_data.get("tasks") # startTime, endTime, comment を含むタスク
+
+    # 代理入力用のパラメータを取得
+    is_proxy = report_data.get("is_proxy", False)
+    target_employee_id_from_req = report_data.get("target_employee_id")
+
+    if not date or work_time is None or jobcan_work_minutes is None:
+        abort(400, "Invalid request body. 'date', 'taskTotalMinutes', and 'jobcanWorkMinutes' are required.")
+    
+    if tasks_from_req is None or (work_time > 0 and not tasks_from_req):
+        abort(400, "Invalid request body. 'tasks' is required when 'taskTotalMinutes' is greater than 0.")
+
+    # --- 新しい形式に合わせて report_content と tasks を生成 ---
+    report_content_lines = []
+    tasks_to_save = []
+    for task in (tasks_from_req or []):
+        # 必須フィールドのチェック
+        if not all(k in task for k in ['categoryA_label', 'categoryB_label', 'time', 'startTime', 'endTime']):
+            continue # 不完全なタスクはスキップ
+
+        # report_content の生成
+        report_content_lines.append(
+            f"【{task.get('startTime')}~{task.get('endTime')}|{task.get('time', 0)}分】{task.get('categoryA_label', '')} - {task.get('categoryB_label', '')}"
+        )
+        
+        # 保存用タスクオブジェクトの生成
+        tasks_to_save.append({
+            "categoryA_id": task.get("categoryA_id"),
+            "categoryA_label": task.get("categoryA_label"),
+            "categoryB_id": task.get("categoryB_id"),
+            "categoryB_label": task.get("categoryB_label"),
+            "time": task.get("time"),
+            "startTime": task.get("startTime"), # 新しいフィールド
+            "endTime": task.get("endTime"),     # 新しいフィールド
+            "comment": task.get("comment", "")  # 新しいフィールド
+        })
+
+    report_content = "\n".join(report_content_lines)
+    work_time_minutes = int(work_time) if str(work_time).isdigit() else 0
+    
+    # 文字列の日付をdatetimeオブジェクトに変換。FirestoreはこれをTimestampとして保存する。
+    date_obj = datetime.strptime(date, '%Y-%m-%d')
+
+    # --- 報告者と入力者の情報を決定 (post_reportから流用) ---
+    inputter_info = get_user_info_by_line_id(user_id)
+    inputter_id = inputter_info["company_employee_id"]
+    inputter_name = inputter_info.get("name")
+
+    target_employee_id = None
+    target_employee_name = None
+    target_group_id = None
+    target_group_name = None
+
+    if is_proxy and target_employee_id_from_req:
+        # 代理入力の場合
+        target_employee_id = target_employee_id_from_req
+        try:
+            target_user_ref = db.collection("users").document(target_employee_id)
+            target_user_doc = target_user_ref.get()
+            if not target_user_doc.exists:
+                abort(404, f"報告対象のユーザー(ID: {target_employee_id})が見つかりません。")
+            
+            target_user_data = target_user_doc.to_dict()
+            target_group_id = target_user_data.get("main_group")
+            
+            target_mapping_ref = db.collection("employee_mappings").document(target_employee_id)
+            target_mapping_doc = target_mapping_ref.get()
+            target_employee_name = target_mapping_doc.to_dict().get("name") if target_mapping_doc.exists else "名前不明"
+
+            if target_group_id:
+                group_mapping_ref = db.collection("group_mappings").document(str(target_group_id))
+                group_mapping_doc = group_mapping_ref.get()
+                target_group_name = group_mapping_doc.to_dict().get("name") if group_mapping_doc.exists else "グループ名不明"
+            else:
+                target_group_name = "（未設定）"
+
+        except Exception as e:
+            current_app.logger.error(f"Failed to get target user info for proxy report: {e}")
+            abort(500, "報告対象のユーザー情報の取得に失敗しました。")
+    else:
+        # 本人入力の場合
+        target_employee_id = inputter_id
+        target_employee_name = inputter_name
+        target_group_id = inputter_info.get("main_group_id")
+        target_group_name = inputter_info.get("main_group_name")
+        is_proxy = False
+
+    doc_id = f"{target_employee_id}_{date}"
+
+    try:
+        doc_ref = db.collection(COLLECTION_DAILY_REPORTS).document(doc_id)
+        doc_ref.set({
+            # --- 集計用に追加するフィールド ---
+            "employee_name": target_employee_name,
+            "inputter_id": inputter_id,
+            "inputter_name": inputter_name,
+            "is_proxy_report": is_proxy,
+            "group_id": target_group_id,
+            "group_name": target_group_name,
+            "report_year": date_obj.year,
+            "report_month": date_obj.month,
+            "jobcan_work_minutes": int(jobcan_work_minutes),
+            # --- 既存のフィールド ---
+            "date": date_obj, # datetimeオブジェクトを渡す
+            "company_employee_id": target_employee_id,
+            "task_total_minutes": work_time_minutes,
+            "tasks": tasks_to_save, # 新しい形式のタスク
+            "report_content": report_content,
+            "report_updated_at": firestore.SERVER_TIMESTAMP # サーバーサイドのタイムスタンプ
+        })
+    except Exception as e:
+        print(f"Error updating Firestore: {e}")
+        abort(500, "Failed to save report.")
+
+    # --- 履歴の更新 (post_reportから流用) ---
+    update_user_selection_history(target_employee_id, tasks_to_save)
+
+    return jsonify({"status": "success"}), 201
+
 @api_bp.route("/report-details", methods=["GET"])
 @token_required
 def get_report_details():
