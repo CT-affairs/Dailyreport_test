@@ -80,20 +80,15 @@
                         </div>
                     </div>
                     <div id="timetable-body" style="height: 70vh; overflow-y: auto; border: 1px solid #ccc; border-radius: 4px; user-select: none;">
-                        <table style="width:100%; border-collapse:collapse;">
+                        <table style="width:100%; border-collapse:collapse; table-layout: fixed;">
+                            <thead style="position: sticky; top: -1px; /* スクロール時にヘッダーを固定 */ background: #f8f9fa; z-index: 1;">
+                                <tr>
+                                    <th style="width: 70px; padding: 8px; text-align: center; font-size: 0.9em; border-bottom: 1px solid #ccc; border-right: 1px solid #eee;">時刻</th>
+                                    <th style="padding: 8px 12px; text-align: left; font-size: 0.9em; border-bottom: 1px solid #ccc;">コメント</th>
+                                </tr>
+                            </thead>
                             <tbody id="timetable-rows">
-                                <!-- JavaScriptによってタイムスロットがここに生成されます。
-                                     各行は <tr> で構成され、左に時刻、中央にコメント入力用のセルがあります。
-                                     例:
-                                     <tr data-time="07:00">
-                                         <td style="width:60px; text-align:center; font-size:0.8em; color:#666; border-right: 1px solid #eee;">07:00</td>
-                                         <td class="timetable-slot" style="border-bottom: 1px dotted #ddd; height: 2em; cursor:pointer;"></td>
-                                     </tr>
-                                     <tr data-time="07:15">
-                                         <td style="width:60px; text-align:center; font-size:0.8em; color:#666; border-right: 1px solid #eee;"></td>
-                                         <td class="timetable-slot" style="border-bottom: 1px solid #ddd; height: 2em; cursor:pointer;"></td>
-                                     </tr>
-                                -->
+                                <!-- JavaScriptによってタイムスロットがここに動的に生成されます -->
                             </tbody>
                         </table>
                     </div>
