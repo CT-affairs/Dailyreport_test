@@ -2134,7 +2134,10 @@ function renderTableRows(data) {
 
     // 一覧の表示元に応じて、スタッフ名リンクの遷移先を切り替える
     const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
-    const calendarTarget = (activeTarget === 'dashboard_net') ? 'staff_calendar_net' : 'staff_calendar';
+    const groupSelect = document.getElementById('target-group');
+    const selectedGroupId = groupSelect ? String(groupSelect.value) : '';
+    const isNetListView = (activeTarget === 'dashboard_net') || (activeTarget === 'dashboard' && selectedGroupId === '3');
+    const calendarTarget = isNetListView ? 'staff_calendar_net' : 'staff_calendar';
 
     let html = '';
     data.forEach(row => {
