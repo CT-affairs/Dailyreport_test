@@ -6,16 +6,12 @@ steps:
   - |
     apk add --no-cache git lftp
 
-    # shallow clone 対策
-    git fetch --unshallow || true
-
     echo "Changed files:"
-    git diff --name-only HEAD~1 HEAD > changed.txt
+    git show --name-only --pretty="" HEAD > changed.txt
     cat changed.txt
 
     while read file
     do
-
       if echo "$file" | grep -q '\.py$'; then
         echo "skip backend file: $file"
         continue
