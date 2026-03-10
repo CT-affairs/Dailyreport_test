@@ -14,6 +14,9 @@ steps:
 
     for file in $(cat changed.txt)
     do
+      # 存在しないファイル除外
+      [ -f "$file" ] || continue
+
       # backend除外
       echo "$file" | grep -q '\.py$' && continue
       echo "$file" | grep -q '^.git' && continue
