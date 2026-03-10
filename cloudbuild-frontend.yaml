@@ -15,19 +15,20 @@ steps:
 
     # 変更ファイル一覧の取得（マージコミット等でも安定させる）
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      # shallow clone 対策: 対象コミットの親が無い場合があるため、コミット周辺を明示的に取得する
+      # COMMIT_SHA が存在する場合、origin から depth=2 で取得すると parent も取り込める
+      if [ "$commit" != "HEAD" ]; then
+        git fetch --no-tags --depth=2 origin "$commit" >/dev/null 2>&1 || true
+      fi
+
       if git cat-file -e "$commit^{commit}" >/dev/null 2>&1; then
-        parent="$(git rev-parse "$commit^" 2>/dev/null || true)"
-        if [ -z "$parent" ]; then
-          echo "Parent commit not found (shallow clone). Fetching more history..." >&2
-          # shallow clone 対策: 親コミットが取れる程度まで履歴を追加取得
-          git fetch --deepen=50 >/dev/null 2>&1 || true
-          parent="$(git rev-parse "$commit^" 2>/dev/null || true)"
-        fi
-        if [ -n "$parent" ]; then
+        # 親（1st parent）を取得。マージコミットの場合もまずは1st parentを使う
+        parent="$(git rev-list --parents -n 1 "$commit" | awk '{print $2}')"
+        if [ -n "$parent" ] && git cat-file -e "$parent^{commit}" >/dev/null 2>&1; then
           git diff --name-only "$parent" "$commit" > changed.txt
         else
           echo "ERROR: Unable to resolve parent for commit: $commit" >&2
-          echo "This usually happens when the repo is checked out with insufficient history." >&2
+          echo "The checkout is likely too shallow. Ensure the trigger fetches enough history, or allow git fetch in build." >&2
           exit 1
         fi
       else
