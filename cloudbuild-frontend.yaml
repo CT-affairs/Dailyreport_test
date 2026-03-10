@@ -10,7 +10,8 @@ steps:
     git diff --name-only $BEFORE_SHA $COMMIT_SHA > changed.txt
     cat changed.txt
 
-    while read file; do
+    while read file
+    do
 
       # .py は除外
       if echo "$file" | grep -q '\.py$'; then
@@ -23,16 +24,15 @@ steps:
         continue
       fi
 
-      # ディレクトリ作成
       dir=$(dirname "$file")
 
       echo "upload: $file"
 
-      lftp -u $FTP_USER,$FTP_PASS $FTP_HOST <<EOF
-      set ftp:ssl-allow no
-      mkdir -p /public_html/$dir
-      put $file -o /public_html/$file
-      bye
-EOF
+      lftp -u $FTP_USER,$FTP_PASS $FTP_HOST -e "
+        set ftp:ssl-allow no
+        mkdir -p /public_html/$dir
+        put $file -o /public_html/$file
+        bye
+      "
 
     done < changed.txt
