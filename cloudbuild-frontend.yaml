@@ -1,71 +1,88 @@
+# cloudbuild-frontend.yaml
 steps:
 - name: alpine
   entrypoint: sh
   args:
-  - -c
-  - |
-    set -e
+    - -c
+    - |
+      set -e
 
-    apk add --no-cache git lftp
+      # 必要なパッケージをインストール
+      apk add --no-cache git lftp
 
-    echo "Changed files:"
+      echo "=== Detect changed files ==="
+      commit="$COMMIT_SHA"
+      [ -n "$commit" ] || commit=HEAD
 
-    # Cloud Build の標準変数を利用
-    if [ -n "$BEFORE_SHA" ]; then
-      git diff --name-only "$BEFORE_SHA" "$COMMIT_SHA" > changed.txt
-    else
-      echo "First build or manual run"
-      git ls-files > changed.txt
-    fi
+      # Git が存在すれば変更ファイルを取得
+      if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        # shallow clone 対策: COMMIT_SHA の親を取得
+        if [ "$commit" != "HEAD" ]; then
+          git fetch --no-tags --depth=2 origin "$commit" >/dev/null 2>&1 || true
+        fi
 
-    if [ ! -s changed.txt ]; then
-      echo "(no changed files detected)"
-    else
-      cat changed.txt
-    fi
+        if git cat-file -e "$commit^{commit}" >/dev/null 2>&1; then
+          parent="$(git rev-list --parents -n 1 "$commit" | awk '{print $2}')"
+          if [ -n "$parent" ] && git cat-file -e "$parent^{commit}" >/dev/null 2>&1; then
+            git diff --name-only "$parent" "$commit" > changed.txt
+          else
+            echo "WARN: Unable to resolve parent for commit $commit, listing all files."
+            git ls-files > changed.txt
+          fi
+        else
+          echo "WARN: commit not found: $commit, listing all files."
+          git ls-files > changed.txt
+        fi
+      else
+        echo "WARN: not a git repo, listing all files."
+        find . -type f | sed 's|^\./||' > changed.txt
+      fi
 
-    echo ""
-    echo "Deploy whitelist (deploy_frontend.txt):"
+      echo "=== Changed files ==="
+      if [ ! -s changed.txt ]; then
+        echo "(no changed files detected)"
+      else
+        cat changed.txt
+      fi
 
-    if [ ! -f deploy_frontend.txt ]; then
-      echo "ERROR: deploy_frontend.txt not found." >&2
-      exit 1
-    fi
+      echo ""
+      echo "=== Deploy whitelist ==="
+      if [ ! -f deploy_frontend.txt ]; then
+        echo "ERROR: deploy_frontend.txt not found" >&2
+        exit 1
+      fi
+      # 空行とコメント行を除去
+      tr -d '\r' < deploy_frontend.txt | grep -vE '^\s*($|#)' > deploy_frontend.normalized.txt
+      cat deploy_frontend.normalized.txt
 
-    # 改行コードやコメント除去
-    tr -d '\r' < deploy_frontend.txt | grep -vE '^\s*($|#)' > deploy_frontend.normalized.txt
-    cat deploy_frontend.normalized.txt
+      matches_whitelist() {
+        file="$1"
+        while IFS= read -r pattern; do
+          [ -n "$pattern" ] || continue
+          case "$file" in
+            $pattern) return 0 ;;
+          esac
+        done < deploy_frontend.normalized.txt
+        return 1
+      }
 
-    matches_whitelist () {
-      file="$1"
-      while IFS= read -r pattern
-      do
-        [ -n "$pattern" ] || continue
-        case "$file" in
-          $pattern) return 0 ;;
-        esac
-      done < deploy_frontend.normalized.txt
-      return 1
-    }
+      echo ""
+      echo "=== Uploading files ==="
+      while IFS= read -r file; do
+        [ -f "$file" ] || continue
 
-    while IFS= read -r file
-    do
-      [ -f "$file" ] || continue
+        matches_whitelist "$file" || continue
 
-      matches_whitelist "$file" || continue
+        dir=$(dirname "$file")
 
-      dir=$(dirname "$file")
-
-      echo "upload: $file"
-
-      lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "
-        set ftp:ssl-allow no;
-        mkdir -p $dir;
-        put $file -o $file;
-        bye
-      "
-
-    done < changed.txt
+        echo "Uploading: $file"
+        lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "
+          set ftp:ssl-allow no
+          [ \"$dir\" != \".\" ] && mkdir -p $dir
+          put \"$file\" -o \"$file\"
+          bye
+        "
+      done < changed.txt
 
 options:
   logging: CLOUD_LOGGING_ONLY
