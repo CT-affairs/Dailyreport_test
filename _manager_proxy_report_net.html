@@ -35,10 +35,10 @@
         <form id="proxy-report-form">
             <div style="display: flex; gap: 30px; align-items: flex-start;">
                 <!-- 左カラム: 日付・勤務時間 -->
-                <div style="flex: 1; min-width: 0;">
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; font-weight: bold; margin-bottom: 5px;">日付:</label>
-                        <input type="date" id="proxy-report-date" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;" readonly>
+                <div style="flex: 1.85; min-width: 0;">
+                    <!-- 日付入力はUI上は不要だが、JSが参照するため要素は保持する -->
+                    <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+                        <input type="date" id="proxy-report-date" style="display:none;" readonly>
                     </div>
 
                     <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 15px;">
@@ -76,7 +76,7 @@
                 </div>
 
                 <!-- 右カラム: 業務内容（最上段）＋カテゴリ選択パネル -->
-                <div style="flex: 1.15; min-width: 0; border-left: 1px solid #eee; padding-left: 30px;">
+                <div style="flex: 1; min-width: 0; border-left: 1px solid #eee; padding-left: 30px;">
                     <div style="margin-bottom: 15px;">
                         <label style="display: block; font-weight: bold; margin-bottom: 5px;">業務内容:</label>
                         <div id="proxy-task-entries-container">
