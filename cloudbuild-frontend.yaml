@@ -22,8 +22,8 @@ steps:
 
     while IFS= read -r pattern
     do
-      # パターンにマッチするファイルを探す
-      for file in $(find . -type f -name "$pattern" -printf "%P\n"); do
+      # BusyBox find対応: -printfを使わず、sedでパス正規化
+      for file in $(find . -type f -name "$pattern" | sed 's|^\./||'); do
         [ -f "$file" ] || continue
         echo "Uploading: $file"
 
