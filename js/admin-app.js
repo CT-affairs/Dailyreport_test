@@ -381,6 +381,7 @@ async function checkAdminPermission() {
 // --- 日報一覧用の状態変数 ---
 let allDashboardData = []; // APIから取得した全データ
 let filteredDashboardData = []; // フィルタリング後のデータ
+let dashboardListMode = 'koumu'; // 'koumu' | 'net'
 
 // --- スタッフ別カレンダー用の状態変数 ---
 let staffList = []; // APIから取得した全従業員リスト
@@ -482,6 +483,7 @@ function handleNavigation(target, params = {}, options = { push: true }) {
 
         case 'dashboard':
             pageTitle.textContent = '日報_拠点ごと一覧';
+            dashboardListMode = 'koumu';
             // 工務: グループ選択を有効
             const groupSelectKoumu = document.getElementById('target-group');
             if (groupSelectKoumu) {
@@ -512,11 +514,13 @@ function handleNavigation(target, params = {}, options = { push: true }) {
 
         case 'dashboard_net':
             pageTitle.textContent = '日報_一覧（ネット事業部）';
+            dashboardListMode = 'net';
             // ネット: メイングループ '3' 固定で表示
             const groupSelectNet = document.getElementById('target-group');
             if (groupSelectNet) {
-                groupSelectNet.value = '3';
-                groupSelectNet.disabled = true; // ネット画面では固定
+                // ネット画面ではプルダウン自体を使わない（工務専用のため）
+                groupSelectNet.disabled = true;
+                groupSelectNet.style.display = 'none';
             }
             // 突合テーブルのHTML構造を復元（工務と共通）
             contentArea.innerHTML = `
@@ -548,6 +552,7 @@ function handleNavigation(target, params = {}, options = { push: true }) {
         case 'staff_calendar_net':
             // 表示するカレンダー自体は共通ロジックを流用
             pageTitle.textContent = '日報_個別（ネット事業部）';
+            dashboardListMode = 'net'; // ネットメニューからの遷移として扱う
             renderStaffCalendarUI(contentArea, params);
             break;
 
@@ -2108,7 +2113,10 @@ function filterDashboardData() {
     const groupSelect = document.getElementById('target-group');
     const selectedGroupId = groupSelect ? groupSelect.value : 'all';
 
-    if (selectedGroupId === 'all') {
+    // ネット一覧は main_group='3' 固定
+    if (dashboardListMode === 'net') {
+        filteredDashboardData = allDashboardData.filter(row => String(row.group_id) === '3');
+    } else if (selectedGroupId === 'all') {
         filteredDashboardData = [...allDashboardData];
     } else {
         // カンマ区切りで複数のIDが指定される場合に対応
@@ -2134,9 +2142,7 @@ function renderTableRows(data) {
 
     // 一覧の表示元に応じて、スタッフ名リンクの遷移先を切り替える
     const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
-    const groupSelect = document.getElementById('target-group');
-    const selectedGroupId = groupSelect ? String(groupSelect.value) : '';
-    const isNetListView = (activeTarget === 'dashboard_net') || (activeTarget === 'dashboard' && selectedGroupId === '3');
+    const isNetListView = (activeTarget === 'dashboard_net') || (dashboardListMode === 'net');
     const calendarTarget = isNetListView ? 'staff_calendar_net' : 'staff_calendar';
 
     let html = '';
