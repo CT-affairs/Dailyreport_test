@@ -3139,20 +3139,20 @@ async function setupProxyCategoryDatalists() {
  * 既存の勤務時間と日報データを読み込む
  */
 async function loadProxyExistingData() {
-    const { employeeId, date } = currentProxyTarget;
+    const { employeeId, date, groupId } = currentProxyTarget;
     const messageDiv = document.getElementById('proxy-report-message');
     
     messageDiv.textContent = 'データを読み込み中...';
     
     try {
         let reportData = {};
-        // 勤務時間と日報詳細を並行して取得
         const [workTimeRes, reportDetailsRes] = await Promise.all([
             fetchWithAuth(`${API_BASE_URL}/api/work-time?date=${date}&employee_id=${employeeId}&source=admin`),
             fetchWithAuth(`${API_BASE_URL}/api/report-details?date=${date}&employee_id=${employeeId}`)
         ]);
 
         let existingTasks = [];
+        const isNetTemplate = (groupId && String(groupId) === '3');
         
         if (workTimeRes.ok) {
             const data = await workTimeRes.json();
@@ -3161,14 +3161,12 @@ async function loadProxyExistingData() {
 
         if (reportDetailsRes.ok) {
             reportData = await reportDetailsRes.json();
-            // 日報に保存されている勤務時間があれば、それで上書きする
             if (reportData.jobcan_work_minutes !== undefined) {
                 document.getElementById('proxy-report-work').value = reportData.jobcan_work_minutes;
             }
             existingTasks = reportData.tasks || [];
         }
 
-        // バッジ表示エリアの準備と描画
         const workTimeInput = document.getElementById('proxy-report-work');
         let badgeContainer = document.getElementById('proxy-badge-container');
         if (!badgeContainer) {
@@ -3179,7 +3177,7 @@ async function loadProxyExistingData() {
             badgeContainer.style.gap = '5px';
             workTimeInput.parentElement.insertAdjacentElement('afterend', badgeContainer);
         }
-        badgeContainer.innerHTML = ''; // クリア
+        badgeContainer.innerHTML = '';
 
         let accommodationHtml = '';
         if (reportData.has_accommodation) {
@@ -3204,15 +3202,27 @@ async function loadProxyExistingData() {
         }
         badgeContainer.innerHTML = accommodationHtml + onSiteBadgeHtml;
 
-        // タスク行を初期化
-        document.getElementById('proxy-task-entries-container').innerHTML = '';
-        proxyTaskCounter = 0;
-
-        if (existingTasks.length > 0) {
-            existingTasks.forEach(task => addProxyTaskEntry(task));
+        if (isNetTemplate) {
+            // ネット事業部: タイムテーブルに既存タスクを描画
+            // APIがstartTime/endTimeを返すようになったら、この部分が機能する
+            if (existingTasks.length > 0) {
+                existingTasks.forEach(task => {
+                    if (task.startTime && task.endTime) {
+                        renderExistingTimetableTask(task);
+                    }
+                });
+            }
         } else {
-            // 既存データがなければ空の行を1つ追加
-            addProxyTaskEntry();
+            // 工務部: 従来のリスト形式でタスクを初期化
+            const container = document.getElementById('proxy-task-entries-container');
+            container.innerHTML = '';
+            proxyTaskCounter = 0;
+
+            if (existingTasks.length > 0) {
+                existingTasks.forEach(task => addProxyTaskEntry(task));
+            } else {
+                addProxyTaskEntry();
+            }
         }
         
         updateProxyWorkTimeSummary();
@@ -3221,7 +3231,14 @@ async function loadProxyExistingData() {
     } catch (error) {
         console.error("データ読み込みエラー:", error);
         messageDiv.textContent = 'データの読み込みに失敗しました。';
-        addProxyTaskEntry(); // エラーでも入力行は表示
+        
+        const isNetTemplate = (currentProxyTarget.groupId && String(currentProxyTarget.groupId) === '3');
+        if (!isNetTemplate) {
+            const container = document.getElementById('proxy-task-entries-container');
+            if (container) {
+                addProxyTaskEntry();
+            }
+        }
     }
 }
 
@@ -3514,26 +3531,51 @@ function updateProxySliderRemainingTime() {
 function updateProxyWorkTimeSummary() {
     const totalWork = parseInt(document.getElementById('proxy-report-work').value, 10) || 0;
     let allocated = 0;
-    document.querySelectorAll('#proxy-task-entries-container .task-time').forEach(el => {
-        allocated += parseInt(el.value, 10) || 0;
-    });
-    const remaining = totalWork - allocated;
+    
+    const isNetTemplate = currentProxyTarget && (String(currentProxyTarget.groupId) === '3');
+
+    if (isNetTemplate) {
+        // Net: Sum durations from timetable tasks
+        document.querySelectorAll('.timetable-task').forEach(taskEl => {
+            const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
+            const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
+            if (end < start) end.setDate(end.getDate() + 1);
+            const diffMinutes = (end - start) / 1000 / 60;
+            allocated += diffMinutes;
+        });
+    } else {
+        // Koumu: Sum durations from input fields
+        const container = document.getElementById('proxy-task-entries-container');
+        if (container) {
+            container.querySelectorAll('.task-time').forEach(el => {
+                allocated += parseInt(el.value, 10) || 0;
+            });
+        }
+    }
 
     document.getElementById('proxy-total-work-time-display').textContent = totalWork;
     document.getElementById('proxy-allocated-time-display').textContent = allocated;
     const remainingEl = document.getElementById('proxy-remaining-time-display');
+    const remaining = totalWork - allocated;
     remainingEl.textContent = remaining;
     remainingEl.style.color = (remaining === 0 && allocated > 0) ? '#2ecc71' : '#d9534f';
 
     // 送信ボタン制御
     const submitBtn = document.getElementById('proxy-submit-button');
-    const hasValidTask = Array.from(document.querySelectorAll('#proxy-task-entries-container .task-entry')).some(entry => {
-        const major = entry.querySelector('.task-category-major').value;
-        const minor = entry.querySelector('.task-category-minor').value;
-        const time = parseInt(entry.querySelector('.task-time').value, 10) || 0;
-        return major && minor && time > 0;
-    });
-    submitBtn.disabled = !(hasValidTask || allocated === 0);
+    if (submitBtn) {
+        if (isNetTemplate) {
+            const hasValidTask = document.querySelectorAll('.timetable-task').length > 0;
+            submitBtn.disabled = !hasValidTask;
+        } else {
+            const hasValidTask = Array.from(document.querySelectorAll('#proxy-task-entries-container .task-entry')).some(entry => {
+                const major = entry.querySelector('.task-category-major').value;
+                const minor = entry.querySelector('.task-category-minor').value;
+                const time = parseInt(entry.querySelector('.task-time').value, 10) || 0;
+                return major && minor && time > 0;
+            });
+            submitBtn.disabled = !(hasValidTask || allocated === 0);
+        }
+    }
 }
 
 /**
@@ -3871,6 +3913,43 @@ function initializeProxyTimetable() {
         startTimeInput.addEventListener('change', updateTaskDuration);
         endTimeInput.addEventListener('change', updateTaskDuration);
     }
+
+    // カテゴリ選択ボタンのイベントリスナー
+    const catA_button = document.getElementById('task-category-a-select');
+    const catB_button = document.getElementById('task-category-b-select');
+
+    if (catA_button) {
+        catA_button.addEventListener('click', async () => {
+            const panel = document.getElementById('proxy-selection-panel');
+            panel.style.display = 'block';
+            const selected = await showProxySelectionModal('業務種別を選択', proxyCategoryAOptions);
+            if (selected) {
+                catA_button.textContent = selected.label;
+                catA_button.style.color = 'black';
+                document.getElementById('task-category-a-id').value = selected.id;
+            }
+            panel.style.display = 'none'; // 選択またはキャンセル後にパネルを隠す
+        });
+    }
+    if (catB_button) {
+        catB_button.addEventListener('click', async () => {
+            const panel = document.getElementById('proxy-selection-panel');
+            panel.style.display = 'block';
+            const selected = await showProxySelectionModal('業務カテゴリを選択', proxyCategoryBOptions);
+            if (selected) {
+                catB_button.textContent = selected.label;
+                catB_button.style.color = 'black';
+                document.getElementById('task-category-b-id').value = selected.id;
+            }
+            panel.style.display = 'none'; // 選択またはキャンセル後にパネルを隠す
+        });
+    }
+
+    // タスク追加ボタンのイベントリスナー
+    const addTaskBtn = document.getElementById('add-task-btn');
+    if (addTaskBtn) {
+        addTaskBtn.addEventListener('click', addProxyTimetableTask);
+    }
 }
 
 /**
@@ -4040,4 +4119,168 @@ function updateTaskDuration() {
         console.error("時間計算エラー:", e);
         durationInput.value = '';
     }
+}
+
+/**
+ * タイムテーブルにタスクブロックを追加する
+ */
+function addProxyTimetableTask() {
+    const startTime = document.getElementById('task-start-time').value;
+    const endTime = document.getElementById('task-end-time').value;
+    const duration = parseInt(document.getElementById('task-duration').value, 10);
+    const categoryA_id = document.getElementById('task-category-a-id').value;
+    const categoryA_label = document.getElementById('task-category-a-select').textContent;
+    const categoryB_id = document.getElementById('task-category-b-id').value;
+    const categoryB_label = document.getElementById('task-category-b-select').textContent;
+    const comment = document.getElementById('task-comment').value;
+
+    // Validation
+    if (!startTime || !endTime || !duration || duration <= 0) {
+        alert('有効な時間を選択してください。');
+        return;
+    }
+    if (!categoryA_id || !categoryB_id || categoryA_label === '選択してください...' || categoryB_label === '選択してください...') {
+        alert('業務種別と業務カテゴリの両方を選択してください。');
+        return;
+    }
+
+    const startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+    if (!startRow) {
+        alert('タイムテーブル上で開始時刻に対応する行が見つかりません。');
+        return;
+    }
+    const startSlotCell = startRow.querySelector('.timetable-slot');
+
+    // Create task element
+    const taskElement = document.createElement('div');
+    taskElement.className = 'timetable-task';
+    
+    const slots = duration / 15;
+    // セルの高さ(1.8em)とボーダー(1px)を考慮して高さを計算
+    const taskHeight = `calc(${slots * 1.8}em + ${slots}px)`;
+
+    taskElement.style.cssText = `
+        position: absolute;
+        top: -1px; /* 上のボーダーに重なるように調整 */
+        left: 0;
+        right: 0;
+        height: ${taskHeight};
+        background-color: rgba(169, 68, 66, 0.8); /* btn-net color with alpha */
+        color: white;
+        border-left: 3px solid #8a2c2a;
+        padding: 4px 6px;
+        font-size: 0.8em;
+        line-height: 1.3;
+        overflow: hidden;
+        z-index: 10;
+        box-sizing: border-box;
+        cursor: pointer;
+    `;
+
+    taskElement.innerHTML = `
+        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(categoryB_label)}">${escapeHTML(categoryB_label)}</div>
+        <div style="font-size: 0.9em; margin-top: 2px; height: calc(100% - 20px); overflow-y: auto; white-space: pre-wrap; word-break: break-word;">${escapeHTML(comment)}</div>
+    `;
+    
+    // データを要素に保存（将来の編集/削除用）
+    taskElement.dataset.startTime = startTime;
+    taskElement.dataset.endTime = endTime;
+    taskElement.dataset.categoryAId = categoryA_id;
+    taskElement.dataset.categoryALabel = categoryA_label;
+    taskElement.dataset.categoryBId = categoryB_id;
+    taskElement.dataset.categoryBLabel = categoryB_label;
+    taskElement.dataset.comment = comment;
+
+    startSlotCell.appendChild(taskElement);
+
+    // フォームとハイライトをクリア
+    clearProxyTaskDetailsForm();
+    document.querySelectorAll('.timetable-slot').forEach(slot => {
+        slot.style.backgroundColor = '';
+    });
+}
+
+/**
+ * 代理入力（ネット）のタスク詳細フォームをクリアする
+ */
+function clearProxyTaskDetailsForm() {
+    document.getElementById('task-start-time').value = '';
+    document.getElementById('task-end-time').value = '';
+    document.getElementById('task-duration').value = '';
+    document.getElementById('task-category-a-select').textContent = '選択してください...';
+    document.getElementById('task-category-a-select').style.color = '#333';
+    document.getElementById('task-category-a-id').value = '';
+    document.getElementById('task-category-b-select').textContent = '選択してください...';
+    document.getElementById('task-category-b-select').style.color = '#333';
+    document.getElementById('task-category-b-id').value = '';
+    document.getElementById('task-comment').value = '';
+}
+
+/**
+ * タイムテーブルに既存のタスクブロックを描画する（APIからのデータロード用）
+ * @param {object} task APIから取得したタスクオブジェクト
+ */
+function renderExistingTimetableTask(task) {
+    const { startTime, endTime, categoryA_id, categoryA_label, categoryB_id, categoryB_label, comment } = task;
+
+    if (!startTime || !endTime) {
+        console.warn('Skipping rendering existing task due to missing time:', task);
+        return;
+    }
+
+    const start = new Date(`1970-01-01T${startTime}:00`);
+    const end = new Date(`1970-01-01T${endTime}:00`);
+    if (end < start) end.setDate(end.getDate() + 1);
+    const duration = (end - start) / 1000 / 60;
+
+    if (duration <= 0) {
+        console.warn('Skipping rendering existing task due to invalid duration:', task);
+        return;
+    }
+
+    const startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+    if (!startRow) {
+        console.warn(`Could not find start row for time ${startTime}`);
+        return;
+    }
+    const startSlotCell = startRow.querySelector('.timetable-slot');
+
+    const taskElement = document.createElement('div');
+    taskElement.className = 'timetable-task';
+    
+    const slots = duration / 15;
+    const taskHeight = `calc(${slots * 1.8}em + ${slots}px)`;
+
+    taskElement.style.cssText = `
+        position: absolute;
+        top: -1px;
+        left: 0;
+        right: 0;
+        height: ${taskHeight};
+        background-color: rgba(169, 68, 66, 0.8);
+        color: white;
+        border-left: 3px solid #8a2c2a;
+        padding: 4px 6px;
+        font-size: 0.8em;
+        line-height: 1.3;
+        overflow: hidden;
+        z-index: 10;
+        box-sizing: border-box;
+        cursor: pointer;
+    `;
+
+    taskElement.innerHTML = `
+        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(categoryB_label)}">${escapeHTML(categoryB_label)}</div>
+        <div style="font-size: 0.9em; margin-top: 2px; height: calc(100% - 20px); overflow-y: auto; white-space: pre-wrap; word-break: break-word;">${escapeHTML(comment || '')}</div>
+    `;
+    
+    taskElement.dataset.startTime = startTime;
+    taskElement.dataset.endTime = endTime;
+    taskElement.dataset.categoryAId = categoryA_id;
+    taskElement.dataset.categoryALabel = categoryA_label;
+    taskElement.dataset.categoryBId = categoryB_id;
+    taskElement.dataset.categoryBLabel = categoryB_label;
+    taskElement.dataset.comment = comment || '';
+
+    startSlotCell.appendChild(taskElement);
 }
