@@ -12,12 +12,10 @@ steps:
     git show --name-only --pretty="" HEAD > changed.txt
     cat changed.txt
 
-    for file in $(cat changed.txt)
+    while read file
     do
-      # 存在しないファイル除外
       [ -f "$file" ] || continue
 
-      # backend除外
       echo "$file" | grep -q '\.py$' && continue
       echo "$file" | grep -q '^.git' && continue
 
@@ -26,12 +24,13 @@ steps:
       echo "upload: $file"
 
       lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "
-        set ftp:ssl-allow no
-        mkdir -p /public_html/$dir
-        put $file -o /public_html/$file
+        set ftp:ssl-allow no;
+        mkdir -p liff/$dir;
+        put $file -o liff/$file;
         bye
       "
-    done
+
+    done < changed.txt
 
 options:
   logging: CLOUD_LOGGING_ONLY
