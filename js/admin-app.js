@@ -545,6 +545,12 @@ function handleNavigation(target, params = {}, options = { push: true }) {
             renderStaffCalendarUI(contentArea, params);
             break;
 
+        case 'staff_calendar_net':
+            // 表示するカレンダー自体は共通ロジックを流用
+            pageTitle.textContent = '日報_個別（ネット事業部）';
+            renderStaffCalendarUI(contentArea, params);
+            break;
+
         case 'tasks_current':
             pageTitle.textContent = '工番別集計';
             renderTaskAggregationUI(contentArea, 'current', params);
@@ -2126,6 +2132,10 @@ function renderTableRows(data) {
         return;
     }
 
+    // 一覧の表示元に応じて、スタッフ名リンクの遷移先を切り替える
+    const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
+    const calendarTarget = (activeTarget === 'dashboard_net') ? 'staff_calendar_net' : 'staff_calendar';
+
     let html = '';
     data.forEach(row => {
         const workTime = (row.workTime !== undefined && row.workTime !== null) ? row.workTime : null;
@@ -2142,7 +2152,7 @@ function renderTableRows(data) {
         html += `
             <tr id="report-row-${row.employeeId}">
                 <td>${escapeHTML(row.date)}</td>
-                <td><a href="#" onclick="event.preventDefault(); handleNavigation('staff_calendar', { employeeId: '${row.employeeId}' })" title="${escapeHTML(row.name)}さんの当月度の出勤簿へ">${escapeHTML(row.name)}</a></td>
+                <td><a href="#" onclick="event.preventDefault(); handleNavigation('${calendarTarget}', { employeeId: '${row.employeeId}' })" title="${escapeHTML(row.name)}さんの当月度の出勤簿へ">${escapeHTML(row.name)}</a></td>
                 <td id="work-time-${row.employeeId}">${workTime !== null ? workTime + '分' : '-'}</td>
                 <td id="task-time-${row.employeeId}">${taskTime}分</td>
                 <td id="diff-${row.employeeId}" class="${diffClass}">${diff !== null ? (diff > 0 ? '+' : '') + diff + '分' : '-'}</td>
