@@ -12,7 +12,7 @@ steps:
     git show --name-only --pretty="" HEAD > changed.txt
     cat changed.txt
 
-    while read file
+    while IFS= read -r file
     do
       [ -f "$file" ] || continue
 
@@ -26,7 +26,7 @@ steps:
       lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "
         set ftp:ssl-allow no;
         mkdir -p liff/$dir;
-        put $file -o liff/$file;
+        put \"$file\" -o liff/$file;
         bye
       "
 
