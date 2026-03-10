@@ -2889,7 +2889,7 @@ let proxyTaskCounter = 0;
 let proxyCategoryAOptions = [];
 let proxyCategoryBOptions = [];
 let proxyActiveSliderInput = null;
-let currentProxyTarget = null; // { employeeId, name, date, groupId }
+let currentProxyTarget = null; // { employeeId, name, date, groupId, returnTarget }
 let currentProxyHistory = { catA: [], catB: [] }; // 代理入力対象者の履歴
 let proxySelectionResolver = null; // 選択パネルのPromise解決用
 
@@ -2897,12 +2897,22 @@ let proxySelectionResolver = null; // 選択パネルのPromise解決用
  * 代理入力画面を開く
  */
 async function openProxyReport(employeeId, name, date, groupId) {
-    currentProxyTarget = { employeeId, name, date, groupId };
+    const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
+    let returnTarget = activeTarget || 'dashboard';
+    // ネット事業部のスタッフを開いた場合、一覧に戻る先はネット用を優先
+    if (groupId && String(groupId) === '3' && returnTarget === 'dashboard') {
+        returnTarget = 'dashboard_net';
+    }
+
+    currentProxyTarget = { employeeId, name, date, groupId, returnTarget };
     const contentArea = document.getElementById('content-area');
     
     // 代理入力用のHTMLを読み込む
     try {
-        const html = await fetchHtmlAsString('_manager_proxy_report.html');
+        const templateFile = (groupId && String(groupId) === '3')
+            ? '_manager_proxy_report_net.html'
+            : '_manager_proxy_report.html';
+        const html = await fetchHtmlAsString(templateFile);
         contentArea.innerHTML = html;
         
         // 対象者の詳細情報（履歴含む）を取得
@@ -2950,8 +2960,8 @@ async function initializeProxyReportScreen() {
         const draftKey = getProxyDraftKey();
         if (draftKey) localStorage.removeItem(draftKey);
 
-        // 一覧画面に戻る (リロードに近い挙動だが、状態を保持したい場合は調整が必要)
-        handleNavigation('dashboard');
+        // 一覧画面に戻る
+        handleNavigation(currentProxyTarget?.returnTarget || 'dashboard');
     });
     
     document.getElementById('proxy-back-to-list-btn').addEventListener('click', () => {
@@ -2960,7 +2970,7 @@ async function initializeProxyReportScreen() {
         const draftKey = getProxyDraftKey();
         if (draftKey) localStorage.removeItem(draftKey);
 
-        handleNavigation('dashboard');
+        handleNavigation(currentProxyTarget?.returnTarget || 'dashboard');
     });
 
     // ボタンのテキストと機能を変更

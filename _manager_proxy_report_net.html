@@ -1,0 +1,139 @@
+<div id="proxy-report-container" style="max-width: 1200px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+    <style>
+        .btn-net {
+            background-color: #a94442;
+            color: white;
+            border: 1px solid #a94442;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .btn-net:disabled {
+            background-color: #ccc;
+            border-color: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <h2 style="margin: 0;">代理工数入力（ネット事業部・仮）</h2>
+            <span style="font-size:0.85em; color:#a94442; border:1px solid #e6b8b8; background:#fff5f5; padding:2px 8px; border-radius:999px;">NET</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button type="submit" form="proxy-report-form" id="proxy-submit-button" class="btn-net" disabled>代理報告を送信</button>
+            <button id="close-proxy-report-btn" class="btn-secondary">閉じる</button>
+        </div>
+    </div>
+
+    <div id="proxy-target-info" style="background-color: #fff5f5; padding: 10px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #a94442;">
+        <!-- 対象者情報がここに表示されます -->
+        読み込み中...
+    </div>
+
+    <div style="display: flex; gap: 30px; align-items: flex-start;">
+        <!-- 左カラム: 入力フォーム -->
+        <div style="flex: 1; min-width: 0;">
+            <div id="proxy-report-form-wrapper">
+                <form id="proxy-report-form">
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; font-weight: bold; margin-bottom: 5px;">日付:</label>
+                        <input type="date" id="proxy-report-date" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;" readonly>
+                    </div>
+
+                    <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 15px;">
+                        <div style="flex: 1;">
+                            <label id="proxy-work-time-notes-trigger" style="display: block; font-weight: bold; margin-bottom: 5px; cursor: pointer; text-decoration: underline; color: #007bff;">
+                                本日の勤務時間 (分)
+                            </label>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="number" id="proxy-report-work" placeholder="例: 480" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 150px;">
+                                <button type="button" id="proxy-get-work-time-button" class="btn-secondary">受信</button>
+                            </div>
+                        </div>
+                        <div id="proxy-time-summary" style="flex: 1; background-color: #f8f9fa; padding: 15px; border-radius: 4px;">
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <tr>
+                                    <td style="padding: 4px; text-align: left;">勤務時間:</td>
+                                    <td style="padding: 4px; text-align: right;"><span id="proxy-total-work-time-display">0</span></td>
+                                    <td style="padding: 4px; text-align: left;">分</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px; text-align: left;">入力済み:</td>
+                                    <td style="padding: 4px; text-align: right;"><span id="proxy-allocated-time-display">0</span></td>
+                                    <td style="padding: 4px; text-align: left;">分</td>
+                                </tr>
+                                <tr style="border-top: 1px solid #ddd; font-weight: bold;">
+                                    <td style="padding: 8px 4px 4px; text-align: left;">残り:</td>
+                                    <td style="padding: 8px 4px 4px; text-align: right;"><span id="proxy-remaining-time-display" style="color: #d9534f;">0</span></td>
+                                    <td style="padding: 8px 4px 4px; text-align: left;">分</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; font-weight: bold; margin-bottom: 5px;">業務内容:</label>
+                        <div id="proxy-task-entries-container">
+                            <!-- タスク入力行がここに追加されます -->
+                        </div>
+                        <button type="button" id="proxy-add-task-button" class="btn-secondary" style="width: 100%; margin-top: 10px; border-style: dashed;">＋ タスクを追加</button>
+                        
+                        <!-- スライダーUI (インライン配置) -->
+                        <div id="proxy-slider-area" style="display: none; margin-top: 10px; padding: 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px;">
+                            <div style="font-weight: bold; margin-bottom: 10px;">選択した業務にかけた分数：<span id="proxy-slider-value-display" style="color: #a94442;">0 分</span></div>
+                            <div style="margin: 10px 0;">
+                                <input type="range" id="proxy-time-slider" min="0" max="480" step="15" style="width: 100%;">
+                                <div style="display: flex; justify-content: flex-end; margin-top: 5px;">
+                                    <span id="proxy-slider-remaining-time-display" style="color: #666; font-size: 0.9em;"></span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button type="button" id="proxy-slider-step-down" class="btn-secondary" style="flex: 1;">-15分</button>
+                                <button type="button" id="proxy-slider-step-up" class="btn-secondary" style="flex: 1;">+15分</button>
+                                <button type="button" id="proxy-slider-ok-button" class="btn-primary" style="aspect-ratio: 1; padding: 0; display: flex; align-items: center; justify-content: center;">決定</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="proxy-report-message" class="message" style="margin-bottom: 15px;"></div>
+
+                </form>
+            </div>
+        </div>
+
+        <!-- 右カラム: カテゴリ選択パネル -->
+        <div style="flex: 1; min-width: 0; border-left: 1px solid #eee; padding-left: 30px;">
+            <div id="proxy-selection-panel" style="position: sticky; top: 0;">
+                <div id="proxy-selection-title" style="font-weight: bold; margin-bottom: 10px; border-bottom: 2px solid #a94442; padding-bottom: 5px;">選択してください</div>
+                <div id="proxy-selection-placeholder" style="color: #666; padding: 20px; text-align: center; background-color: #f9f9f9; border-radius: 4px;">
+                    左側の「業務種別」または「工事番号/店舗」をクリックすると、ここに候補が表示されます。
+                </div>
+                <div id="proxy-selection-options" style="max-height: 600px; overflow-y: scroll; display: none;">
+                    <!-- 選択肢がここに動的に追加されます -->
+                </div>
+                <div id="proxy-selection-actions" style="margin-top: 10px; text-align: right; display: none;">
+                    <button type="button" id="proxy-selection-cancel-btn" class="btn-secondary">閉じる</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 完了画面 -->
+    <div id="proxy-completion-screen" style="display: none; text-align: center; padding: 40px 20px;">
+        <div style="font-size: 3em; color: #2ecc71; margin-bottom: 20px;">✔</div>
+        <h3 id="proxy-completion-message">報告が完了しました！</h3>
+        <p style="color: #666; margin-bottom: 30px;">代理入力が正常に保存されました。</p>
+        <button id="proxy-back-to-list-btn" class="btn-primary">一覧に戻る</button>
+    </div>
+
+    <!-- 注意事項モーダル -->
+    <div id="proxy-work-time-notes-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span id="proxy-work-time-notes-close" class="close">&times;</span>
+            <h3>勤務時間について</h3>
+            <p>「Jobcanから取得」ボタンを押すと、対象者のJobcanの打刻データから勤務時間を取得します。</p>
+            <p>※退勤前だと休憩時間が考慮されていないことがあります。</p>
+        </div>
+    </div>
+</div>
+

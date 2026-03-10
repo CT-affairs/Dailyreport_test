@@ -26,12 +26,24 @@ steps:
     tr -d '\r' < deploy_frontend.txt | grep -vE '^\s*($|#)' > deploy_frontend.normalized.txt
     cat deploy_frontend.normalized.txt
 
+    matches_whitelist () {
+      file="$1"
+      while IFS= read -r pattern
+      do
+        [ -n "$pattern" ] || continue
+        case "$file" in
+          $pattern) return 0 ;;
+        esac
+      done < deploy_frontend.normalized.txt
+      return 1
+    }
+
     while IFS= read -r file
     do
       [ -f "$file" ] || continue
 
       # deploy_frontend.txt に含まれるものだけデプロイ対象
-      grep -Fxq "$file" deploy_frontend.normalized.txt || continue
+      matches_whitelist "$file" || continue
 
       dir=$(dirname "$file")
 

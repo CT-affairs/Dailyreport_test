@@ -2,3 +2,6 @@ admin.html
 css/admin.css
 js/admin-app.js
 
+# "_" から始まるHTML（例: _manager_*.html）を追加デプロイ対象にする
+_*.html
+
