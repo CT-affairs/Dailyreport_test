@@ -81,12 +81,6 @@
                     </div>
                     <div id="timetable-body" style="height: 70vh; overflow-y: auto; border: 1px solid #ccc; border-radius: 4px; user-select: none;">
                         <table style="width:100%; border-collapse:collapse; table-layout: fixed;">
-                            <thead style="position: sticky; top: -1px; /* スクロール時にヘッダーを固定 */ background: #f8f9fa; z-index: 1;">
-                                <tr>
-                                    <th style="width: 70px; padding: 8px; text-align: center; font-size: 0.9em; border-bottom: 1px solid #ccc; border-right: 1px solid #eee;">時刻</th>
-                                    <th style="padding: 8px 12px; text-align: left; font-size: 0.9em; border-bottom: 1px solid #ccc;">コメント</th>
-                                </tr>
-                            </thead>
                             <tbody id="timetable-rows">
                                 <!-- JavaScriptによってタイムスロットがここに動的に生成されます -->
                             </tbody>
@@ -117,13 +111,13 @@
                             <input type="number" id="task-duration" readonly style="width:100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; background-color: #e9ecef;">
                         </div>
                         <div style="margin-bottom: 15px;">
-                            <label for="task-category-a-select" style="font-size:0.9em; display:block; margin-bottom:4px;">業務種別 (カテゴリA)</label>
+                            <label for="task-category-a-select" style="font-size:0.9em; display:block; margin-bottom:4px;">業務種別</label>
                             <select id="task-category-a-select" style="width:100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; background-color: white;">
                                 <option value="">選択してください...</option>
                             </select>
                         </div>
                         <div style="margin-bottom: 15px;">
-                            <label for="task-category-b-select" style="font-size:0.9em; display:block; margin-bottom:4px;">業務カテゴリ (カテゴリB)</label>
+                            <label for="task-category-b-select" style="font-size:0.9em; display:block; margin-bottom:4px;">集計項目</label>
                             <select id="task-category-b-select" style="width:100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; background-color: white;">
                                 <option value="">選択してください...</option>
                             </select>

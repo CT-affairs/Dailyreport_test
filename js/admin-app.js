@@ -4097,7 +4097,7 @@ function setupProxyTimetableDragSelection() {
         allRows.forEach((row, index) => {
             const slot = row.querySelector('.timetable-slot');
             if (index >= minIndex && index <= maxIndex) {
-                slot.style.backgroundColor = 'rgba(239, 228, 176, 0.6)'; // くすんだ黄色のハイライト
+                slot.style.backgroundColor = 'rgb(194, 196, 161)'; // くすんだ黄色のハイライト
             } else {
                 slot.style.backgroundColor = ''; // ハイライト解除
             }
