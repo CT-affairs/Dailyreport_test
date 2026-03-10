@@ -17,7 +17,7 @@
     </style>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
         <div style="display:flex; align-items:center; gap:10px;">
-            <h2 style="margin: 0;">代理工数入力（ネット事業部・仮）</h2>
+            <h2 style="margin: 0; font-size: 1.3em;">代理工数入力（ネット事業部・仮）</h2>
             <span style="font-size:0.85em; color:#a94442; border:1px solid #e6b8b8; background:#fff5f5; padding:2px 8px; border-radius:999px;">NET</span>
         </div>
         <div style="display: flex; gap: 10px;">
@@ -73,10 +73,10 @@
                 <!-- 中央カラム: タイムテーブル -->
                 <div id="proxy-timetable-container" style="flex: 2; min-width: 0;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <h3 style="margin:0; font-size:1.1em;">タイムテーブル</h3>
+                        <h3 style="margin:0; font-size:1.0em;">タイムテーブル</h3>
                         <div>
-                            <button type="button" id="timetable-zoom-out" class="btn-secondary" style="font-size:0.8em; padding: 4px 8px;" title="表示範囲を拡大 (5:00-23:00)">－</button>
-                            <button type="button" id="timetable-zoom-in" class="btn-secondary" style="font-size:0.8em; padding: 4px 8px;" title="表示範囲を縮小 (7:00-21:00)">＋</button>
+                            <button type="button" id="timetable-zoom-out-top" class="btn-secondary" style="font-size:0.8em; padding: 4px 8px;" title="早出表示を縮小">－</button>
+                            <button type="button" id="timetable-zoom-in-top" class="btn-secondary" style="font-size:0.8em; padding: 4px 8px;" title="早出表示を拡大">＋</button>
                         </div>
                     </div>
                     <div id="timetable-body" style="height: 70vh; overflow-y: auto; border: 1px solid #ccc; border-radius: 4px; user-select: none;">
@@ -92,11 +92,15 @@
                             </tbody>
                         </table>
                     </div>
+                    <div style="display:flex; justify-content:flex-end; align-items:center; margin-top:10px;">
+                        <button type="button" id="timetable-zoom-out-bottom" class="btn-secondary" style="font-size:0.8em; padding: 4px 8px;" title="残業表示を縮小">－</button>
+                        <button type="button" id="timetable-zoom-in-bottom" class="btn-secondary" style="font-size:0.8em; padding: 4px 8px;" title="残業表示を拡大">＋</button>
+                    </div>
                 </div>
 
                 <!-- 右カラム: タスク詳細入力 -->
                 <div id="proxy-task-details-container" style="flex: 1.2; min-width: 0; position: sticky; top: 20px;">
-                     <h3 style="margin-top:0; margin-bottom:10px; font-size:1.1em; border-bottom: 2px solid #a94442; padding-bottom: 5px;">タスク詳細</h3>
+                     <h3 style="margin-top:0; margin-bottom:10px; font-size:1.0em; border-bottom: 2px solid #a94442; padding-bottom: 5px;">タスク詳細</h3>
                      <div id="task-details-form" style="background: #f9f9f9; padding: 15px; border-radius: 4px;">
                         <div style="display:flex; gap: 15px; margin-bottom: 15px;">
                             <div style="flex:1;">
@@ -113,14 +117,16 @@
                             <input type="number" id="task-duration" readonly style="width:100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; background-color: #e9ecef;">
                         </div>
                         <div style="margin-bottom: 15px;">
-                            <label style="font-size:0.9em; display:block; margin-bottom:4px;">業務種別 (カテゴリA)</label>
-                            <button type="button" id="task-category-a-select" class="btn-secondary" style="width:100%; text-align:left; background-color: white; border: 1px solid #ccc; color: #333;">選択してください...</button>
-                            <input type="hidden" id="task-category-a-id">
+                            <label for="task-category-a-select" style="font-size:0.9em; display:block; margin-bottom:4px;">業務種別 (カテゴリA)</label>
+                            <select id="task-category-a-select" style="width:100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; background-color: white;">
+                                <option value="">選択してください...</option>
+                            </select>
                         </div>
                         <div style="margin-bottom: 15px;">
-                            <label style="font-size:0.9em; display:block; margin-bottom:4px;">業務カテゴリ (カテゴリB)</label>
-                            <button type="button" id="task-category-b-select" class="btn-secondary" style="width:100%; text-align:left; background-color: white; border: 1px solid #ccc; color: #333;">選択してください...</button>
-                            <input type="hidden" id="task-category-b-id">
+                            <label for="task-category-b-select" style="font-size:0.9em; display:block; margin-bottom:4px;">業務カテゴリ (カテゴリB)</label>
+                            <select id="task-category-b-select" style="width:100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; background-color: white;">
+                                <option value="">選択してください...</option>
+                            </select>
                         </div>
                         <div style="margin-bottom: 15px;">
                             <label for="task-comment" style="font-size:0.9em; display:block; margin-bottom:4px;">コメント</label>

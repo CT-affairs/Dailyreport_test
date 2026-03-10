@@ -3875,32 +3875,62 @@ async function handleProxyReportSubmit(e) {
     }
 }
 
+// --- タイムテーブル用の状態変数 ---
+let timetableStartHour = 7;
+let timetableEndHour = 18;
+const TIMETABLE_MIN_START = 5; // 早出の最小時刻
+const TIMETABLE_DEFAULT_START = 7;
+const TIMETABLE_DEFAULT_END = 18;
+const TIMETABLE_MAX_END = 22; // 残業の最大時刻
+
 /**
  * 代理入力（ネット事業部版）のタイムテーブルUIを初期化する
  */
 function initializeProxyTimetable() {
-    // 初期表示（標準範囲）
-    renderProxyTimetable(7, 21);
+    // 初期状態リセット
+    timetableStartHour = TIMETABLE_DEFAULT_START;
+    timetableEndHour = TIMETABLE_DEFAULT_END;
 
-    // ズームボタンのイベントリスナー
-    const zoomOutBtn = document.getElementById('timetable-zoom-out');
-    const zoomInBtn = document.getElementById('timetable-zoom-in');
+    // 初期表示
+    renderProxyTimetable();
 
-    if (zoomOutBtn) {
-        zoomOutBtn.addEventListener('click', () => {
-            renderProxyTimetable(5, 23); // 拡大
-            zoomOutBtn.disabled = true;
-            zoomInBtn.disabled = false;
+    // ズームボタンのイベントリスナー設定
+    const zoomInTop = document.getElementById('timetable-zoom-in-top');
+    const zoomOutTop = document.getElementById('timetable-zoom-out-top');
+    const zoomInBottom = document.getElementById('timetable-zoom-in-bottom');
+    const zoomOutBottom = document.getElementById('timetable-zoom-out-bottom');
+
+    if (zoomInTop) {
+        zoomInTop.addEventListener('click', () => {
+            if (timetableStartHour > TIMETABLE_MIN_START) {
+                timetableStartHour--;
+                renderProxyTimetable();
+            }
         });
     }
-    if (zoomInBtn) {
-        zoomInBtn.addEventListener('click', () => {
-            renderProxyTimetable(7, 21); // 縮小（標準）
-            zoomOutBtn.disabled = false;
-            zoomInBtn.disabled = true;
+    if (zoomOutTop) {
+        zoomOutTop.addEventListener('click', () => {
+            if (timetableStartHour < TIMETABLE_DEFAULT_START) {
+                timetableStartHour++;
+                renderProxyTimetable();
+            }
         });
-        // 初期状態は標準なので縮小ボタンは無効
-        zoomInBtn.disabled = true;
+    }
+    if (zoomInBottom) {
+        zoomInBottom.addEventListener('click', () => {
+            if (timetableEndHour < TIMETABLE_MAX_END) {
+                timetableEndHour++;
+                renderProxyTimetable();
+            }
+        });
+    }
+    if (zoomOutBottom) {
+        zoomOutBottom.addEventListener('click', () => {
+            if (timetableEndHour > TIMETABLE_DEFAULT_END) {
+                timetableEndHour--;
+                renderProxyTimetable();
+            }
+        });
     }
 
     // ドラッグ選択機能のセットアップ
@@ -3914,34 +3944,26 @@ function initializeProxyTimetable() {
         endTimeInput.addEventListener('change', updateTaskDuration);
     }
 
-    // カテゴリ選択ボタンのイベントリスナー
-    const catA_button = document.getElementById('task-category-a-select');
-    const catB_button = document.getElementById('task-category-b-select');
+    // カテゴリ選択プルダウンの初期化
+    const catA_select = document.getElementById('task-category-a-select');
+    const catB_select = document.getElementById('task-category-b-select');
 
-    if (catA_button) {
-        catA_button.addEventListener('click', async () => {
-            const panel = document.getElementById('proxy-selection-panel');
-            panel.style.display = 'block';
-            const selected = await showProxySelectionModal('業務種別を選択', proxyCategoryAOptions);
-            if (selected) {
-                catA_button.textContent = selected.label;
-                catA_button.style.color = 'black';
-                document.getElementById('task-category-a-id').value = selected.id;
-            }
-            panel.style.display = 'none'; // 選択またはキャンセル後にパネルを隠す
+    if (catA_select) {
+        proxyCategoryAOptions.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.id;
+            option.textContent = opt.label;
+            catA_select.appendChild(option);
         });
     }
-    if (catB_button) {
-        catB_button.addEventListener('click', async () => {
-            const panel = document.getElementById('proxy-selection-panel');
-            panel.style.display = 'block';
-            const selected = await showProxySelectionModal('業務カテゴリを選択', proxyCategoryBOptions);
-            if (selected) {
-                catB_button.textContent = selected.label;
-                catB_button.style.color = 'black';
-                document.getElementById('task-category-b-id').value = selected.id;
-            }
-            panel.style.display = 'none'; // 選択またはキャンセル後にパネルを隠す
+    if (catB_select) {
+        proxyCategoryBOptions.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.id;
+            // 工事番号(label)と案件名(project)を連結して表示
+            const displayText = [opt.label, opt.project].filter(Boolean).join(' ');
+            option.textContent = displayText;
+            catB_select.appendChild(option);
         });
     }
 
@@ -3954,16 +3976,14 @@ function initializeProxyTimetable() {
 
 /**
  * タイムテーブルを描画する
- * @param {number} startHour - 表示開始時間 (hour)
- * @param {number} endHour - 表示終了時間 (hour)
  */
-function renderProxyTimetable(startHour, endHour) {
+function renderProxyTimetable() {
     const tbody = document.getElementById('timetable-rows');
     if (!tbody) return;
 
     tbody.innerHTML = ''; // 既存の行をクリア
 
-    for (let hour = startHour; hour < endHour; hour++) {
+    for (let hour = timetableStartHour; hour < timetableEndHour; hour++) {
         for (let minute = 0; minute < 60; minute += 15) {
             const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
             
@@ -4000,6 +4020,24 @@ function renderProxyTimetable(startHour, endHour) {
             tbody.appendChild(tr);
         }
     }
+
+    // ズームボタンの活性/非活性を更新
+    updateTimetableZoomButtons();
+}
+
+/**
+ * タイムテーブルのズームボタンの活性/非活性を更新する
+ */
+function updateTimetableZoomButtons() {
+    const zoomInTop = document.getElementById('timetable-zoom-in-top');
+    const zoomOutTop = document.getElementById('timetable-zoom-out-top');
+    const zoomInBottom = document.getElementById('timetable-zoom-in-bottom');
+    const zoomOutBottom = document.getElementById('timetable-zoom-out-bottom');
+
+    if (zoomInTop) zoomInTop.disabled = (timetableStartHour <= TIMETABLE_MIN_START);
+    if (zoomOutTop) zoomOutTop.disabled = (timetableStartHour >= TIMETABLE_DEFAULT_START);
+    if (zoomInBottom) zoomInBottom.disabled = (timetableEndHour >= TIMETABLE_MAX_END);
+    if (zoomOutBottom) zoomOutBottom.disabled = (timetableEndHour <= TIMETABLE_DEFAULT_END);
 }
 
 /**
@@ -4059,7 +4097,7 @@ function setupProxyTimetableDragSelection() {
         allRows.forEach((row, index) => {
             const slot = row.querySelector('.timetable-slot');
             if (index >= minIndex && index <= maxIndex) {
-                slot.style.backgroundColor = 'rgba(255, 235, 59, 0.5)'; // 黄色ハイライト
+                slot.style.backgroundColor = 'rgba(239, 228, 176, 0.6)'; // くすんだ黄色のハイライト
             } else {
                 slot.style.backgroundColor = ''; // ハイライト解除
             }
@@ -4128,10 +4166,12 @@ function addProxyTimetableTask() {
     const startTime = document.getElementById('task-start-time').value;
     const endTime = document.getElementById('task-end-time').value;
     const duration = parseInt(document.getElementById('task-duration').value, 10);
-    const categoryA_id = document.getElementById('task-category-a-id').value;
-    const categoryA_label = document.getElementById('task-category-a-select').textContent;
-    const categoryB_id = document.getElementById('task-category-b-id').value;
-    const categoryB_label = document.getElementById('task-category-b-select').textContent;
+    const catA_select = document.getElementById('task-category-a-select');
+    const catB_select = document.getElementById('task-category-b-select');
+    const categoryA_id = catA_select.value;
+    const categoryA_label = catA_select.options[catA_select.selectedIndex].text;
+    const categoryB_id = catB_select.value;
+    const categoryB_label = catB_select.options[catB_select.selectedIndex].text;
     const comment = document.getElementById('task-comment').value;
 
     // Validation
@@ -4139,7 +4179,7 @@ function addProxyTimetableTask() {
         alert('有効な時間を選択してください。');
         return;
     }
-    if (!categoryA_id || !categoryB_id || categoryA_label === '選択してください...' || categoryB_label === '選択してください...') {
+    if (!categoryA_id || !categoryB_id) {
         alert('業務種別と業務カテゴリの両方を選択してください。');
         return;
     }
@@ -4207,12 +4247,8 @@ function clearProxyTaskDetailsForm() {
     document.getElementById('task-start-time').value = '';
     document.getElementById('task-end-time').value = '';
     document.getElementById('task-duration').value = '';
-    document.getElementById('task-category-a-select').textContent = '選択してください...';
-    document.getElementById('task-category-a-select').style.color = '#333';
-    document.getElementById('task-category-a-id').value = '';
-    document.getElementById('task-category-b-select').textContent = '選択してください...';
-    document.getElementById('task-category-b-select').style.color = '#333';
-    document.getElementById('task-category-b-id').value = '';
+    document.getElementById('task-category-a-select').value = '';
+    document.getElementById('task-category-b-select').value = '';
     document.getElementById('task-comment').value = '';
 }
 
