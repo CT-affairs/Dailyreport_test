@@ -26,7 +26,7 @@ steps:
 
       echo "upload: $file"
 
-      lftp -u $FTP_USER,$FTP_PASS $FTP_HOST -e "
+      lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "
         set ftp:ssl-allow no
         mkdir -p /public_html/$dir
         put $file -o /public_html/$file
