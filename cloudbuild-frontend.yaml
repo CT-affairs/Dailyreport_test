@@ -17,11 +17,18 @@ steps:
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
       if git cat-file -e "$commit^{commit}" >/dev/null 2>&1; then
         parent="$(git rev-parse "$commit^" 2>/dev/null || true)"
+        if [ -z "$parent" ]; then
+          echo "Parent commit not found (shallow clone). Fetching more history..." >&2
+          # shallow clone 対策: 親コミットが取れる程度まで履歴を追加取得
+          git fetch --deepen=50 >/dev/null 2>&1 || true
+          parent="$(git rev-parse "$commit^" 2>/dev/null || true)"
+        fi
         if [ -n "$parent" ]; then
           git diff --name-only "$parent" "$commit" > changed.txt
         else
-          # 親がない（初回コミット等）場合は全ファイル扱い
-          git ls-files > changed.txt
+          echo "ERROR: Unable to resolve parent for commit: $commit" >&2
+          echo "This usually happens when the repo is checked out with insufficient history." >&2
+          exit 1
         fi
       else
         echo "WARN: commit not found in repo: $commit" >&2
