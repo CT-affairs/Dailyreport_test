@@ -9,7 +9,6 @@ steps:
     apk add --no-cache git lftp
 
     echo "Changed files:"
-    # Cloud Build では COMMIT_SHA が入る。入らない場合は HEAD を使用
     commit="$COMMIT_SHA"
     [ -n "$commit" ] || commit=HEAD
 
@@ -18,47 +17,34 @@ steps:
       if [ "$commit" != "HEAD" ]; then
         git fetch --no-tags --depth=2 origin "$commit" >/dev/null 2>&1 || true
       fi
-
       if git cat-file -e "$commit^{commit}" >/dev/null 2>&1; then
         parent="$(git rev-list --parents -n 1 "$commit" | awk '{print $2}')"
         if [ -n "$parent" ] && git cat-file -e "$parent^{commit}" >/dev/null 2>&1; then
           git diff --name-only "$parent" "$commit" > changed.txt
         else
-          echo "WARN: parent not found, fallback to all files"
           git ls-files > changed.txt
         fi
       else
-        echo "WARN: commit not found in repo: $commit"
         git ls-files > changed.txt
       fi
     else
-      echo "WARN: .git not available, fallback to all files"
       find . -type f | sed 's|^\./||' > changed.txt
     fi
 
-    # whitelist の読み込み
-    if [ ! -f deploy_frontend.txt ]; then
-      echo "ERROR: deploy_frontend.txt not found." >&2
-      exit 1
-    fi
+    # whitelist
+    [ -f deploy_frontend.txt ] || { echo "ERROR: deploy_frontend.txt not found"; exit 1; }
     tr -d '\r' < deploy_frontend.txt | grep -vE '^\s*($|#)' > deploy_frontend.normalized.txt
 
     echo "=== Deploy whitelist ==="
     cat deploy_frontend.normalized.txt
     echo "=== Uploading files ==="
 
-    # whitelist に一致するものをアップロード
     matches_whitelist () {
       file="$1"
       while IFS= read -r pattern
       do
         [ -n "$pattern" ] || continue
-        # ワイルドカード判定
-        if echo "$pattern" | grep -q '[*?[]'; then
-          case "$file" in $pattern) return 0 ;; esac
-        else
-          [ "$file" = "$pattern" ] && return 0
-        fi
+        case "$file" in $pattern) return 0 ;; esac
       done < deploy_frontend.normalized.txt
       return 1
     }
@@ -72,12 +58,10 @@ steps:
       [ "$dir" != "." ] && mkdir -p "$dir"
 
       echo "Uploading: $file"
-      lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "
-        set ftp:ssl-allow no;
-        [ \"$dir\" != \".\" ] && mkdir -p $dir;
-        put \"$file\" -o \"$file\";
-        bye
-      "
+
+      # lftp の -e 内ではクォート不要
+      lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "set ftp:ssl-allow no; [ \"$dir\" != \".\" ] && mkdir -p $dir; put $file -o $file; bye"
+
     done < changed.txt
 
 options:
