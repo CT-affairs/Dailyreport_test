@@ -420,7 +420,7 @@ function setupNavigation() {
     // 更新ボタン
     document.getElementById('refresh-button').addEventListener('click', async () => {
         const activeTarget = document.querySelector('.nav-item.active').dataset.target;
-        if (activeTarget === 'dashboard') {
+        if (activeTarget === 'dashboard' || activeTarget === 'dashboard_net') {
             // Jobcanから最新の勤務時間を取得して画面を更新する
             await refreshWorkTimes();
         } else {
@@ -434,7 +434,7 @@ function setupNavigation() {
     dateInput.value = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
     dateInput.addEventListener('change', () => {
         const activeTarget = document.querySelector('.nav-item.active').dataset.target;
-        if (activeTarget === 'dashboard') {
+        if (activeTarget === 'dashboard' || activeTarget === 'dashboard_net') {
             loadDashboardData();
         }
     });
@@ -471,7 +471,7 @@ function handleNavigation(target, params = {}, options = { push: true }) {
     // ヘッダーアクション（グループ選択、日付選択、更新ボタン）の表示制御
     if (topBarActions) {
         // 日報一覧画面以外では非表示にする
-        topBarActions.style.display = (target === 'dashboard') ? 'flex' : 'none';
+        topBarActions.style.display = (target === 'dashboard' || target === 'dashboard_net') ? 'flex' : 'none';
     }
 
     switch(target) {
@@ -482,7 +482,43 @@ function handleNavigation(target, params = {}, options = { push: true }) {
 
         case 'dashboard':
             pageTitle.textContent = '日報_拠点ごと一覧';
+            // 工務: グループ選択を有効
+            const groupSelectKoumu = document.getElementById('target-group');
+            if (groupSelectKoumu) {
+                groupSelectKoumu.disabled = false;
+                groupSelectKoumu.style.display = '';
+            }
             // 突合テーブルのHTML構造を復元
+            contentArea.innerHTML = `
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>日付</th>
+                                <th>社員名</th>
+                                <th>勤務時間</th>
+                                <th>工数合計</th>
+                                <th>差分</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="comparison-table-body">
+                            <tr><td colspan="6" style="text-align:center; padding: 2em;">データを読み込み中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>`;
+            loadDashboardData();
+            break;
+
+        case 'dashboard_net':
+            pageTitle.textContent = '日報_一覧（ネット事業部）';
+            // ネット: メイングループ '3' 固定で表示
+            const groupSelectNet = document.getElementById('target-group');
+            if (groupSelectNet) {
+                groupSelectNet.value = '3';
+                groupSelectNet.disabled = true; // ネット画面では固定
+            }
+            // 突合テーブルのHTML構造を復元（工務と共通）
             contentArea.innerHTML = `
                 <div class="table-container">
                     <table class="data-table">

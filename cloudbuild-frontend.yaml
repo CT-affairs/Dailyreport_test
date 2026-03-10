@@ -1,0 +1,38 @@
+steps:
+- name: alpine
+  entrypoint: sh
+  args:
+  - -c
+  - |
+    apk add --no-cache git lftp
+
+    echo "Changed files:"
+    git diff --name-only $BEFORE_SHA $COMMIT_SHA > changed.txt
+    cat changed.txt
+
+    while read file; do
+
+      # .py は除外
+      if echo "$file" | grep -q '\.py$'; then
+        echo "skip backend file: $file"
+        continue
+      fi
+
+      # .git 系除外
+      if echo "$file" | grep -q '^.git'; then
+        continue
+      fi
+
+      # ディレクトリ作成
+      dir=$(dirname "$file")
+
+      echo "upload: $file"
+
+      lftp -u $FTP_USER,$FTP_PASS $FTP_HOST <<EOF
+      set ftp:ssl-allow no
+      mkdir -p /public_html/$dir
+      put $file -o /public_html/$file
+      bye
+EOF
+
+    done < changed.txt
