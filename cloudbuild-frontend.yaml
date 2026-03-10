@@ -12,8 +12,33 @@ steps:
     # Cloud Build では COMMIT_SHA が入る。入らない場合は HEAD を使用。
     commit="$COMMIT_SHA"
     [ -n "$commit" ] || commit=HEAD
-    git diff-tree --no-commit-id --name-only -r "$commit" > changed.txt
-    cat changed.txt
+
+    # 変更ファイル一覧の取得（マージコミット等でも安定させる）
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      if git cat-file -e "$commit^{commit}" >/dev/null 2>&1; then
+        parent="$(git rev-parse "$commit^" 2>/dev/null || true)"
+        if [ -n "$parent" ]; then
+          git diff --name-only "$parent" "$commit" > changed.txt
+        else
+          # 親がない（初回コミット等）場合は全ファイル扱い
+          git ls-files > changed.txt
+        fi
+      else
+        echo "WARN: commit not found in repo: $commit" >&2
+        git ls-files > changed.txt
+      fi
+    else
+      echo "WARN: .git not available; falling back to all files" >&2
+      # gitが使えない場合は「全ファイル」扱いにする（ただし下のホワイトリストで絞る）
+      find . -type f | sed 's|^\./||' > changed.txt
+    fi
+
+    # 表示（空だと原因調査が難しいため）
+    if [ ! -s changed.txt ]; then
+      echo "(no changed files detected)"
+    else
+      cat changed.txt
+    fi
 
     echo ""
     echo "Deploy whitelist (deploy_frontend.txt):"
