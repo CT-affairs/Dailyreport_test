@@ -3807,7 +3807,7 @@ async function handleProxyGetWorkTime() {
  */
 async function handleProxyReportSubmit(e) {
     e.preventDefault();
-    const { employeeId, date } = currentProxyTarget;
+    const { employeeId, date, groupId } = currentProxyTarget;
 
     // ログインユーザー自身の場合は権限チェックをスキップ
     const isSelf = cachedAdminUserInfo && String(cachedAdminUserInfo.employeeId) === String(employeeId);
@@ -3823,21 +3823,46 @@ async function handleProxyReportSubmit(e) {
     submitBtn.textContent = '送信中...';
 
     const tasks = [];
-    document.querySelectorAll('#proxy-task-entries-container .task-entry').forEach(entry => {
-        const majorIn = entry.querySelector('.task-category-major');
-        const minorIn = entry.querySelector('.task-category-minor');
-        const timeIn = entry.querySelector('.task-time');
-        
-        if (majorIn.value && minorIn.value && timeIn.value > 0) {
+    const isNetTemplate = (groupId && String(groupId) === '3');
+
+    if (isNetTemplate) {
+        // ネット事業部（タイムテーブル形式）のタスク収集
+        document.querySelectorAll('.timetable-task').forEach(taskEl => {
+            // 時間計算
+            const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
+            const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
+            if (end < start) end.setDate(end.getDate() + 1);
+            const diffMinutes = (end - start) / 1000 / 60;
+
             tasks.push({
-                categoryA_id: majorIn.dataset.id,
-                categoryA_label: majorIn.value,
-                categoryB_id: minorIn.dataset.id,
-                categoryB_label: minorIn.value,
-                time: parseInt(timeIn.value, 10)
+                categoryA_id: taskEl.dataset.categoryAId,
+                categoryA_label: taskEl.dataset.categoryALabel,
+                categoryB_id: taskEl.dataset.categoryBId,
+                categoryB_label: taskEl.dataset.categoryBLabel,
+                time: Math.round(diffMinutes),
+                startTime: taskEl.dataset.startTime,
+                endTime: taskEl.dataset.endTime,
+                comment: taskEl.dataset.comment || ""
             });
-        }
-    });
+        });
+    } else {
+        // 工務部（リスト形式）のタスク収集
+        document.querySelectorAll('#proxy-task-entries-container .task-entry').forEach(entry => {
+            const majorIn = entry.querySelector('.task-category-major');
+            const minorIn = entry.querySelector('.task-category-minor');
+            const timeIn = entry.querySelector('.task-time');
+            
+            if (majorIn.value && minorIn.value && timeIn.value > 0) {
+                tasks.push({
+                    categoryA_id: majorIn.dataset.id,
+                    categoryA_label: majorIn.value,
+                    categoryB_id: minorIn.dataset.id,
+                    categoryB_label: minorIn.value,
+                    time: parseInt(timeIn.value, 10)
+                });
+            }
+        });
+    }
 
     const payload = {
         date: date,
@@ -3850,14 +3875,18 @@ async function handleProxyReportSubmit(e) {
     };
 
     try {
-        // APIエンドポイントは既存の /api/reports を使用する想定
-        // ※ただし、API側で target_employee_id を受け取る改修が必要
-        const response = await fetchWithAuth(`${API_BASE_URL}/api/reports`, {
+        // ネット事業部は専用エンドポイント、それ以外は通常エンドポイントを使用
+        const endpoint = isNetTemplate ? `${API_BASE_URL}/api/reports_net` : `${API_BASE_URL}/api/reports`;
+
+        const response = await fetchWithAuth(endpoint, {
             method: 'POST',
             body: JSON.stringify(payload)
         });
 
-        if (!response.ok) throw new Error('送信に失敗しました');
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => null);
+            throw new Error(errorData?.message || '送信に失敗しました');
+        }
 
         // ★送信成功時にタイマー停止と下書き削除
         if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
