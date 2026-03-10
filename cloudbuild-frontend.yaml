@@ -29,10 +29,13 @@ steps:
 
       echo "upload: $file"
 
+      FILE="$file"
+      DIR="$dir"
+
       lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "
         set ftp:ssl-allow no;
-        mkdir -p $dir;
-        put $file -o $file;
+        mkdir -p \"$DIR\";
+        put \"$FILE\" -o \"$FILE\";
         bye
       "
 
