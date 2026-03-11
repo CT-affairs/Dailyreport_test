@@ -2962,7 +2962,7 @@ async function main() {
     }
 }
 
-main();
+document.addEventListener('DOMContentLoaded', main);
 
 // --- 代理入力機能 ---
 
