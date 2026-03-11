@@ -2789,6 +2789,7 @@ function setupSharedBadgeStyles() {
 
 // --- 代理入力用の自動保存機能 ---
 let proxyAutoSaveTimer = null;
+let isProxySubmitting = false; // 代理報告の二重送信防止フラグ
 
 /**
  * 代理入力中の下書き保存用のキーを生成する
@@ -3863,6 +3864,12 @@ async function handleProxyGetWorkTime() {
  */
 async function handleProxyReportSubmit(e) {
     e.preventDefault();
+
+    if (isProxySubmitting) {
+        console.warn("代理報告の送信処理が重複しています。処理を中断します。");
+        return;
+    }
+
     const { employeeId, date, groupId } = currentProxyTarget;
 
     // ログインユーザー自身の場合は権限チェックをスキップ
@@ -3931,6 +3938,8 @@ async function handleProxyReportSubmit(e) {
     };
 
     try {
+        isProxySubmitting = true;
+
         // ネット事業部は専用エンドポイント、それ以外は通常エンドポイントを使用
         const endpoint = isNetTemplate ? `${API_BASE_URL}/api/reports_net` : `${API_BASE_URL}/api/reports`;
 
@@ -3957,6 +3966,8 @@ async function handleProxyReportSubmit(e) {
         alert(`エラー: ${error.message}`);
         submitBtn.disabled = false;
         submitBtn.textContent = '代理報告を送信';
+    } finally {
+        isProxySubmitting = false;
     }
 }
 
