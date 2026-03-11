@@ -4122,6 +4122,17 @@ function setupProxyTimetableDragSelection() {
     let endRow = null;
 
     timetableBody.addEventListener('mousedown', (e) => {
+        // クリックされたのが既存タスクの場合、ドラッグ選択は開始せず、
+        // タスク自身のクリックイベントに処理を任せる
+        if (e.target.closest('.timetable-task')) {
+            return;
+        }
+
+        // 空の領域がクリックされ、かつ編集モードだった場合は編集モードを解除する
+        if (currentlyEditingTaskElement) {
+            clearProxyTaskDetailsForm();
+        }
+
         const targetRow = e.target.closest('tr');
         if (!targetRow) return;
 
