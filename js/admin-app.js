@@ -4236,7 +4236,7 @@ function addProxyTimetableTask() {
     // 将来的に color_map: { "A01": "#ff0000", ... } が渡されることを想定
     const colorMap = selectedCatB ? selectedCatB.color_map : null; 
     const taskColor = colorMap ? colorMap[categoryA_id] : null;
-    const defaultBgColor = 'rgba(252, 185, 237, 0.8)'; // 現在の赤色
+    const defaultBgColor = 'rgba(252, 185, 237, 0.8)'; 
     const bgColor = taskColor || defaultBgColor;
     const borderColor = '#555555'; // 共通の濃いグレー
 
