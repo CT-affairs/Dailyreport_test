@@ -4195,6 +4195,40 @@ function updateTimetableZoomButtons() {
 }
 
 /**
+ * 指定された時間帯が既存のタスクと重複していないかチェックする
+ * @param {string} startTimeStr 開始時刻 (HH:MM)
+ * @param {string} endTimeStr 終了時刻 (HH:MM)
+ * @param {HTMLElement|null} excludeElement チェックから除外する要素（移動・リサイズ中の自分自身など）
+ * @returns {boolean} 重複している場合は true
+ */
+function checkTaskCollision(startTimeStr, endTimeStr, excludeElement = null) {
+    // 比較用のDateオブジェクトを作成
+    const newStart = new Date(`1970-01-01T${startTimeStr}:00`);
+    let newEnd = new Date(`1970-01-01T${endTimeStr}:00`);
+    // 日付またぎ対応 (終了時刻が開始時刻より前の場合は翌日とみなす)
+    if (newEnd < newStart) {
+        newEnd.setDate(newEnd.getDate() + 1);
+    }
+
+    const tasks = document.querySelectorAll('.timetable-task');
+    for (const task of tasks) {
+        if (task === excludeElement) continue;
+
+        const taskStart = new Date(`1970-01-01T${task.dataset.startTime}:00`);
+        let taskEnd = new Date(`1970-01-01T${task.dataset.endTime}:00`);
+        if (taskEnd < taskStart) {
+            taskEnd.setDate(taskEnd.getDate() + 1);
+        }
+
+        // 重複判定: (StartA < EndB) AND (EndA > StartB)
+        if (newStart < taskEnd && newEnd > taskStart) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * タイムテーブルのドラッグ選択機能をセットアップする
  */
 function setupProxyTimetableDragSelection() {
@@ -4247,6 +4281,15 @@ function setupProxyTimetableDragSelection() {
 
         isDragging = false;
         updateFormTimes();
+
+        // ★ 追加: 新規作成時の重複チェック
+        const sTime = startTimeInput.value;
+        const eTime = endTimeInput.value;
+        if (sTime && eTime && checkTaskCollision(sTime, eTime)) {
+            alert('他のタスクと時間が重なっています。');
+            clearProxyTaskDetailsForm(); // フォームをクリア
+            updateSelectionHighlight(); // ハイライトを消す（startRow/endRow等は残るが、フォームが空なので実質リセット）
+        }
     });
 
     function updateSelectionHighlight() {
@@ -4262,9 +4305,11 @@ function setupProxyTimetableDragSelection() {
         allRows.forEach((row, index) => {
             const slot = row.querySelector('.timetable-slot');
             if (index >= minIndex && index <= maxIndex) {
-                slot.style.backgroundColor = '#edeecf'; 
+                // ★ 変更: フォームがクリアされた(start/end timeが空)場合はハイライトしない
+                const hasTime = document.getElementById('task-start-time').value !== '';
+                slot.style.backgroundColor = hasTime ? '#edeecf' : ''; 
             } else {
-                slot.style.backgroundColor = ''; 
+                slot.style.backgroundColor = '';
             }
         });
     }
@@ -4716,10 +4761,17 @@ function setupTimetableInteractions() {
                     const newStartTimeStr = formatTime(newStartTime);
                     const newEndTimeStr = formatTime(newEndTime);
 
+                    // ★ 追加: 移動先の重複チェック
+                    if (checkTaskCollision(newStartTimeStr, newEndTimeStr, target)) {
+                        alert('移動先が他のタスクと重なっています。');
+                        // 元の位置に戻す（DOM移動せず、styleのみリセットでOK）
+                        return;
+                    }
+
                     // 新しい開始位置のDOM要素を探す
                     const newStartRow = document.querySelector(`#timetable-rows tr[data-time="${newStartTimeStr}"]`);
                     if (!newStartRow) {
-                        alert('移動先の時間帯が無効です。');
+                        // alert('移動先の時間帯が無効です。'); // 範囲外ドロップなどで頻発するのでalertは抑制しても良い
                         return;
                     }
 
@@ -4781,9 +4833,21 @@ function setupTimetableInteractions() {
                         newEndTime = new Date(newStartTime.getTime() + newDuration * 60000);
                     }
 
+                    const newStartTimeStr = formatTime(newStartTime);
+                    const newEndTimeStr = formatTime(newEndTime);
+
+                    // ★ 追加: リサイズ後の重複チェック
+                    if (checkTaskCollision(newStartTimeStr, newEndTimeStr, target)) {
+                        alert('変更後の範囲が他のタスクと重なっています。');
+                        // 元のサイズに戻す (datasetはまだ更新されていないので、それを使って高さを再計算)
+                        const originalSlots = Math.round((new Date(`1970-01-01T${target.dataset.endTime}`) - new Date(`1970-01-01T${target.dataset.startTime}`)) / (15 * 60000));
+                        target.style.height = (originalSlots * slotHeight) + 'px';
+                        return;
+                    }
+
                     // データを更新
-                    target.dataset.startTime = formatTime(newStartTime);
-                    target.dataset.endTime = formatTime(newEndTime);
+                    target.dataset.startTime = newStartTimeStr;
+                    target.dataset.endTime = newEndTimeStr;
                     target.style.height = (newSlots * slotHeight) + 'px'; // 最終的な高さを確定
 
                     // フォームとサマリーを更新
