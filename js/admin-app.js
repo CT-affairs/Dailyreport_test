@@ -611,6 +611,11 @@ function handleNavigation(target, params = {}, options = { push: true }) {
             renderCategoryASettingsUI(contentArea);
             break;
             
+        case 'categories_net':
+            pageTitle.textContent = 'カテゴリ設定（ネット）';
+            renderCategoriesNetUI(contentArea);
+            break;
+
         case 'groups':
             pageTitle.textContent = 'グループ設定';
             contentArea.innerHTML = '<div style="padding:20px;">グループ設定画面（準備中）</div>';
