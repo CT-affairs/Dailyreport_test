@@ -569,8 +569,14 @@ function sortOptionsByHistory(options, historyIds) {
  */
 async function setupCategoryDatalists() {
     // 最初に大分類を取得
+    const userMainGroup = cachedEmployeeInfo ? cachedEmployeeInfo.main_group : null;
+    let categoryAKind = 'engineering'; // デフォルトは工務
+    if (String(userMainGroup) === '3') { // ネット事業部
+        categoryAKind = 'net';
+    }
+
     try {
-        const responseA = await fetchWithAuth(`${API_BASE_URL}/api/categories/category_a`);
+        const responseA = await fetchWithAuth(`${API_BASE_URL}/api/categories/category_a?kind=${categoryAKind}`);
         if (responseA.ok) {
             const categories = await responseA.json();
             categoryAOptions = categories.map(cat => ({ id: cat.id, label: cat.label }));
@@ -585,8 +591,6 @@ async function setupCategoryDatalists() {
 
     // 次にユーザー情報に基づいて小分類を取得
     try {
-        // ユーザーのmain_groupを取得
-        const userMainGroup = cachedEmployeeInfo ? cachedEmployeeInfo.main_group : null;
         let categoryBEndpoint;
 
         // main_groupの値で分岐し、取得するカテゴリを切り替える

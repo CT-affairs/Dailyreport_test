@@ -3152,9 +3152,16 @@ function sortProxyOptionsByHistory(options, historyIds) {
  * 代理入力用のカテゴリデータを準備
  */
 async function setupProxyCategoryDatalists() {
+    // 対象者のグループに基づいてkindを決定
+    let kind = 'engineering';
+    if (currentProxyTarget.groupId && String(currentProxyTarget.groupId) === '3') {
+        kind = 'net';
+    }
+
     try {
         // 大分類
-        const responseA = await fetchWithAuth(`${API_BASE_URL}/api/categories/category_a`);
+        // ★修正: kindパラメータを付与
+        const responseA = await fetchWithAuth(`${API_BASE_URL}/api/categories/category_a?kind=${kind}`);
         if (responseA.ok) {
             const categories = await responseA.json();
             proxyCategoryAOptions = categories.map(cat => ({ id: cat.id, label: cat.label }));
@@ -3163,12 +3170,6 @@ async function setupProxyCategoryDatalists() {
         }
 
         // 小分類 (対象者のグループに基づいて取得)
-        let kind = 'engineering';
-        // グループID '3' はネット事業部とみなす
-        if (currentProxyTarget.groupId && String(currentProxyTarget.groupId) === '3') {
-            kind = 'net';
-        }
-
         const responseB = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/b?kind=${kind}`);
         if (responseB.ok) {
             const categories = await responseB.json();

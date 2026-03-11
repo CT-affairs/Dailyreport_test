@@ -1364,15 +1364,22 @@ def get_category_a():
     工数入力画面の選択肢として使用される。
     """
     try:
-        docs = db.collection("category_a").order_by("order").stream()
+        # クエリパラメータから 'kind' を取得
+        kind = request.args.get("kind")
+
+        query = db.collection("category_a")
+
+        # kindが指定されていれば、それでフィルタリング
+        if kind:
+            query = query.where(filter=FieldFilter("kind", "==", kind))
+
+        docs = query.order_by("order").stream()
         # フロントエンドが期待する { "label": "..." } の形式で返す
         categories = []
         for doc in docs:
             data = doc.to_dict()
             # activeがFalseの場合は除外（デフォルトはTrue扱い）
-            if data.get("active") is False:
-                continue
-            if data.get("label"):
+            if data.get("active", True) and data.get("label"):
                 categories.append({"id": doc.id, "label": data.get("label")})
         return jsonify(categories), 200
     except Exception as e:
