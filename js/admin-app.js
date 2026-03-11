@@ -525,7 +525,7 @@ async function renderCategoriesNetUI(container) {
                     tableHtml += `<td rowspan="${categoriesA.length}" style="vertical-align: middle; font-weight: bold; text-align: center;">${escapeHTML(catBLabel)}</td>`;
                 }
                 tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
-                tableHtml += `<td><div style="background-color:${color}; padding: 2px; border: 1px solid #ccc; color: ${textColor};">${color}</div></td>`;
+                tableHtml += `<td><div style="background-color:${color}; padding: 1px 3px; border: 1px solid #ccc; color: ${textColor}; font-size: 0.9em;">${color}</div></td>`;
                 tableHtml += '</tr>';
             });
         });
