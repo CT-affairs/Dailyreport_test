@@ -4043,8 +4043,10 @@ function renderProxyTimetable() {
             const slotCell = document.createElement('td');
             slotCell.className = 'timetable-slot';
             slotCell.style.cssText = `
+                padding: 0; /* admin.cssのpaddingをリセット */
+                box-sizing: border-box; /* borderを高さに含める */
                 border-bottom: 1px ${minute === 45 ? 'solid #ddd' : 'dotted #ddd'};
-                height: 24px; /* emからpxに固定して表示ズレを防止 */
+                height: 24px; /* これでセルの高さが正確に24pxになる */
                 cursor: pointer;
                 position: relative; /* for selection highlight */
             `;
@@ -4230,10 +4232,8 @@ function addProxyTimetableTask() {
     taskElement.className = 'timetable-task';
     
     const slots = duration / 15;
-    // px単位で高さを正確に計算
-    const slotHeight = 24; // スロットセルの高さ(px)
-    const borderWidth = 1; // ボーダーの太さ(px)
-    const taskHeight = slots * slotHeight + (slots > 1 ? slots - 1 : 0) * borderWidth;
+    // 各スロットの高さが正確に24pxになったため、計算を単純化
+    const taskHeight = slots * 24;
 
     taskElement.style.cssText = `
         position: absolute;
@@ -4321,9 +4321,7 @@ function renderExistingTimetableTask(task) {
     taskElement.className = 'timetable-task';
     
     const slots = duration / 15;
-    const slotHeight = 24; // スロットセルの高さ(px)
-    const borderWidth = 1; // ボーダーの太さ(px)
-    const taskHeight = slots * slotHeight + (slots > 1 ? slots - 1 : 0) * borderWidth;
+    const taskHeight = slots * 24;
 
     taskElement.style.cssText = `
         position: absolute;
