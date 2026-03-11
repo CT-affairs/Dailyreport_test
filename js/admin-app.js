@@ -517,7 +517,8 @@ async function renderCategoriesNetUI(container) {
             categoriesA.forEach((catA, index) => {
                 const catALabel = catA.label;
                 const color = subCategoryMap[catALabel] || '#FFFFFF'; // 見つからない場合は白
-                const textColor = darkColors.includes(color.toUpperCase()) ? '#FFFFFF' : '#000000';
+                // ★ 要望: カラーコードの文字色をグレー系に変更
+                const textColor = darkColors.includes(color.toUpperCase()) ? '#CCCCCC' : '#666666';
 
                 tableHtml += '<tr>';
                 if (index === 0) {
@@ -525,6 +526,7 @@ async function renderCategoriesNetUI(container) {
                     tableHtml += `<td rowspan="${categoriesA.length}" style="vertical-align: middle; font-weight: bold; text-align: center;">${escapeHTML(catBLabel)}</td>`;
                 }
                 tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
+                tableHtml += `<td style="text-align: center;"><input type="checkbox" class="net-category-select"></td>`;
                 tableHtml += `<td><div style="background-color:${color}; padding: 1px 3px; border: 1px solid #ccc; color: ${textColor}; font-size: 0.9em;">${color}</div></td>`;
                 tableHtml += '</tr>';
             });
@@ -536,7 +538,7 @@ async function renderCategoriesNetUI(container) {
         console.error('Error rendering net categories UI:', error);
         const tbody = container.querySelector('#net-category-table-body');
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="3" class="error" style="text-align:center;">${error.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="4" class="error" style="text-align:center;">${error.message}</td></tr>`;
         }
     }
 }
