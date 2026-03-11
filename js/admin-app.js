@@ -3020,6 +3020,9 @@ async function initializeProxyReportScreen(isNetTemplate) {
         }
     }
 
+    // ★カテゴリデータの準備を先に実行する
+    await setupProxyCategoryDatalists();
+
     if (isNetTemplate) {
         // ネット事業部用のタイムテーブルUIの初期化
         initializeProxyTimetable();
@@ -3046,9 +3049,6 @@ async function initializeProxyReportScreen(isNetTemplate) {
             }
         };
     }
-
-    // カテゴリデータの準備
-    await setupProxyCategoryDatalists();
 
     // 既存データの読み込み
     await loadProxyExistingData();
@@ -3131,7 +3131,7 @@ async function setupProxyCategoryDatalists() {
             proxyCategoryBOptions = sortProxyOptionsByHistory(proxyCategoryBOptions, currentProxyHistory.catB);
         }
     } catch (error) {
-        console.error("カテゴリ候補の取得に失敗:", error);
+        console.error("カテゴリ候補の取得に失敗しました:", error);
     }
 }
 
@@ -3565,7 +3565,8 @@ function updateProxyWorkTimeSummary() {
     if (submitBtn) {
         if (isNetTemplate) {
             const hasValidTask = document.querySelectorAll('.timetable-task').length > 0;
-            submitBtn.disabled = !hasValidTask;
+            // ★ allocated が 0 の場合も送信可能にする (入力クリアのため)
+            submitBtn.disabled = !(hasValidTask || allocated === 0);
         } else {
             const hasValidTask = Array.from(document.querySelectorAll('#proxy-task-entries-container .task-entry')).some(entry => {
                 const major = entry.querySelector('.task-category-major').value;
@@ -3978,6 +3979,8 @@ function initializeProxyTimetable() {
     const catB_select = document.getElementById('task-category-b-select');
 
     if (catA_select) {
+        // ★既存のオプションをクリア
+        catA_select.innerHTML = '<option value="">選択してください...</option>';
         proxyCategoryAOptions.forEach(opt => {
             const option = document.createElement('option');
             option.value = opt.id;
@@ -3986,6 +3989,8 @@ function initializeProxyTimetable() {
         });
     }
     if (catB_select) {
+        // ★既存のオプションをクリア
+        catB_select.innerHTML = '<option value="">選択してください...</option>';
         proxyCategoryBOptions.forEach(opt => {
             const option = document.createElement('option');
             option.value = opt.id;
@@ -4209,7 +4214,7 @@ function addProxyTimetableTask() {
         return;
     }
     if (!categoryA_id || !categoryB_id) {
-        alert('業務種別と業務カテゴリの両方を選択してください。');
+        alert('業務種別と集計項目の両方を選択してください。');
         return;
     }
 
