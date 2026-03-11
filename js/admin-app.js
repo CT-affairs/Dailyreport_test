@@ -4231,6 +4231,15 @@ function addProxyTimetableTask() {
     const taskElement = document.createElement('div');
     taskElement.className = 'timetable-task';
     
+    // --- 色の決定ロジック ---
+    const selectedCatB = proxyCategoryBOptions.find(opt => opt.id === categoryB_id);
+    // 将来的に color_map: { "A01": "#ff0000", ... } が渡されることを想定
+    const colorMap = selectedCatB ? selectedCatB.color_map : null; 
+    const taskColor = colorMap ? colorMap[categoryA_id] : null;
+    const defaultBgColor = 'rgba(252, 185, 237, 0.8)'; // 現在の赤色
+    const bgColor = taskColor || defaultBgColor;
+    const borderColor = '#555555'; // 共通の濃いグレー
+
     const slots = duration / 15;
     // 各スロットの高さが正確に24pxになったため、計算を単純化
     const taskHeight = slots * 24;
@@ -4241,9 +4250,9 @@ function addProxyTimetableTask() {
         left: 0;
         right: 0;
         height: ${taskHeight}px;
-        background-color: rgba(169, 68, 66, 0.8); /* btn-net color with alpha */
+        background-color: ${bgColor}; /* 動的に設定 */
         color: white;
-        border-left: 3px solid #8a2c2a;
+        border-left: 3px solid ${borderColor}; /* 共通の濃いグレー */
         padding: 4px 6px;
         font-size: 0.8em;
         line-height: 1.3;
@@ -4253,11 +4262,15 @@ function addProxyTimetableTask() {
         cursor: pointer;
     `;
 
-    taskElement.innerHTML = `
-        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(categoryB_label)}">${escapeHTML(categoryB_label)}</div>
-        <div style="font-size: 0.9em; margin-top: 2px; height: calc(100% - 20px); overflow-y: auto; white-space: pre-wrap; word-break: break-word;">${escapeHTML(comment)}</div>
-    `;
-    
+    // 表示テキストを「集計項目 / 業務種別 / コメント」の形式で1行にまとめる
+    const displayText = [
+        categoryB_label,
+        categoryA_label,
+        comment
+    ].filter(Boolean).join(' / ');
+
+    taskElement.innerHTML = `<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(displayText)}">${escapeHTML(displayText)}</div>`;
+
     // データを要素に保存（将来の編集/削除用）
     taskElement.dataset.startTime = startTime;
     taskElement.dataset.endTime = endTime;
@@ -4266,6 +4279,12 @@ function addProxyTimetableTask() {
     taskElement.dataset.categoryBId = categoryB_id;
     taskElement.dataset.categoryBLabel = categoryB_label;
     taskElement.dataset.comment = comment;
+
+    // クリックで詳細をalert表示するイベントリスナー
+    taskElement.addEventListener('click', () => {
+        const detailText = `集計項目: ${taskElement.dataset.categoryBLabel}\n業務種別: ${taskElement.dataset.categoryALabel}\nコメント: ${taskElement.dataset.comment}`;
+        alert(detailText);
+    });
 
     startSlotCell.appendChild(taskElement);
 
@@ -4317,6 +4336,14 @@ function renderExistingTimetableTask(task) {
     }
     const startSlotCell = startRow.querySelector('.timetable-slot');
 
+    // --- 色の決定ロジック ---
+    const catBData = proxyCategoryBOptions.find(opt => opt.id === categoryB_id);
+    const colorMap = catBData ? catBData.color_map : null;
+    const taskColor = colorMap ? colorMap[categoryA_id] : null;
+    const defaultBgColor = 'rgba(169, 68, 66, 0.8)';
+    const bgColor = taskColor || defaultBgColor;
+    const borderColor = '#555555'; // 共通の濃いグレー
+
     const taskElement = document.createElement('div');
     taskElement.className = 'timetable-task';
     
@@ -4329,9 +4356,9 @@ function renderExistingTimetableTask(task) {
         left: 0;
         right: 0;
         height: ${taskHeight}px;
-        background-color: rgba(169, 68, 66, 0.8);
+        background-color: ${bgColor}; /* 動的に設定 */
         color: white;
-        border-left: 3px solid #8a2c2a;
+        border-left: 3px solid ${borderColor}; /* 共通の濃いグレー */
         padding: 4px 6px;
         font-size: 0.8em;
         line-height: 1.3;
@@ -4341,11 +4368,15 @@ function renderExistingTimetableTask(task) {
         cursor: pointer;
     `;
 
-    taskElement.innerHTML = `
-        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(categoryB_label)}">${escapeHTML(categoryB_label)}</div>
-        <div style="font-size: 0.9em; margin-top: 2px; height: calc(100% - 20px); overflow-y: auto; white-space: pre-wrap; word-break: break-word;">${escapeHTML(comment || '')}</div>
-    `;
-    
+    // 表示テキストを「集計項目 / 業務種別 / コメント」の形式で1行にまとめる
+    const displayText = [
+        categoryB_label,
+        categoryA_label,
+        comment || ''
+    ].filter(Boolean).join(' / ');
+
+    taskElement.innerHTML = `<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(displayText)}">${escapeHTML(displayText)}</div>`;
+
     taskElement.dataset.startTime = startTime;
     taskElement.dataset.endTime = endTime;
     taskElement.dataset.categoryAId = categoryA_id;
@@ -4353,6 +4384,12 @@ function renderExistingTimetableTask(task) {
     taskElement.dataset.categoryBId = categoryB_id;
     taskElement.dataset.categoryBLabel = categoryB_label;
     taskElement.dataset.comment = comment || '';
+
+    // クリックで詳細をalert表示するイベントリスナー
+    taskElement.addEventListener('click', () => {
+        const detailText = `集計項目: ${taskElement.dataset.categoryBLabel}\n業務種別: ${taskElement.dataset.categoryALabel}\nコメント: ${taskElement.dataset.comment}`;
+        alert(detailText);
+    });
 
     startSlotCell.appendChild(taskElement);
 }
