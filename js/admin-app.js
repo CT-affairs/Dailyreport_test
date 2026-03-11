@@ -3906,10 +3906,13 @@ async function handleProxyReportSubmit(e) {
 }
 
 // --- タイムテーブル用の状態変数 ---
+let currentlyEditingTaskElement = null; // ★編集中のタスク要素を保持
 let timetableStartHour = 7;
 let timetableEndHour = 18;
 const TIMETABLE_MIN_START = 5; // 早出の最小時刻
+const TIMETABLE_ZOOM_OUT_START = 8; // ズームアウト時の最大開始時刻
 const TIMETABLE_DEFAULT_START = 7;
+const TIMETABLE_ZOOM_OUT_END = 17; // ズームアウト時の最小終了時刻
 const TIMETABLE_DEFAULT_END = 18;
 const TIMETABLE_MAX_END = 22; // 残業の最大時刻
 
@@ -3940,7 +3943,7 @@ function initializeProxyTimetable() {
     }
     if (zoomOutTop) {
         zoomOutTop.addEventListener('click', () => {
-            if (timetableStartHour < TIMETABLE_DEFAULT_START) {
+            if (timetableStartHour < TIMETABLE_ZOOM_OUT_START) {
                 timetableStartHour++;
                 renderProxyTimetable();
             }
@@ -3956,7 +3959,7 @@ function initializeProxyTimetable() {
     }
     if (zoomOutBottom) {
         zoomOutBottom.addEventListener('click', () => {
-            if (timetableEndHour > TIMETABLE_DEFAULT_END) {
+            if (timetableEndHour > TIMETABLE_ZOOM_OUT_END) {
                 timetableEndHour--;
                 renderProxyTimetable();
             }
@@ -4005,7 +4008,35 @@ function initializeProxyTimetable() {
     const addTaskBtn = document.getElementById('add-task-btn');
     if (addTaskBtn) {
         addTaskBtn.addEventListener('click', addProxyTimetableTask);
+ 
+        // --- ★編集・削除ボタンを動的に生成・設定 ---
+        const buttonContainer = addTaskBtn.parentElement;
+        if (buttonContainer) {
+            buttonContainer.style.display = 'flex';
+            buttonContainer.style.justifyContent = 'space-between'; // 両端に配置
+            buttonContainer.style.gap = '10px'; // ボタン間の最小間隔
+
+            // 編集ボタン
+            const editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.id = 'edit-task-btn';
+            editBtn.className = 'btn-primary';
+            editBtn.textContent = '変更を保存';
+            editBtn.addEventListener('click', handleEditTask);
+            buttonContainer.appendChild(editBtn);
+
+            // 削除ボタン
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.id = 'delete-task-btn';
+            deleteBtn.className = 'btn-secondary';
+            deleteBtn.textContent = '削除';
+            deleteBtn.addEventListener('click', handleDeleteTask);
+            buttonContainer.appendChild(deleteBtn);
+        }
     }
+    // ★ボタンの初期状態を設定
+    updateTaskFormButtons('add');
 }
 
 /**
@@ -4071,9 +4102,9 @@ function updateTimetableZoomButtons() {
     const zoomOutBottom = document.getElementById('timetable-zoom-out-bottom');
 
     if (zoomInTop) zoomInTop.disabled = (timetableStartHour <= TIMETABLE_MIN_START);
-    if (zoomOutTop) zoomOutTop.disabled = (timetableStartHour >= TIMETABLE_DEFAULT_START);
+    if (zoomOutTop) zoomOutTop.disabled = (timetableStartHour >= TIMETABLE_ZOOM_OUT_START);
     if (zoomInBottom) zoomInBottom.disabled = (timetableEndHour >= TIMETABLE_MAX_END);
-    if (zoomOutBottom) zoomOutBottom.disabled = (timetableEndHour <= TIMETABLE_DEFAULT_END);
+    if (zoomOutBottom) zoomOutBottom.disabled = (timetableEndHour <= TIMETABLE_ZOOM_OUT_END);
 }
 
 /**
@@ -4281,10 +4312,7 @@ function addProxyTimetableTask() {
     taskElement.dataset.comment = comment;
 
     // クリックで詳細をalert表示するイベントリスナー
-    taskElement.addEventListener('click', () => {
-        const detailText = `集計項目: ${taskElement.dataset.categoryBLabel}\n業務種別: ${taskElement.dataset.categoryALabel}\nコメント: ${taskElement.dataset.comment}`;
-        alert(detailText);
-    });
+    taskElement.addEventListener('click', () => handleTaskClick(taskElement));
 
     startSlotCell.appendChild(taskElement);
 
@@ -4299,12 +4327,24 @@ function addProxyTimetableTask() {
  * 代理入力（ネット）のタスク詳細フォームをクリアする
  */
 function clearProxyTaskDetailsForm() {
+    // フォームの値をクリア
     document.getElementById('task-start-time').value = '';
     document.getElementById('task-end-time').value = '';
     document.getElementById('task-duration').value = '';
     document.getElementById('task-category-a-select').value = '';
     document.getElementById('task-category-b-select').value = '';
     document.getElementById('task-comment').value = '';
+
+    // 編集モードを解除
+    if (currentlyEditingTaskElement) {
+        // ハイライトを消す
+        currentlyEditingTaskElement.style.outline = '';
+        currentlyEditingTaskElement.style.boxShadow = '';
+        currentlyEditingTaskElement = null;
+    }
+
+    // ボタンを「追加」モードに戻す
+    updateTaskFormButtons('add');
 }
 
 /**
@@ -4386,10 +4426,131 @@ function renderExistingTimetableTask(task) {
     taskElement.dataset.comment = comment || '';
 
     // クリックで詳細をalert表示するイベントリスナー
-    taskElement.addEventListener('click', () => {
-        const detailText = `集計項目: ${taskElement.dataset.categoryBLabel}\n業務種別: ${taskElement.dataset.categoryALabel}\nコメント: ${taskElement.dataset.comment}`;
-        alert(detailText);
-    });
+    taskElement.addEventListener('click', () => handleTaskClick(taskElement));
 
     startSlotCell.appendChild(taskElement);
+}
+
+// --- ★ここから追加: タイムテーブルのタスク編集・削除関連の関数 ---
+
+/**
+ * フォームのボタン表示を切り替える
+ * @param {'add' | 'edit'} mode 
+ */
+function updateTaskFormButtons(mode) {
+    const addBtn = document.getElementById('add-task-btn');
+    const editBtn = document.getElementById('edit-task-btn');
+    const deleteBtn = document.getElementById('delete-task-btn');
+
+    if (!addBtn || !editBtn || !deleteBtn) return;
+
+    if (mode === 'edit') {
+        addBtn.style.display = 'none';
+        editBtn.style.display = 'inline-block';
+        deleteBtn.style.display = 'inline-block';
+    } else { // 'add' mode
+        addBtn.style.display = 'inline-block';
+        editBtn.style.display = 'none';
+        deleteBtn.style.display = 'none';
+    }
+}
+
+/**
+ * タイムテーブル上のタスクがクリックされたときの処理
+ * @param {HTMLElement} taskElement クリックされたタスク要素
+ */
+function handleTaskClick(taskElement) {
+    // 既存の選択を解除
+    if (currentlyEditingTaskElement) {
+        currentlyEditingTaskElement.style.outline = '';
+        currentlyEditingTaskElement.style.boxShadow = '';
+    }
+
+    // 新しいタスクを選択
+    currentlyEditingTaskElement = taskElement;
+    taskElement.style.outline = '2px solid #3498db';
+    taskElement.style.boxShadow = '0 0 8px rgba(52, 152, 219, 0.6)';
+
+    // フォームにデータをロード
+    document.getElementById('task-start-time').value = taskElement.dataset.startTime;
+    document.getElementById('task-end-time').value = taskElement.dataset.endTime;
+    document.getElementById('task-category-a-select').value = taskElement.dataset.categoryAId;
+    document.getElementById('task-category-b-select').value = taskElement.dataset.categoryBId;
+    document.getElementById('task-comment').value = taskElement.dataset.comment;
+    updateTaskDuration(); // 時間（分）も更新
+
+    // ボタンを編集モードに切り替え
+    updateTaskFormButtons('edit');
+}
+
+/**
+ * 「変更を保存」ボタンがクリックされたときの処理
+ */
+function handleEditTask() {
+    if (!currentlyEditingTaskElement) return;
+
+    // フォームから値を取得
+    const startTime = document.getElementById('task-start-time').value;
+    const endTime = document.getElementById('task-end-time').value;
+    const duration = parseInt(document.getElementById('task-duration').value, 10);
+    const catA_select = document.getElementById('task-category-a-select');
+    const catB_select = document.getElementById('task-category-b-select');
+    const categoryA_id = catA_select.value;
+    const categoryA_label = catA_select.options[catA_select.selectedIndex].text;
+    const categoryB_id = catB_select.value;
+    const categoryB_label = catB_select.options[catB_select.selectedIndex].text;
+    const comment = document.getElementById('task-comment').value;
+
+    // Validation
+    if (!startTime || !endTime || !duration || duration <= 0) {
+        alert('有効な時間を選択してください。');
+        return;
+    }
+    if (!categoryA_id || !categoryB_id) {
+        alert('業務種別と集計項目の両方を選択してください。');
+        return;
+    }
+
+    // 開始行が変更された場合、DOM要素を移動
+    const newStartRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+    if (!newStartRow) {
+        alert('タイムテーブル上で開始時刻に対応する行が見つかりません。');
+        return;
+    }
+    newStartRow.querySelector('.timetable-slot').appendChild(currentlyEditingTaskElement);
+
+    // datasetを更新
+    currentlyEditingTaskElement.dataset.startTime = startTime;
+    currentlyEditingTaskElement.dataset.endTime = endTime;
+    currentlyEditingTaskElement.dataset.categoryAId = categoryA_id;
+    currentlyEditingTaskElement.dataset.categoryALabel = categoryA_label;
+    currentlyEditingTaskElement.dataset.categoryBId = categoryB_id;
+    currentlyEditingTaskElement.dataset.categoryBLabel = categoryB_label;
+    currentlyEditingTaskElement.dataset.comment = comment;
+
+    // 表示を更新 (高さと内容)
+    const slots = duration / 15;
+    const taskHeight = slots * 24;
+    currentlyEditingTaskElement.style.height = `${taskHeight}px`;
+
+    const displayText = [categoryB_label, categoryA_label, comment].filter(Boolean).join(' / ');
+    currentlyEditingTaskElement.innerHTML = `<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(displayText)}">${escapeHTML(displayText)}</div>`;
+
+    // 編集モードを終了
+    clearProxyTaskDetailsForm();
+    updateProxyWorkTimeSummary();
+}
+
+/**
+ * 「削除」ボタンがクリックされたときの処理
+ */
+function handleDeleteTask() {
+    if (!currentlyEditingTaskElement) return;
+
+    if (confirm('このタスクを削除しますか？')) {
+        currentlyEditingTaskElement.remove();
+        currentlyEditingTaskElement = null;
+        clearProxyTaskDetailsForm();
+        updateProxyWorkTimeSummary();
+    }
 }
