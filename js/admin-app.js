@@ -4230,8 +4230,9 @@ function addProxyTimetableTask() {
     taskElement.className = 'timetable-task';
     
     const slots = duration / 15;
-    // セルの高さ(1.5em)と間のボーダー(1px)を考慮して高さを計算
-    const taskHeight = `calc(${slots * 1.5}em + ${slots > 1 ? slots - 1 : 0}px)`;
+    // セルの高さ(1.5em)とtaskElementのフォントサイズ(0.8em)の差を補正 (1.5 / 0.8 = 1.875)
+    const heightPerSlot = 1.875;
+    const taskHeight = `calc(${slots * heightPerSlot}em + ${slots > 1 ? slots - 1 : 0}px)`;
 
     taskElement.style.cssText = `
         position: absolute;
@@ -4319,7 +4320,8 @@ function renderExistingTimetableTask(task) {
     taskElement.className = 'timetable-task';
     
     const slots = duration / 15;
-    const taskHeight = `calc(${slots * 1.5}em + ${slots > 1 ? slots - 1 : 0}px)`;
+    const heightPerSlot = 1.875; // 1.5em (cell height) / 0.8em (element font-size)
+    const taskHeight = `calc(${slots * heightPerSlot}em + ${slots > 1 ? slots - 1 : 0}px)`;
 
     taskElement.style.cssText = `
         position: absolute;
