@@ -4642,6 +4642,7 @@ function setupTimetableInteractions() {
     const formatTime = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
     interact('.timetable-task')
+        // --- ドラッグ移動機能 ---
         .draggable({
             inertia: false, // ドラッグ後の慣性を無効化
             autoScroll: true, // ドラッグ中にコンテナを自動スクロール
@@ -4701,6 +4702,62 @@ function setupTimetableInteractions() {
                         document.getElementById('task-start-time').value = newStartTimeStr;
                         document.getElementById('task-end-time').value = newEndTimeStr;
                     }
+                }
+            }
+        });
+        // --- ★リサイズ機能を追加 ---
+        .resizable({
+            edges: { top: true, bottom: true }, // 上下方向のリサイズを有効化
+            listeners: {
+                start (event) {
+                    // リサイズ開始時にもフラグを立てる
+                    event.target.classList.add('is-resizing');
+                },
+                move (event) {
+                    const target = event.target;
+                    let y = parseFloat(target.getAttribute('data-y')) || 0;
+
+                    // 高さを更新
+                    target.style.height = event.rect.height + 'px';
+
+                    // 上端をリサイズした場合、要素の位置も動かす
+                    y += event.deltaRect.top;
+                    target.style.transform = `translateY(${y}px)`;
+                    target.setAttribute('data-y', y);
+                },
+                end (event) {
+                    const target = event.target;
+                    setTimeout(() => target.classList.remove('is-resizing'), 100);
+
+                    // スタイルと一時的な属性をリセット
+                    target.style.transform = '';
+                    target.removeAttribute('data-y');
+
+                    // 新しい高さからスロット数を計算
+                    const newHeight = event.rect.height;
+                    const newSlots = Math.round(newHeight / slotHeight);
+                    const newDuration = newSlots * 15;
+
+                    // 新しい開始・終了時刻を計算
+                    let newStartTime, newEndTime;
+                    if (event.edges.top) { // 上端をリサイズした場合
+                        const originalEndTime = new Date(`1970-01-01T${target.dataset.endTime}`);
+                        newEndTime = originalEndTime;
+                        newStartTime = new Date(newEndTime.getTime() - newDuration * 60000);
+                    } else { // 下端をリサイズした場合
+                        const originalStartTime = new Date(`1970-01-01T${target.dataset.startTime}`);
+                        newStartTime = originalStartTime;
+                        newEndTime = new Date(newStartTime.getTime() + newDuration * 60000);
+                    }
+
+                    // データを更新
+                    target.dataset.startTime = formatTime(newStartTime);
+                    target.dataset.endTime = formatTime(newEndTime);
+                    target.style.height = (newSlots * slotHeight) + 'px'; // 最終的な高さを確定
+
+                    // フォームとサマリーを更新
+                    handleTaskClick(target); // 編集モードにしてフォームに反映
+                    updateProxyWorkTimeSummary();
                 }
             }
         });
