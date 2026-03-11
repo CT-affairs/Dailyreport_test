@@ -1397,7 +1397,17 @@ def get_category_a():
 def get_manager_category_a():
     """管理者向けに、category_aの一覧（詳細情報含む）を返すエンドポイント。"""
     try:        
-        docs = db.collection("category_a").stream()
+        kind = request.args.get("kind")
+
+        query = db.collection("category_a")
+
+        # kindが指定されていれば、それでフィルタリング
+        if kind:
+            if kind not in ["engineering", "net"]:
+                abort(400, "Invalid 'kind' parameter. Must be 'engineering' or 'net'.")
+            query = query.where(filter=FieldFilter("kind", "==", kind))
+
+        docs = query.stream()
         categories = []
         for doc in docs:
             data = doc.to_dict()
