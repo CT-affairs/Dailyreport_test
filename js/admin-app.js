@@ -4735,7 +4735,7 @@ function setupTimetableInteractions() {
                     }
                 }
             }
-        });
+        })
         // --- ★リサイズ機能を追加 ---
         .resizable({
             edges: { top: true, bottom: true }, // 上下方向のリサイズを有効化
