@@ -2790,21 +2790,41 @@ function saveProxyDraftReport() {
     }
 
     const tasks = [];
-    document.querySelectorAll('#proxy-task-entries-container .task-entry').forEach(entry => {
-        const majorIn = entry.querySelector('.task-category-major');
-        const minorIn = entry.querySelector('.task-category-minor');
-        const timeIn = entry.querySelector('.task-time');
-        
-        if (majorIn.value || minorIn.value || timeIn.value) {
+    const isNetTemplate = currentProxyTarget && String(currentProxyTarget.groupId) === '3';
+
+    if (isNetTemplate) {
+        // ネット事業部用: .timetable-task から収集
+        document.querySelectorAll('.timetable-task').forEach(taskEl => {
+            const ds = taskEl.dataset;
             tasks.push({
-                categoryA_id: majorIn.dataset.id || '',
-                categoryA_label: majorIn.value || '',
-                categoryB_id: minorIn.dataset.id || '',
-                categoryB_label: minorIn.value || '',
-                time: timeIn.value || ''
+                // renderExistingTimetableTask が期待するスネークケースのキーで保存
+                startTime: ds.startTime,
+                endTime: ds.endTime,
+                categoryA_id: ds.categoryAId,
+                categoryA_label: ds.categoryALabel,
+                categoryB_id: ds.categoryBId,
+                categoryB_label: ds.categoryBLabel,
+                comment: ds.comment
             });
-        }
-    });
+        });
+    } else {
+        // 工務部用: 既存のロジック
+        document.querySelectorAll('#proxy-task-entries-container .task-entry').forEach(entry => {
+            const majorIn = entry.querySelector('.task-category-major');
+            const minorIn = entry.querySelector('.task-category-minor');
+            const timeIn = entry.querySelector('.task-time');
+            
+            if (majorIn.value || minorIn.value || timeIn.value) {
+                tasks.push({
+                    categoryA_id: majorIn.dataset.id || '',
+                    categoryA_label: majorIn.value || '',
+                    categoryB_id: minorIn.dataset.id || '',
+                    categoryB_label: minorIn.value || '',
+                    time: timeIn.value || ''
+                });
+            }
+        });
+    }
 
     const draft = {
         workTime: document.getElementById('proxy-report-work').value,
@@ -2837,16 +2857,28 @@ function restoreProxyDraftReport() {
     try {
         const draft = JSON.parse(draftString);
         document.getElementById('proxy-report-work').value = draft.workTime;
-        
-        // 復元前に既存のタスク行をクリア
-        document.getElementById('proxy-task-entries-container').innerHTML = '';
-        proxyTaskCounter = 0;
 
-        if (draft.tasks && draft.tasks.length > 0) {
-            draft.tasks.forEach(task => addProxyTaskEntry(task));
+        const isNetTemplate = currentProxyTarget && String(currentProxyTarget.groupId) === '3';
+
+        if (isNetTemplate) {
+            // ネット事業部用: renderExistingTimetableTask を使って復元
+            if (draft.tasks && draft.tasks.length > 0) {
+                // 保存時にキーを変換したので、そのまま渡せる
+                draft.tasks.forEach(task => renderExistingTimetableTask(task));
+            }
         } else {
-            addProxyTaskEntry(); // 空の行を追加
+            // 工務部用: 既存のロジック
+            // 復元前に既存のタスク行をクリア
+            document.getElementById('proxy-task-entries-container').innerHTML = '';
+            proxyTaskCounter = 0;
+
+            if (draft.tasks && draft.tasks.length > 0) {
+                draft.tasks.forEach(task => addProxyTaskEntry(task));
+            } else {
+                addProxyTaskEntry(); // 空の行を追加
+            }
         }
+
         updateProxyWorkTimeSummary();
         console.log('Proxy draft restored.');
     } catch (error) {
@@ -4049,6 +4081,13 @@ function renderProxyTimetable() {
     const tbody = document.getElementById('timetable-rows');
     if (!tbody) return;
 
+    // ★ 変更点: 再描画の前に、既存のタスク情報を収集する
+    const existingTasks = [];
+    document.querySelectorAll('.timetable-task').forEach(taskEl => {
+        // datasetのプロパティはcamelCase (e.g., categoryAId) になる
+        existingTasks.push({ ...taskEl.dataset });
+    });
+
     tbody.innerHTML = ''; // 既存の行をクリア
 
     for (let hour = timetableStartHour; hour < timetableEndHour; hour++) {
@@ -4090,6 +4129,20 @@ function renderProxyTimetable() {
             tbody.appendChild(tr);
         }
     }
+
+    // ★ 変更点: 収集したタスクを再描画する
+    existingTasks.forEach(taskData => {
+        // renderExistingTimetableTask が snake_case のキーを期待するため、マッピングする
+        renderExistingTimetableTask({
+            startTime: taskData.startTime,
+            endTime: taskData.endTime,
+            categoryA_id: taskData.categoryAId,
+            categoryA_label: taskData.categoryALabel,
+            categoryB_id: taskData.categoryBId,
+            categoryB_label: taskData.categoryBLabel,
+            comment: taskData.comment
+        });
+    });
 
     // ズームボタンの活性/非活性を更新
     updateTimetableZoomButtons();
