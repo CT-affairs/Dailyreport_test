@@ -246,7 +246,6 @@ function addTaskEntry(task = null) {
 
     const categoryBLabel = getCategoryBLabel();
 
-    // --- タスク行のHTMLを生成 ---
     entryDiv.innerHTML = `
         <input type="text" class="task-category-major" placeholder="業務種別" style="flex-grow: 1.5;" required readonly>
         <input type="text" class="task-category-minor" placeholder="${categoryBLabel}" style="flex-grow: 1;" required readonly>
@@ -308,9 +307,8 @@ function addTaskEntry(task = null) {
     });
     minorInput.addEventListener('click', async () => {
         try {
-            const label = getCategoryBLabel();
             // categoryBOptionsはオブジェクト配列になっているため、showSelectionModalで適切に処理される
-            const selectedObj = await showSelectionModal(`${label}を選択`, categoryBOptions, minorInput);
+            const selectedObj = await showSelectionModal('集計軸カテゴリを選択', categoryBOptions, minorInput);
             // 選択されたオブジェクトからラベル部分だけを入力欄に設定
             if (typeof selectedObj === 'object') {
                 minorInput.value = selectedObj.label;
@@ -589,22 +587,25 @@ async function setupCategoryDatalists() {
     try {
         // ユーザーのmain_groupを取得
         const userMainGroup = cachedEmployeeInfo ? cachedEmployeeInfo.main_group : null;
-        let categoryBEndpoint = '';
+        let categoryBEndpoint;
 
-        // main_groupの値で分岐（仮実装としてどちらも全件取得）
-        if (userMainGroup === '3') {
-            // main_groupが'3'の場合
-            categoryBEndpoint = `${API_BASE_URL}/api/categories/b?all=true`;
+        // main_groupの値で分岐し、取得するカテゴリを切り替える
+        if (String(userMainGroup) === '3') {
+            // main_groupが'3' (ネット事業部) の場合
+            categoryBEndpoint = `${API_BASE_URL}/api/categories/b?kind=net`;
         } else {
-            // main_groupが'3'以外、または取得できなかった場合
-            categoryBEndpoint = `${API_BASE_URL}/api/categories/b?all=true`;
+            // main_groupが'3'以外 (工務など)、または取得できなかった場合
+            categoryBEndpoint = `${API_BASE_URL}/api/categories/b?kind=engineering`;
         }
 
         const responseB = await fetchWithAuth(categoryBEndpoint);
         if (responseB.ok) {
             const categories = await responseB.json();
+            // アクティブなカテゴリのみを抽出
+            const activeCategories = categories.filter(cat => cat.active !== false);
+
             // ラベルだけでなく、clientとprojectの情報も保持する
-            categoryBOptions = categories.map(cat => ({
+            categoryBOptions = activeCategories.map(cat => ({
                 id: cat.id,
                 label: cat.label,
                 client: cat.client || '',
