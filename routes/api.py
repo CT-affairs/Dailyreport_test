@@ -1364,18 +1364,23 @@ def get_category_a():
     工数入力画面の選択肢として使用される。
     """
     try:
-        kind = request.args.get("kind")
+        # クエリパラメータからkindを取得。なければ'engineering'をデフォルトとする
+        kind = request.args.get("kind", "engineering")
+        
+        # 'engineering' または 'net' 以外が指定された場合も 'engineering' にフォールバック
+        if kind not in ["engineering", "net"]:
+            current_app.logger.warning(f"Invalid 'kind' parameter received: '{kind}'. Defaulting to 'engineering'.")
+            kind = "engineering"
 
-        query = db.collection("category_a")
+        current_app.logger.info(f"[/api/categories/category_a] Filtering by kind: '{kind}'")
 
-        if kind:
-            query = query.where(filter=FieldFilter("kind", "==", kind))
+        # クエリを構築。kindによるフィルタリングを常に行う
+        query = db.collection("category_a").where(filter=FieldFilter("kind", "==", kind))
 
         # ★ orderでソートするクエリに戻します。
         # このクエリにはFirestoreの複合インデックスが必要になります。
         docs = query.order_by("order").stream()
 
-        # フロントエンドが期待する { "label": "..." } の形式で返す
         categories = []
         for doc in docs:
             data = doc.to_dict()
