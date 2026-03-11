@@ -4044,7 +4044,7 @@ function renderProxyTimetable() {
             slotCell.className = 'timetable-slot';
             slotCell.style.cssText = `
                 border-bottom: 1px ${minute === 45 ? 'solid #ddd' : 'dotted #ddd'};
-                height: 1.5em;
+                height: 24px; /* emからpxに固定して表示ズレを防止 */
                 cursor: pointer;
                 position: relative; /* for selection highlight */
             `;
@@ -4230,16 +4230,17 @@ function addProxyTimetableTask() {
     taskElement.className = 'timetable-task';
     
     const slots = duration / 15;
-    // セルの高さ(1.5em)とtaskElementのフォントサイズ(0.8em)の差を補正 (1.5 / 0.8 = 1.875)
-    const heightPerSlot = 1.875;
-    const taskHeight = `calc(${slots * heightPerSlot}em + ${slots > 1 ? slots - 1 : 0}px)`;
+    // px単位で高さを正確に計算
+    const slotHeight = 24; // スロットセルの高さ(px)
+    const borderWidth = 1; // ボーダーの太さ(px)
+    const taskHeight = slots * slotHeight + (slots > 1 ? slots - 1 : 0) * borderWidth;
 
     taskElement.style.cssText = `
         position: absolute;
         top: 0;
         left: 0;
         right: 0;
-        height: ${taskHeight};
+        height: ${taskHeight}px;
         background-color: rgba(169, 68, 66, 0.8); /* btn-net color with alpha */
         color: white;
         border-left: 3px solid #8a2c2a;
@@ -4320,15 +4321,16 @@ function renderExistingTimetableTask(task) {
     taskElement.className = 'timetable-task';
     
     const slots = duration / 15;
-    const heightPerSlot = 1.875; // 1.5em (cell height) / 0.8em (element font-size)
-    const taskHeight = `calc(${slots * heightPerSlot}em + ${slots > 1 ? slots - 1 : 0}px)`;
+    const slotHeight = 24; // スロットセルの高さ(px)
+    const borderWidth = 1; // ボーダーの太さ(px)
+    const taskHeight = slots * slotHeight + (slots > 1 ? slots - 1 : 0) * borderWidth;
 
     taskElement.style.cssText = `
         position: absolute;
         top: 0;
         left: 0;
         right: 0;
-        height: ${taskHeight};
+        height: ${taskHeight}px;
         background-color: rgba(169, 68, 66, 0.8);
         color: white;
         border-left: 3px solid #8a2c2a;
