@@ -39,6 +39,29 @@ async function fetchWithAuth(url, options = {}) {
 }
 
 /**
+ * スクリプトを動的に読み込むヘルパー関数
+ * @param {string} src スクリプトのURL
+ * @returns {Promise<void>}
+ */
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        // すでに読み込まれていないかチェック
+        if (document.querySelector(`script[src="${src}"]`)) {
+            resolve();
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => resolve();
+        script.onerror = () => {
+            console.error(`Failed to load script: ${src}`);
+            reject(new Error(`Failed to load script: ${src}`));
+        };
+        document.head.appendChild(script);
+    });
+}
+
+/**
  * ユーザー情報を取得してサイドバーに表示する
  */
 async function updateUserInfo() {
@@ -3057,7 +3080,7 @@ async function initializeProxyReportScreen(isNetTemplate) {
 
     if (isNetTemplate) {
         // ネット事業部用のタイムテーブルUIの初期化
-        initializeProxyTimetable();
+        await initializeProxyTimetable();
     } else {
         // 工務用のUI初期化
         document.getElementById('proxy-add-task-button').addEventListener('click', () => addProxyTaskEntry());
@@ -3951,7 +3974,15 @@ const TIMETABLE_MAX_END = 22; // 残業の最大時刻
 /**
  * 代理入力（ネット事業部版）のタイムテーブルUIを初期化する
  */
-function initializeProxyTimetable() {
+async function initializeProxyTimetable() {
+    // ★ Interact.js を動的に読み込む
+    try {
+        await loadScript('https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js');
+    } catch (error) {
+        console.error(error);
+        showToast('インタラクションライブラリの読み込みに失敗しました。', 'error');
+    }
+
     // 初期状態リセット
     timetableStartHour = TIMETABLE_DEFAULT_START;
     timetableEndHour = TIMETABLE_DEFAULT_END;
@@ -4527,8 +4558,8 @@ function updateTaskFormButtons(mode) {
  * @param {HTMLElement} taskElement クリックされたタスク要素
  */
 function handleTaskClick(taskElement) {
-    // ドラッグ操作中はクリックイベントを無視する
-    if (taskElement.classList.contains('is-dragging')) {
+    // ドラッグやリサイズ操作中はクリックイベントを無視する
+    if (taskElement.classList.contains('is-dragging') || taskElement.classList.contains('is-resizing')) {
         return;
     }
 
