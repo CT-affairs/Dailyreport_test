@@ -3969,6 +3969,9 @@ function initializeProxyTimetable() {
     // ドラッグ選択機能のセットアップ
     setupProxyTimetableDragSelection();
 
+    // ★ Interact.js のインタラクションをセットアップ
+    setupTimetableInteractions();
+
     // 右側の時刻入力フォームが変更されたら、合計時間も更新する
     const startTimeInput = document.getElementById('task-start-time');
     const endTimeInput = document.getElementById('task-end-time');
@@ -4471,6 +4474,11 @@ function updateTaskFormButtons(mode) {
  * @param {HTMLElement} taskElement クリックされたタスク要素
  */
 function handleTaskClick(taskElement) {
+    // ドラッグ操作中はクリックイベントを無視する
+    if (taskElement.classList.contains('is-dragging')) {
+        return;
+    }
+
     // 既存の選択を解除
     if (currentlyEditingTaskElement) {
         currentlyEditingTaskElement.style.outline = '';
@@ -4564,4 +4572,83 @@ function handleDeleteTask() {
         clearProxyTaskDetailsForm();
         updateProxyWorkTimeSummary();
     }
+}
+
+/**
+ * Interact.js を使ってタイムテーブルのインタラクションを設定する
+ * この関数は、_manager_proxy_report_net.html で Interact.js が読み込まれていることを前提とします。
+ */
+function setupTimetableInteractions() {
+    // interact が未定義の場合は何もしない（ライブラリ未ロード対策）
+    if (typeof interact === 'undefined') {
+        console.warn('Interact.js is not loaded. Timetable drag & drop will not be available.');
+        return;
+    }
+
+    const slotHeight = 24; // 1スロットの高さ (px)
+    const formatTime = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
+    interact('.timetable-task')
+        .draggable({
+            inertia: false, // ドラッグ後の慣性を無効化
+            autoScroll: true, // ドラッグ中にコンテナを自動スクロール
+            listeners: {
+                start (event) {
+                    // ドラッグ開始時にフラグを立て、クリックイベントと競合しないようにする
+                    event.target.classList.add('is-dragging');
+                },
+                move (event) {
+                    const target = event.target;
+                    // Y方向の移動量のみを data-y 属性に蓄積
+                    const y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
+                    // 要素をY軸方向に移動させる
+                    target.style.transform = `translateY(${y}px)`;
+                    target.setAttribute('data-y', y);
+                },
+                end (event) {
+                    const target = event.target;
+                    // 少し遅延させてからドラッグフラグを解除し、クリックイベントが誤発火するのを防ぐ
+                    setTimeout(() => target.classList.remove('is-dragging'), 100);
+
+                    // Y方向の総移動量から、何スロット分移動したかを計算
+                    const movedSlots = Math.round((parseFloat(target.getAttribute('data-y')) || 0) / slotHeight);
+
+                    // スタイルと一時的な属性をリセット
+                    target.style.transform = '';
+                    target.removeAttribute('data-y');
+
+                    if (movedSlots === 0) return; // 移動がなければ何もしない
+
+                    const movedMinutes = movedSlots * 15;
+
+                    // 元の時刻と期間から新しい時刻を計算
+                    const originalStartTime = new Date(`1970-01-01T${target.dataset.startTime}`);
+                    const duration = (new Date(`1970-01-01T${target.dataset.endTime}`) - originalStartTime) / 60000;
+
+                    const newStartTime = new Date(originalStartTime.getTime() + movedMinutes * 60000);
+                    const newEndTime = new Date(newStartTime.getTime() + duration * 60000);
+
+                    const newStartTimeStr = formatTime(newStartTime);
+                    const newEndTimeStr = formatTime(newEndTime);
+
+                    // 新しい開始位置のDOM要素を探す
+                    const newStartRow = document.querySelector(`#timetable-rows tr[data-time="${newStartTimeStr}"]`);
+                    if (!newStartRow) {
+                        alert('移動先の時間帯が無効です。');
+                        return;
+                    }
+
+                    // データを更新してDOMを移動
+                    target.dataset.startTime = newStartTimeStr;
+                    target.dataset.endTime = newEndTimeStr;
+                    newStartRow.querySelector('.timetable-slot').appendChild(target);
+
+                    // 編集中のタスクを移動した場合、フォームの表示も更新
+                    if (currentlyEditingTaskElement === target) {
+                        document.getElementById('task-start-time').value = newStartTimeStr;
+                        document.getElementById('task-end-time').value = newEndTimeStr;
+                    }
+                }
+            }
+        });
 }
