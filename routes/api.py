@@ -1364,26 +1364,26 @@ def get_category_a():
     工数入力画面の選択肢として使用される。
     """
     try:
-        # クエリパラメータから 'kind' を取得
         kind = request.args.get("kind")
 
         query = db.collection("category_a")
 
-        # kindが指定されていれば、それでフィルタリング
         if kind:
             query = query.where(filter=FieldFilter("kind", "==", kind))
 
+        # ★ orderでソートするクエリに戻します。
+        # このクエリにはFirestoreの複合インデックスが必要になります。
         docs = query.order_by("order").stream()
+
         # フロントエンドが期待する { "label": "..." } の形式で返す
         categories = []
         for doc in docs:
             data = doc.to_dict()
-            # activeがFalseの場合は除外（デフォルトはTrue扱い）
             if data.get("active", True) and data.get("label"):
                 categories.append({"id": doc.id, "label": data.get("label")})
         return jsonify(categories), 200
     except Exception as e:
-        print(f"Error getting categories from 'category_a': {e}")
+        current_app.logger.error(f"Error getting categories from 'category_a': {e}", exc_info=True)
         abort(500, "Failed to get categories from 'category_a'.")
 
 @api_bp.route("/manager/categories/a", methods=["GET"])
