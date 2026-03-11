@@ -473,6 +473,75 @@ function setupNavigation() {
 }
 
 /**
+ * ネット事業部向けカテゴリ設定画面のUIを描画
+ */
+async function renderCategoriesNetUI(container) {
+    try {
+        // HTMLテンプレートを読み込み
+        const html = await fetchHtmlAsString('_manager_categories_net.html');
+        container.innerHTML = html;
+        const tbody = container.querySelector('#net-category-table-body');
+
+        // カテゴリBとカテゴリAのデータを並行取得
+        const [catBRes, catARes] = await Promise.all([
+            fetchWithAuth(`${API_BASE_URL}/api/manager/categories/b?kind=net`),
+            fetchWithAuth(`${API_BASE_URL}/api/manager/categories/a?kind=net`)
+        ]);
+
+        if (!catBRes.ok || !catARes.ok) {
+            throw new Error('カテゴリデータの取得に失敗しました。');
+        }
+
+        const categoriesB = await catBRes.json();
+        const categoriesA = await catARes.json();
+
+        // カラーマッピングを定義
+        const colorMap = {
+            'KIREI': { '全般': '#FF6600', '新商品アップ': '#FDE9D9', '発注・在庫': '#FABF8F', 'マーケティング・販促': '#F79646', 'メンテナンス': '#CC6600', 'Amazonアップ': '#FF9999', 'メルカリアップ': '#DA9694', 'OEM': '#C0504D', '顧客対応': '#FFC000' },
+            'FAVRAS': { '全般': '#0070C0', '新商品アップ': '#DCE6F1', '発注・在庫': '#92CDDC', 'マーケティング・販促': '#66CCFF', 'メンテナンス': '#4BACC6', 'OEM': '#6699FF', '顧客対応': '#00B0F0' },
+            'KIMITO': { '全般': '#339933', '新商品アップ': '#EBF1DE', '発注・在庫': '#C4D79B', 'マーケティング・販促': '#66FF99', 'メンテナンス': '#00CC00', 'OEM': '#00CC99', '顧客対応': '#92D050' },
+            '全体': { '全般': '#7030A0', '受注・出荷・決済': '#E4DFEC', '入荷管理': '#B1A0C7', '経理': '#8064A2', '総務・設備・人事・勤怠': '#9966FF', '梱包': '#FFFF00', '休み・遅刻・早退': '#000000', '工務課': '#1F497D' }
+        };
+        
+        // 背景色が濃く、文字を白くすべきカラーコードのリスト
+        const darkColors = ['#FF6600', '#CC6600', '#C0504D', '#0070C0', '#4BACC6', '#339933', '#00CC00', '#7030A0', '#8064A2', '#000000', '#1F497D'];
+
+        let tableHtml = '';
+
+        // APIから取得したカテゴリBでループ
+        categoriesB.forEach(catB => {
+            const catBLabel = catB.label;
+            const subCategoryMap = colorMap[catBLabel] || {};
+
+            // APIから取得したカテゴリAでループ
+            categoriesA.forEach((catA, index) => {
+                const catALabel = catA.label;
+                const color = subCategoryMap[catALabel] || '#FFFFFF'; // 見つからない場合は白
+                const textColor = darkColors.includes(color.toUpperCase()) ? '#FFFFFF' : '#000000';
+
+                tableHtml += '<tr>';
+                if (index === 0) {
+                    // 各カテゴリBの最初の行にだけカテゴリB名を表示（rowspanを使う）
+                    tableHtml += `<td rowspan="${categoriesA.length}" style="vertical-align: middle; font-weight: bold; text-align: center;">${escapeHTML(catBLabel)}</td>`;
+                }
+                tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
+                tableHtml += `<td><div style="background-color:${color}; padding: 5px; border: 1px solid #ccc; color: ${textColor};">${color}</div></td>`;
+                tableHtml += '</tr>';
+            });
+        });
+
+        tbody.innerHTML = tableHtml;
+
+    } catch (error) {
+        console.error('Error rendering net categories UI:', error);
+        const tbody = container.querySelector('#net-category-table-body');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="3" class="error" style="text-align:center;">${error.message}</td></tr>`;
+        }
+    }
+}
+
+/**
  * 画面の切り替え処理
  */
 function handleNavigation(target, params = {}, options = { push: true }) {
