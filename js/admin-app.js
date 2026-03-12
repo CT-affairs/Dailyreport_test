@@ -534,27 +534,44 @@ async function renderCategoriesNetUI(container) {
             let tableHtml = '';
             targetCategoriesB.forEach((catB, bIndex) => {
                 const catBLabel = catB.label;
+                const catBId = catB.id; // ★カテゴリBのID
                 const catBColor = categoryBColors[bIndex % categoryBColors.length];
                 const colorMap = catB.color_map || {};
 
                 allCategoriesA.forEach((catA, index) => {
                     const catALabel = catA.label;
                     const catAId = catA.id;
+                    // ★カテゴリAのID
                     const colorCode = colorMap[catAId] || '';
+                    // マッピング（色設定）があればチェック済みとする
+                    const isChecked = !!colorMap[catAId];
+                    const uniqueId = `cb_${catBId}_${catAId}`;
 
                     tableHtml += '<tr>';
                     if (index === 0) {
                         tableHtml += `<td rowspan="${allCategoriesA.length}" style="vertical-align: middle; font-weight: bold; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
                     }
                     tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
-                    tableHtml += `<td class="cell-center"><input type="checkbox" class="net-category-select"></td>`;
+                    // ★データ属性を追加
+                    tableHtml += `<td class="cell-center">
+                        <input type="checkbox" class="net-category-select"
+                            id="${uniqueId}"
+                            data-b-id="${catBId}"
+                            data-b-label="${escapeHTML(catBLabel)}"
+                            data-a-id="${catAId}"
+                            data-a-label="${escapeHTML(catALabel)}"
+                            data-color="${colorCode}"
+                            ${isChecked ? 'checked' : ''}>
+                    </td>`;
                     
-                    if (colorCode) {
-                        const textColor = isDarkColor(colorCode) ? '#FFFFFF' : '#333333';
-                        tableHtml += `<td><div style="background-color:${colorCode}; padding: 1px 3px; border: 1px solid #ccc; color: ${textColor}; font-size: 0.9em;">${colorCode}</div></td>`;
-                    } else {
-                        tableHtml += `<td></td>`;
-                    }
+                    // ★Color列を編集可能にする（カラーピッカー + テキスト表示）
+                    const displayColor = colorCode || '#ffffff';
+                    tableHtml += `<td>
+                        <div style="display: flex; align-items: center; gap: 4px;">
+                            <input type="color" class="net-category-color-picker" value="${displayColor}" data-target-id="${uniqueId}" style="border: 1px solid #ccc; padding: 0; width: 24px; height: 24px; cursor: pointer; background: none;">
+                            <span style="font-size: 0.85em; font-family: monospace; color: #333; min-width: 60px;">${colorCode}</span>
+                        </div>
+                    </td>`;
                     tableHtml += '</tr>';
                 });
             });
@@ -564,6 +581,41 @@ async function renderCategoriesNetUI(container) {
         // 左右のテーブルHTMLを生成して描画
         tbodyLeft.innerHTML = generateTableHtml(categoriesB_left, categoriesA);
         tbodyRight.innerHTML = generateTableHtml(categoriesB_right, categoriesA);
+
+        // --- カラーピッカー変更時のイベントリスナー ---
+        const handleColorChange = (e) => {
+            const picker = e.target;
+            const newColor = picker.value.toUpperCase();
+            const targetId = picker.dataset.targetId;
+            const checkbox = container.querySelector(`#${targetId}`);
+            const displaySpan = picker.nextElementSibling;
+
+            if (checkbox) checkbox.dataset.color = newColor;
+            if (displaySpan) displaySpan.textContent = newColor;
+        };
+
+        container.querySelectorAll('.net-category-color-picker').forEach(picker => {
+            picker.addEventListener('input', handleColorChange);
+        });
+
+        // --- マッピング生成テスト用の保存ボタン ---
+        const saveContainer = document.createElement('div');
+        saveContainer.style.marginTop = '20px';
+        saveContainer.style.textAlign = 'right';
+        saveContainer.innerHTML = `<button id="save-net-mapping-btn" class="btn-primary">設定を保存 (コンソール確認)</button>`;
+        container.appendChild(saveContainer);
+
+        document.getElementById('save-net-mapping-btn').addEventListener('click', () => {
+            const mapping = {};
+            container.querySelectorAll('.net-category-select').forEach(cb => {
+                const { bId, aId, color, aLabel } = cb.dataset;
+                if (!mapping[bId]) mapping[bId] = {};
+                mapping[bId][aId] = { active: cb.checked, color, label: aLabel };
+            });
+            console.log("--- Generated Mapping ---", JSON.stringify(mapping, null, 2));
+            alert("コンソールにマッピングデータを出力しました。");
+            // TODO: API保存処理
+        });
 
         // --- 表示切替トグルのイベントリスナー ---
         const toggleCheckbox = container.querySelector('#net-category-toggle-checked');
