@@ -833,7 +833,8 @@ def get_manager_category_b():
                 "order": data.get("order", 0),
                 "client": data.get("client", ""),
                 "project": data.get("project", ""),
-                "offices": data.get("offices", [])
+                "offices": data.get("offices", []),
+                "color_map": data.get("color_map", {})
             })
         
         # order降順、label昇順でソート
@@ -843,6 +844,48 @@ def get_manager_category_b():
     except Exception as e:
         current_app.logger.error(f"Failed to fetch categories: {e}")
         abort(500, f"Failed to fetch categories: {e}")
+
+@api_bp.route("/manager/categories/net/mapping", methods=["POST"])
+@token_required
+@manager_required
+def save_net_category_mapping():
+    """
+    ネット事業部カテゴリ設定（マッピング）を保存する。
+    リクエストボディは以下の形式:
+    {
+        "cat_b_id_1": {
+            "cat_a_id_1": { "active": true, "color": "#FFFFFF", "label": "..." },
+            "cat_a_id_2": { "active": false, "color": "#000000", "label": "..." }
+        },
+        ...
+    }
+    """
+    mapping_data = request.get_json()
+    if not isinstance(mapping_data, dict):
+        abort(400, "Request body must be a JSON object.")
+
+    try:
+        batch = db.batch()
+        cat_b_ref = db.collection("category_b")
+
+        for cat_b_id, cat_a_mappings in mapping_data.items():
+            if not isinstance(cat_a_mappings, dict):
+                continue
+
+            new_color_map = {}
+            for cat_a_id, details in cat_a_mappings.items():
+                # activeがtrueで、colorが設定されているものだけをマップに含める
+                if details.get("active") and details.get("color") and str(details["color"]).startswith('#'):
+                    new_color_map[cat_a_id] = str(details["color"]).upper()
+
+            doc_ref = cat_b_ref.document(cat_b_id)
+            batch.update(doc_ref, {"color_map": new_color_map})
+
+        batch.commit()
+        return jsonify({"status": "success", "message": f"{len(mapping_data)}件のカテゴリマッピングを更新しました。"}), 200
+    except Exception as e:
+        current_app.logger.error(f"Failed to save net category mapping: {e}", exc_info=True)
+        abort(500, f"マッピングの保存中にエラーが発生しました: {e}")
 
 @api_bp.route("/manager/categories/b/update_status", methods=["POST"])
 @token_required

@@ -626,20 +626,45 @@ async function renderCategoriesNetUI(container) {
         // --- マッピング生成テスト用の保存ボタン ---
         const saveContainer = document.createElement('div');
         saveContainer.style.marginTop = '20px';
-        saveContainer.style.textAlign = 'right';
-        saveContainer.innerHTML = `<button id="save-net-mapping-btn" class="btn-primary">設定を保存 (コンソール確認)</button>`;
+        // ボタンをコンテナの右端に配置
+        saveContainer.style.display = 'flex';
+        saveContainer.style.justifyContent = 'flex-end';
+        saveContainer.innerHTML = `<button id="save-net-mapping-btn" class="btn-primary">設定を保存</button>`;
         container.appendChild(saveContainer);
 
-        document.getElementById('save-net-mapping-btn').addEventListener('click', () => {
+        document.getElementById('save-net-mapping-btn').addEventListener('click', async () => {
             const mapping = {};
             container.querySelectorAll('.net-category-select').forEach(cb => {
                 const { bId, aId, color, aLabel } = cb.dataset;
                 if (!mapping[bId]) mapping[bId] = {};
                 mapping[bId][aId] = { active: cb.checked, color, label: aLabel };
             });
-            console.log("--- Generated Mapping ---", JSON.stringify(mapping, null, 2));
-            alert("コンソールにマッピングデータを出力しました。");
-            // TODO: API保存処理
+
+            const btn = document.getElementById('save-net-mapping-btn');
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '保存中...';
+
+            try {
+                const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/net/mapping`, {
+                    method: 'POST',
+                    body: JSON.stringify(mapping)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `保存に失敗しました (Status: ${response.status})`);
+                }
+                const result = await response.json();
+                showToast(result.message || '設定を保存しました。', 'success');
+                renderCategoriesNetUI(container); // 画面を再描画して最新の状態を反映
+            } catch (error) {
+                console.error('Failed to save mapping:', error);
+                showToast(`エラー: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
         });
 
         // --- 表示切替トグルのイベントリスナー ---
