@@ -3932,6 +3932,13 @@ function createDefaultBreakTask() {
     taskElement.dataset.startTime = startTime;
     taskElement.dataset.endTime = endTime;
     taskElement.dataset.comment = '昼休憩';
+    // ★ 保存・送信処理で識別するためのIDを設定
+    taskElement.dataset.categoryAId = 'N99';
+    taskElement.dataset.categoryALabel = '昼休憩';
+    // 休憩タスクのカテゴリBは固定の識別子とする
+    taskElement.dataset.categoryBId = 'n_break'; 
+    taskElement.dataset.categoryBLabel = '休憩';
+
 
     // 休憩タスクはクリックしても編集フォームを開かないようにする
     taskElement.addEventListener('click', (e) => {
@@ -4257,8 +4264,22 @@ async function handleProxyReportSubmit(e) {
     if (isNetTemplate) {
         // ネット事業部（タイムテーブル形式）のタスク収集
         document.querySelectorAll('.timetable-task').forEach(taskEl => {
-            // ★休憩タスクは送信データに含めない
-            if (taskEl.dataset.taskType === 'break') return;
+            const isBreakTask = taskEl.dataset.taskType === 'break';
+
+            // ★休憩タスクも送信データに含めるが、timeは0にする
+            if (isBreakTask) {
+                tasks.push({
+                    categoryA_id: 'N99',
+                    categoryA_label: '昼休憩',
+                    categoryB_id: 'n_break', // 固定ID
+                    categoryB_label: '休憩',
+                    time: 0, // ★工数に含めないため0
+                    startTime: taskEl.dataset.startTime,
+                    endTime: taskEl.dataset.endTime,
+                    comment: '昼休憩'
+                });
+                return; // 次のタスクへ
+            }
 
             // 時間計算
             const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
@@ -4925,6 +4946,12 @@ function clearProxyTaskDetailsForm() {
  * @param {object} task APIから取得したタスクオブジェクト
  */
 function renderExistingTimetableTask(task) {
+    // ★休憩タスクの場合、デフォルト休憩タスク生成関数を呼び出して描画する
+    if (task.categoryA_id === 'N99') {
+        createDefaultBreakTask(); // 休憩タスクは常に1つなので、これでOK
+        return;
+    }
+
     const { startTime, endTime, categoryA_id, categoryA_label, categoryB_id, categoryB_label, comment } = task;
 
     if (!startTime || !endTime) {
