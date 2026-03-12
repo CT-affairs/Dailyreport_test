@@ -500,7 +500,7 @@ async function renderCategoriesNetUI(container) {
         // カテゴリBを左右のグループに分割し、指定された順序でソートする
         // ラベルの大文字小文字や表記ゆれに対応するため候補を追加
         const leftOrder = ['KIREI', 'kireispot', 'FAVRAS', 'favras', 'KIMITO', 'kimito'];
-        const rightOrder = ['全体', '梱包'];
+        const rightOrder = ['全体', '梱包室'];
 
         // 大文字小文字を無視して比較するヘルパー
         const isMatch = (label, list) => list.some(item => item.toUpperCase() === label.toUpperCase());
