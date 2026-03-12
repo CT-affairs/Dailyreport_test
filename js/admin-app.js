@@ -480,7 +480,9 @@ async function renderCategoriesNetUI(container) {
         // HTMLテンプレートを読み込み
         const html = await fetchHtmlAsString('_manager_categories_net.html');
         container.innerHTML = html;
-        const tbody = container.querySelector('#net-category-table-body');
+        // 左右のtbodyを取得
+        const tbodyLeft = container.querySelector('#net-category-table-body-left');
+        const tbodyRight = container.querySelector('#net-category-table-body-right');
 
         // カテゴリBとカテゴリAのデータを並行取得
         const [catBRes, catARes] = await Promise.all([
@@ -494,6 +496,18 @@ async function renderCategoriesNetUI(container) {
 
         const categoriesB = await catBRes.json();
         const categoriesA = await catARes.json();
+
+        // カテゴリBを左右のグループに分割し、指定された順序でソートする
+        const leftOrder = ['KIREI', 'FAVRAS', 'KIMITO'];
+        const rightOrder = ['全体', '梱包'];
+
+        const categoriesB_left = categoriesB
+            .filter(cat => leftOrder.includes(cat.label))
+            .sort((a, b) => leftOrder.indexOf(a.label) - leftOrder.indexOf(b.label));
+
+        const categoriesB_right = categoriesB
+            .filter(cat => rightOrder.includes(cat.label))
+            .sort((a, b) => rightOrder.indexOf(a.label) - rightOrder.indexOf(b.label));
 
         // 集計項目（カテゴリB）に割り当てる5色の淡い色を定義
         const categoryBColors = ['#E0F7FA', '#F1F8E9', '#FFF9C4', '#FCE4EC', '#EDE7F6'];
@@ -509,46 +523,53 @@ async function renderCategoriesNetUI(container) {
             return (r * 0.299 + g * 0.587 + b * 0.114) < 140;
         };
 
-        let tableHtml = '';
+        // テーブルHTMLを生成する共通関数
+        const generateTableHtml = (targetCategoriesB, allCategoriesA) => {
+            let tableHtml = '';
+            targetCategoriesB.forEach((catB, bIndex) => {
+                const catBLabel = catB.label;
+                const catBColor = categoryBColors[bIndex % categoryBColors.length];
+                const colorMap = catB.color_map || {};
 
-        // APIから取得したカテゴリBでループ
-        categoriesB.forEach((catB, bIndex) => {
-            const catBLabel = catB.label;
-            const catBColor = categoryBColors[bIndex % categoryBColors.length];
-            const colorMap = catB.color_map || {};
+                allCategoriesA.forEach((catA, index) => {
+                    const catALabel = catA.label;
+                    const catAId = catA.id;
+                    const colorCode = colorMap[catAId] || '';
 
-            // APIから取得したカテゴリAでループ
-            categoriesA.forEach((catA, index) => {
-                const catALabel = catA.label;
-                const catAId = catA.id;
-                const colorCode = colorMap[catAId] || '';
-
-                tableHtml += '<tr>';
-                if (index === 0) {
-                    // 各カテゴリBの最初の行にだけカテゴリB名を表示（rowspanを使う）
-                    tableHtml += `<td rowspan="${categoriesA.length}" style="vertical-align: middle; font-weight: bold; text-align: center; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
-                }
-                // 業務種別の列は背景色なし
-                tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
-                tableHtml += `<td style="text-align: center;"><input type="checkbox" class="net-category-select"></td>`;
-                
-                if (colorCode) {
-                    const textColor = isDarkColor(colorCode) ? '#FFFFFF' : '#333333';
-                    tableHtml += `<td><div style="background-color:${colorCode}; padding: 1px 3px; border: 1px solid #ccc; color: ${textColor}; font-size: 0.9em; text-align: center;">${colorCode}</div></td>`;
-                } else {
-                    tableHtml += `<td></td>`;
-                }
-                tableHtml += '</tr>';
+                    tableHtml += '<tr>';
+                    if (index === 0) {
+                        tableHtml += `<td rowspan="${allCategoriesA.length}" style="vertical-align: middle; font-weight: bold; text-align: center; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
+                    }
+                    tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
+                    tableHtml += `<td style="text-align: center;"><input type="checkbox" class="net-category-select"></td>`;
+                    
+                    if (colorCode) {
+                        const textColor = isDarkColor(colorCode) ? '#FFFFFF' : '#333333';
+                        tableHtml += `<td><div style="background-color:${colorCode}; padding: 1px 3px; border: 1px solid #ccc; color: ${textColor}; font-size: 0.9em; text-align: center;">${colorCode}</div></td>`;
+                    } else {
+                        tableHtml += `<td></td>`;
+                    }
+                    tableHtml += '</tr>';
+                });
             });
-        });
+            return tableHtml;
+        };
 
-        tbody.innerHTML = tableHtml;
+        // 左右のテーブルHTMLを生成して描画
+        tbodyLeft.innerHTML = generateTableHtml(categoriesB_left, categoriesA);
+        tbodyRight.innerHTML = generateTableHtml(categoriesB_right, categoriesA);
 
     } catch (error) {
         console.error('Error rendering net categories UI:', error);
-        const tbody = container.querySelector('#net-category-table-body');
-        if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="4" class="error" style="text-align:center;">${error.message}</td></tr>`;
+        // エラーハンドリングも左右両方に対応
+        const tbodyLeft = container.querySelector('#net-category-table-body-left');
+        const tbodyRight = container.querySelector('#net-category-table-body-right');
+        const errorMessage = `<tr><td colspan="4" class="error" style="text-align:center;">${error.message}</td></tr>`;
+        if (tbodyLeft) {
+            tbodyLeft.innerHTML = errorMessage;
+        }
+        if (tbodyRight) {
+            tbodyRight.innerHTML = errorMessage;
         }
     }
 }
