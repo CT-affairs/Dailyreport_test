@@ -623,6 +623,27 @@ async function renderCategoriesNetUI(container) {
             textInput.addEventListener('change', handleColorTextChange); // Use 'change' to avoid updates on every keystroke
         });
 
+        // --- チェックボックス変更時のイベントリスナー ---
+        const handleCheckboxChange = (e) => {
+            const checkbox = e.target;
+            const row = checkbox.closest('tr');
+            if (!row) return;
+
+            const colorPicker = row.querySelector('.net-category-color-picker');
+            const colorText = row.querySelector('.net-category-color-text');
+
+            // チェックが入った時、かつ色が未設定の場合のみ処理
+            if (checkbox.checked && (!checkbox.dataset.color || !checkbox.dataset.color.startsWith('#'))) {
+                const defaultColor = '#FFFFFF';
+                checkbox.dataset.color = defaultColor;
+                if (colorPicker) colorPicker.value = defaultColor;
+                if (colorText) colorText.value = defaultColor;
+            }
+        };
+        container.querySelectorAll('.net-category-select').forEach(checkbox => {
+            checkbox.addEventListener('change', handleCheckboxChange);
+        });
+
         // --- マッピング生成テスト用の保存ボタン ---
         const saveContainer = document.createElement('div');
         saveContainer.style.marginTop = '20px';

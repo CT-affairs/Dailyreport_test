@@ -805,7 +805,7 @@ def get_calendar_status_for_month():
 
 @api_bp.route("/manager/categories/b", methods=["GET"])
 @token_required
-@login_required
+@manager_required
 def get_manager_category_b():
     """
     管理者向けに、category_bの一覧（詳細情報含む）を返すエンドポイント。
