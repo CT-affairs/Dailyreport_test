@@ -498,12 +498,18 @@ async function renderCategoriesNetUI(container) {
         const categoriesA = await catARes.json();
 
         // カテゴリBを左右のグループに分割し、指定された順序でソートする
-        const leftOrder = ['KIREI', 'FAVRAS', 'KIMITO'];
+        // ラベルの大文字小文字や表記ゆれに対応するため候補を追加
+        const leftOrder = ['KIREI', 'kireispot', 'FAVRAS', 'favras', 'KIMITO', 'kimito'];
         const rightOrder = ['全体', '梱包'];
 
+        // 大文字小文字を無視して比較するヘルパー
+        const isMatch = (label, list) => list.some(item => item.toUpperCase() === label.toUpperCase());
+        // ソート順序用インデックス取得
+        const getOrderIndex = (label, list) => list.findIndex(item => item.toUpperCase() === label.toUpperCase());
+
         const categoriesB_left = categoriesB
-            .filter(cat => leftOrder.includes(cat.label))
-            .sort((a, b) => leftOrder.indexOf(a.label) - leftOrder.indexOf(b.label));
+            .filter(cat => isMatch(cat.label, leftOrder))
+            .sort((a, b) => getOrderIndex(a.label, leftOrder) - getOrderIndex(b.label, leftOrder));
 
         const categoriesB_right = categoriesB
             .filter(cat => rightOrder.includes(cat.label))
@@ -558,6 +564,36 @@ async function renderCategoriesNetUI(container) {
         // 左右のテーブルHTMLを生成して描画
         tbodyLeft.innerHTML = generateTableHtml(categoriesB_left, categoriesA);
         tbodyRight.innerHTML = generateTableHtml(categoriesB_right, categoriesA);
+
+        // --- 表示切替トグルのイベントリスナー ---
+        const toggleCheckbox = container.querySelector('#net-category-toggle-checked');
+        if (toggleCheckbox) {
+            toggleCheckbox.addEventListener('change', () => {
+                const isCheckedOnly = toggleCheckbox.checked;
+                const tbodies = [tbodyLeft, tbodyRight];
+
+                tbodies.forEach(tbody => {
+                    if (!tbody) return;
+                    const rows = tbody.querySelectorAll('tr');
+                    rows.forEach(row => {
+                        const selectCheckbox = row.querySelector('.net-category-select');
+                        // チェックボックスがない行は常に表示
+                        if (!selectCheckbox) {
+                            row.style.visibility = 'visible';
+                            return;
+                        }
+
+                        if (isCheckedOnly) {
+                            // 「選択済みのみ表示」モード
+                            row.style.visibility = selectCheckbox.checked ? 'visible' : 'collapse';
+                        } else {
+                            // 全表示モード
+                            row.style.visibility = 'visible';
+                        }
+                    });
+                });
+            });
+        }
 
     } catch (error) {
         console.error('Error rendering net categories UI:', error);
