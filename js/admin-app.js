@@ -3483,7 +3483,8 @@ async function setupProxyCategoryDatalists() {
                 label: cat.label,
                 client: cat.client || '',
                 project: cat.project || '',
-                offices: cat.offices || []
+                offices: cat.offices || [],
+                category_a_settings: cat.category_a_settings || {}
             }));
             proxyCategoryBOptions.sort((a, b) => b.label.localeCompare(a.label, undefined, { numeric: true }));
             // 履歴でソート (通常のソートの後に適用することで、履歴外のものは元の順序を維持)
@@ -4360,6 +4361,19 @@ async function initializeProxyTimetable() {
     // カテゴリ選択プルダウンの初期化
     const catA_select = document.getElementById('task-category-a-select');
     const catB_select = document.getElementById('task-category-b-select');
+    const catA_label = document.querySelector('label[for="task-category-a-select"]');
+    const catB_label = document.querySelector('label[for="task-category-b-select"]');
+
+    // ★ 1) UIの入れ替え
+    if (catA_label && catB_label) {
+        const catA_container = catA_label.parentElement;
+        const catB_container = catB_label.parentElement;
+        if (catA_container && catB_container && catA_container.parentElement === catB_container.parentElement) {
+            // catBのコンテナをcatAのコンテナの前に挿入
+            catA_container.parentElement.insertBefore(catB_container, catA_container);
+        }
+    }
+
 
     if (catA_select) {
         // ★既存のオプションをクリア
@@ -4370,6 +4384,9 @@ async function initializeProxyTimetable() {
             option.textContent = opt.label;
             catA_select.appendChild(option);
         });
+
+        // ★ 2) 業務種別を初期状態で無効化
+        catA_select.disabled = true;
     }
     if (catB_select) {
         // ★既存のオプションをクリア
@@ -4381,6 +4398,37 @@ async function initializeProxyTimetable() {
             const displayText = [opt.label, opt.project].filter(Boolean).join(' ');
             option.textContent = displayText;
             catB_select.appendChild(option);
+        });
+
+        // ★ 3) イベントリスナーの追加
+        catB_select.addEventListener('change', () => {
+            const selectedCatB_Id = catB_select.value;
+            const selectedCatB = proxyCategoryBOptions.find(opt => opt.id === selectedCatB_Id);
+            const settings = selectedCatB ? selectedCatB.category_a_settings : null;
+
+            // 業務種別プルダウンをリセット
+            catA_select.innerHTML = '<option value="">選択してください...</option>';
+            
+            if (settings && Object.keys(settings).length > 0) {
+                // 業務種別を選択可能に
+                catA_select.disabled = false;
+                
+                // 許可された業務種別のIDリスト
+                const allowedCatA_Ids = Object.keys(settings);
+                
+                // 選択肢をフィルタリングして追加
+                const filteredOptions = proxyCategoryAOptions.filter(opt => allowedCatA_Ids.includes(opt.id));
+                
+                filteredOptions.forEach(opt => {
+                    const option = document.createElement('option');
+                    option.value = opt.id;
+                    option.textContent = opt.label;
+                    catA_select.appendChild(option);
+                });
+            } else {
+                // 設定がない場合は業務種別を選択不可に
+                catA_select.disabled = true;
+            }
         });
     }
 
@@ -4721,9 +4769,9 @@ function addProxyTimetableTask() {
     
     // --- 色の決定ロジック ---
     const selectedCatB = proxyCategoryBOptions.find(opt => opt.id === categoryB_id);
-    // 将来的に color_map: { "A01": "#ff0000", ... } が渡されることを想定
-    const colorMap = selectedCatB ? selectedCatB.color_map : null; 
-    const taskColor = colorMap ? colorMap[categoryA_id] : null;
+    // category_a_settings: { "A01": "#ff0000", ... } が渡されることを想定
+    const settings = selectedCatB ? selectedCatB.category_a_settings : null; 
+    const taskColor = settings ? settings[categoryA_id] : null;
     const defaultBgColor = 'rgba(252, 185, 237, 0.8)'; 
     const bgColor = taskColor || defaultBgColor;
     const borderColor = '#555555'; // 共通の濃いグレー
@@ -4788,7 +4836,13 @@ function clearProxyTaskDetailsForm() {
     document.getElementById('task-start-time').value = '';
     document.getElementById('task-end-time').value = '';
     document.getElementById('task-duration').value = '';
-    document.getElementById('task-category-a-select').value = '';
+    
+    const catA_select = document.getElementById('task-category-a-select');
+    catA_select.value = '';
+    // ★ 業務種別を無効化し、選択肢をリセット
+    catA_select.disabled = true;
+    catA_select.innerHTML = '<option value="">選択してください...</option>';
+
     document.getElementById('task-category-b-select').value = '';
     document.getElementById('task-comment').value = '';
 
@@ -4835,8 +4889,8 @@ function renderExistingTimetableTask(task) {
 
     // --- 色の決定ロジック ---
     const catBData = proxyCategoryBOptions.find(opt => opt.id === categoryB_id);
-    const colorMap = catBData ? catBData.color_map : null;
-    const taskColor = colorMap ? colorMap[categoryA_id] : null;
+    const settings = catBData ? catBData.category_a_settings : null;
+    const taskColor = settings ? settings[categoryA_id] : null;
     const defaultBgColor = 'rgba(169, 68, 66, 0.8)';
     const bgColor = taskColor || defaultBgColor;
     const borderColor = '#555555'; // 共通の濃いグレー
@@ -4936,8 +4990,15 @@ function handleTaskClick(taskElement) {
     // フォームにデータをロード
     document.getElementById('task-start-time').value = taskElement.dataset.startTime;
     document.getElementById('task-end-time').value = taskElement.dataset.endTime;
-    document.getElementById('task-category-a-select').value = taskElement.dataset.categoryAId;
+    
+    // ★先に集計項目を設定
     document.getElementById('task-category-b-select').value = taskElement.dataset.categoryBId;
+    // ★集計項目のchangeイベントを発火させて業務種別の選択肢を更新
+    document.getElementById('task-category-b-select').dispatchEvent(new Event('change'));
+    
+    // ★業務種別を選択（選択肢が更新された後に行う）
+    document.getElementById('task-category-a-select').value = taskElement.dataset.categoryAId;
+
     document.getElementById('task-comment').value = taskElement.dataset.comment;
     updateTaskDuration(); // 時間（分）も更新
 
