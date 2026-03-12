@@ -4664,6 +4664,7 @@ function setupProxyTimetableDragSelection() {
     let isDragging = false;
     let startRow = null;
     let endRow = null;
+    let shiftClickStartRow = null; // Shift+クリックの開始点を保持
 
     timetableBody.addEventListener('mousedown', (e) => {
         // クリックされたのが既存タスクの場合、ドラッグ選択は開始せず、
@@ -4677,12 +4678,25 @@ function setupProxyTimetableDragSelection() {
             clearProxyTaskDetailsForm();
         }
 
+        // ★ Shift+クリックによる範囲選択
+        if (e.shiftKey && shiftClickStartRow) {
+            e.preventDefault();
+            startRow = shiftClickStartRow;
+            endRow = e.target.closest('tr');
+            updateSelectionHighlight();
+            updateFormTimes();
+            // Shiftクリックでの選択後はドラッグモードに移行しない
+            isDragging = false; 
+            return;
+        }
+
         const targetRow = e.target.closest('tr');
         if (!targetRow) return;
 
         e.preventDefault(); // テキスト選択などを防ぐ
         isDragging = true;
         startRow = targetRow;
+        shiftClickStartRow = targetRow; // 通常のクリックでも開始点を記憶
         endRow = targetRow;
         
         updateSelectionHighlight();
