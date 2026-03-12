@@ -3588,6 +3588,9 @@ async function loadProxyExistingData() {
         updateProxyWorkTimeSummary();
         messageDiv.textContent = '';
 
+        // ★ 既存データ読み込み後に、デフォルトの休憩タスクを生成
+        createDefaultBreakTask();
+
     } catch (error) {
         console.error("データ読み込みエラー:", error);
         messageDiv.textContent = 'データの読み込みに失敗しました。';
@@ -3886,6 +3889,62 @@ function updateProxySliderRemainingTime() {
 }
 
 /**
+ * デフォルトの休憩タスク（12:00-13:00）をタイムテーブルに描画する
+ */
+function createDefaultBreakTask() {
+    const startTime = '12:00';
+    const endTime = '13:00';
+    const duration = 60;
+
+    // 既に休憩タスクが存在する場合は何もしない
+    if (document.querySelector('.timetable-task[data-task-type="break"]')) {
+        return;
+    }
+
+    // 12:00-13:00の範囲に他のタスクが既に存在する場合は描画しない
+    if (checkTaskCollision(startTime, endTime)) {
+        console.log('Default break time (12:00-13:00) collides with an existing task. Skipping creation.');
+        return;
+    }
+
+    const startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+    if (!startRow) {
+        console.warn('Could not find start row for default break task (12:00).');
+        return;
+    }
+    const startSlotCell = startRow.querySelector('.timetable-slot');
+
+    const taskElement = document.createElement('div');
+    taskElement.className = 'timetable-task';
+    taskElement.dataset.taskType = 'break'; // 休憩タスクを識別
+
+    const bgColor = '#e9ecef'; // 薄いグレー
+    const textColor = '#6c757d'; // 少し濃いグレー
+    const borderColor = 'transparent'; // バーなし
+
+    const taskHeight = (duration / 15) * 24; // 60分 = 4スロット * 24px = 96px
+
+    taskElement.style.cssText = `position: absolute; top: 0; left: 0; right: 0; height: ${taskHeight}px; background-color: ${bgColor}; color: ${textColor}; border-left: 3px solid ${borderColor}; padding: 4px 6px; font-size: 0.8em; line-height: 1.3; overflow: hidden; z-index: 10; box-sizing: border-box; cursor: grab; display: flex; align-items: center; justify-content: center;`;
+
+    taskElement.innerHTML = `<div>昼休憩</div>`;
+
+    // datasetを設定
+    taskElement.dataset.startTime = startTime;
+    taskElement.dataset.endTime = endTime;
+    taskElement.dataset.comment = '昼休憩';
+
+    // 休憩タスクはクリックしても編集フォームを開かないようにする
+    taskElement.addEventListener('click', (e) => {
+        e.stopPropagation(); // イベントの伝播を止める
+        if (currentlyEditingTaskElement) {
+            clearProxyTaskDetailsForm();
+        }
+    });
+
+    startSlotCell.appendChild(taskElement);
+}
+
+/**
  * 代理入力のサマリー更新
  */
 function updateProxyWorkTimeSummary() {
@@ -3897,6 +3956,9 @@ function updateProxyWorkTimeSummary() {
     if (isNetTemplate) {
         // Net: Sum durations from timetable tasks
         document.querySelectorAll('.timetable-task').forEach(taskEl => {
+            // ★休憩タスクは合計に含めない
+            if (taskEl.dataset.taskType === 'break') return;
+
             const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
             const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
             if (end < start) end.setDate(end.getDate() + 1);
@@ -4195,6 +4257,9 @@ async function handleProxyReportSubmit(e) {
     if (isNetTemplate) {
         // ネット事業部（タイムテーブル形式）のタスク収集
         document.querySelectorAll('.timetable-task').forEach(taskEl => {
+            // ★休憩タスクは送信データに含めない
+            if (taskEl.dataset.taskType === 'break') return;
+
             // 時間計算
             const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
             const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
@@ -4277,6 +4342,7 @@ async function handleProxyReportSubmit(e) {
 
 // --- タイムテーブル用の状態変数 ---
 let currentlyEditingTaskElement = null; // ★編集中のタスク要素を保持
+let detachedTaskElements = []; // ★画面外のタスク要素を保持する
 let timetableStartHour = 7;
 let timetableEndHour = 18;
 const TIMETABLE_MIN_START = 5; // 早出の最小時刻
@@ -4301,6 +4367,7 @@ async function initializeProxyTimetable() {
     // 初期状態リセット
     timetableStartHour = TIMETABLE_DEFAULT_START;
     timetableEndHour = TIMETABLE_DEFAULT_END;
+    detachedTaskElements = []; // ★リセットを追加
 
     // 初期表示
     renderProxyTimetable();
@@ -4474,67 +4541,38 @@ function renderProxyTimetable() {
     const tbody = document.getElementById('timetable-rows');
     if (!tbody) return;
 
-    // ★ 変更点: 再描画の前に、既存のタスク情報を収集する
-    const existingTasks = [];
-    document.querySelectorAll('.timetable-task').forEach(taskEl => {
-        // datasetのプロパティはcamelCase (e.g., categoryAId) になる
-        existingTasks.push({ ...taskEl.dataset });
-    });
+    // ★ 変更点: 既存のタスクが消えないように、退避・再配置するロジックに変更
+    const currentDomTasks = Array.from(document.querySelectorAll('.timetable-task'));
+    const allTaskElements = [...currentDomTasks, ...detachedTaskElements];
+    detachedTaskElements = []; // 待機リストをクリア
 
-    tbody.innerHTML = ''; // 既存の行をクリア
+    currentDomTasks.forEach(el => el.remove());
+
+    tbody.innerHTML = ''; // 既存の時間行をクリア
 
     for (let hour = timetableStartHour; hour < timetableEndHour; hour++) {
         for (let minute = 0; minute < 60; minute += 15) {
             const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-            
             const tr = document.createElement('tr');
             tr.dataset.time = timeStr;
-
-            // 時刻表示セル (00分の時だけ表示)
-            const timeCell = document.createElement('td');
-            timeCell.style.cssText = `
-                width: 70px;
-                text-align: center;
-                font-size: 0.8em;
-                color: #666;
-                border-right: 1px solid #eee;
-                vertical-align: top;
-                padding-top: 2px;
+            tr.innerHTML = `
+                <td style="width: 70px; text-align: center; font-size: 0.8em; color: #666; border-right: 1px solid #eee; vertical-align: top; padding-top: 2px;">
+                    ${minute === 0 ? timeStr : ''}
+                </td>
+                <td class="timetable-slot" style="padding: 0; box-sizing: border-box; border-bottom: 1px ${minute === 45 ? 'solid #ddd' : 'dotted #ddd'}; height: 24px; cursor: pointer; position: relative;"></td>
             `;
-            if (minute === 0) {
-                timeCell.textContent = timeStr;
-            }
-            
-            // コメント入力/選択セル
-            const slotCell = document.createElement('td');
-            slotCell.className = 'timetable-slot';
-            slotCell.style.cssText = `
-                padding: 0; /* admin.cssのpaddingをリセット */
-                box-sizing: border-box; /* borderを高さに含める */
-                border-bottom: 1px ${minute === 45 ? 'solid #ddd' : 'dotted #ddd'};
-                height: 24px; /* これでセルの高さが正確に24pxになる */
-                cursor: pointer;
-                position: relative; /* for selection highlight */
-            `;
-            
-            tr.appendChild(timeCell);
-            tr.appendChild(slotCell);
             tbody.appendChild(tr);
         }
     }
 
-    // ★ 変更点: 収集したタスクを再描画する
-    existingTasks.forEach(taskData => {
-        // renderExistingTimetableTask が snake_case のキーを期待するため、マッピングする
-        renderExistingTimetableTask({
-            startTime: taskData.startTime,
-            endTime: taskData.endTime,
-            categoryA_id: taskData.categoryAId,
-            categoryA_label: taskData.categoryALabel,
-            categoryB_id: taskData.categoryBId,
-            categoryB_label: taskData.categoryBLabel,
-            comment: taskData.comment
-        });
+    allTaskElements.forEach(taskEl => {
+        const startTime = taskEl.dataset.startTime;
+        const startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+        if (startRow) {
+            startRow.querySelector('.timetable-slot').appendChild(taskEl);
+        } else {
+            detachedTaskElements.push(taskEl);
+        }
     });
 
     // ズームボタンの活性/非活性を更新
@@ -5207,6 +5245,12 @@ function setupTimetableInteractions() {
             edges: { top: true, bottom: true }, // 上下方向のリサイズを有効化
             listeners: {
                 start (event) {
+                    // ★休憩タスクのリサイズを禁止
+                    if (event.target.dataset.taskType === 'break') {
+                        alert('休憩時間は変更できません。');
+                        event.interaction.stop();
+                        return;
+                    }
                     // リサイズ開始時にもフラグを立てる
                     event.target.classList.add('is-resizing');
                 },
