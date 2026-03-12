@@ -544,14 +544,14 @@ async function renderCategoriesNetUI(container) {
 
                     tableHtml += '<tr>';
                     if (index === 0) {
-                        tableHtml += `<td rowspan="${allCategoriesA.length}" style="vertical-align: middle; font-weight: bold; text-align: center; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
+                        tableHtml += `<td rowspan="${allCategoriesA.length}" style="vertical-align: middle; font-weight: bold; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
                     }
                     tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
-                    tableHtml += `<td style="text-align: center;"><input type="checkbox" class="net-category-select"></td>`;
+                    tableHtml += `<td><input type="checkbox" class="net-category-select"></td>`;
                     
                     if (colorCode) {
                         const textColor = isDarkColor(colorCode) ? '#FFFFFF' : '#333333';
-                        tableHtml += `<td><div style="background-color:${colorCode}; padding: 1px 3px; border: 1px solid #ccc; color: ${textColor}; font-size: 0.9em; text-align: center;">${colorCode}</div></td>`;
+                        tableHtml += `<td><div style="background-color:${colorCode}; padding: 1px 3px; border: 1px solid #ccc; color: ${textColor}; font-size: 0.9em;">${colorCode}</div></td>`;
                     } else {
                         tableHtml += `<td></td>`;
                     }
