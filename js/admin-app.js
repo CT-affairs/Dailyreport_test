@@ -3193,7 +3193,10 @@ function restoreProxyDraftReport() {
         if (isNetTemplate) {
             // ネット事業部用: renderExistingTimetableTask を使って復元
             if (draft.tasks && draft.tasks.length > 0) {
-                // 保存時にキーを変換したので、そのまま渡せる
+                // 復元前に、APIから読み込まれた既存のタスクを一度すべて削除する
+                // これにより、リロード時にタスクが二重に描画されるのを防ぐ
+                document.querySelectorAll('.timetable-task').forEach(el => el.remove());
+                // 下書きのタスクを描画
                 draft.tasks.forEach(task => renderExistingTimetableTask(task));
             }
         } else {
@@ -4300,6 +4303,35 @@ async function handleProxyReportSubmit(e) {
                 comment: taskEl.dataset.comment || ""
             });
         });
+
+        // 送信前の重複チェック
+        // 収集したタスクリスト内で時間的な重複がないかチェック
+        for (let i = 0; i < tasks.length; i++) {
+            const taskA = tasks[i];
+            // 休憩タスクはチェック対象外
+            if (taskA.categoryA_id === 'N99') continue;
+
+            const startA = new Date(`1970-01-01T${taskA.startTime}:00`);
+            const endA = new Date(`1970-01-01T${taskA.endTime}:00`);
+
+            for (let j = i + 1; j < tasks.length; j++) {
+                const taskB = tasks[j];
+                // 休憩タスクはチェック対象外
+                if (taskB.categoryA_id === 'N99') continue;
+
+                const startB = new Date(`1970-01-01T${taskB.startTime}:00`);
+                const endB = new Date(`1970-01-01T${taskB.endTime}:00`);
+
+                // 重複判定: (StartA < EndB) AND (EndA > StartB)
+                if (startA < endB && endA > startB) {
+                    alert(`タスクが重複しています。時間を見直してください。\n\n重複タスク1: ${taskA.categoryB_label} (${taskA.startTime}-${taskA.endTime})\n重複タスク2: ${taskB.categoryB_label} (${taskB.startTime}-${taskB.endTime})`);
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '代理報告を送信';
+                    isProxySubmitting = false; // 送信フラグをリセット
+                    return; // 送信を中止
+                }
+            }
+        }
     } else {
         // 工務部（リスト形式）のタスク収集
         document.querySelectorAll('#proxy-task-entries-container .task-entry').forEach(entry => {
