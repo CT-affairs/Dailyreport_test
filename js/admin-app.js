@@ -495,31 +495,49 @@ async function renderCategoriesNetUI(container) {
         const categoriesB = await catBRes.json();
         const categoriesA = await catARes.json();
 
-        // 集計項目に割り当てる5色の淡い色を定義
-        const categoryAColors = ['#E0F7FA', '#F1F8E9', '#FFF9C4', '#FCE4EC', '#EDE7F6'];
+        // 集計項目（カテゴリB）に割り当てる5色の淡い色を定義
+        const categoryBColors = ['#E0F7FA', '#F1F8E9', '#FFF9C4', '#FCE4EC', '#EDE7F6'];
+
+        // 背景色が濃い場合に文字色を白にするための判定用
+        const isDarkColor = (color) => {
+            if (!color) return false;
+            const hex = color.replace('#', '');
+            if (hex.length !== 6) return false;
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            return (r * 0.299 + g * 0.587 + b * 0.114) < 140;
+        };
 
         let tableHtml = '';
 
         // APIから取得したカテゴリBでループ
-        categoriesB.forEach(catB => {
+        categoriesB.forEach((catB, bIndex) => {
             const catBLabel = catB.label;
+            const catBColor = categoryBColors[bIndex % categoryBColors.length];
+            const colorMap = catB.color_map || {};
 
             // APIから取得したカテゴリAでループ
             categoriesA.forEach((catA, index) => {
                 const catALabel = catA.label;
-                // index に基づいて5色を循環させる
-                const backgroundColor = categoryAColors[index % categoryAColors.length];
+                const catAId = catA.id;
+                const colorCode = colorMap[catAId] || '';
 
                 tableHtml += '<tr>';
                 if (index === 0) {
                     // 各カテゴリBの最初の行にだけカテゴリB名を表示（rowspanを使う）
-                    tableHtml += `<td rowspan="${categoriesA.length}" style="vertical-align: middle; font-weight: bold; text-align: center;">${escapeHTML(catBLabel)}</td>`;
+                    tableHtml += `<td rowspan="${categoriesA.length}" style="vertical-align: middle; font-weight: bold; text-align: center; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
                 }
-                // 「集計項目」のセルに背景色を適用
-                tableHtml += `<td style="background-color: ${backgroundColor};">${escapeHTML(catALabel)}</td>`;
+                // 業務種別の列は背景色なし
+                tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
                 tableHtml += `<td style="text-align: center;"><input type="checkbox" class="net-category-select"></td>`;
-                // 以前カラーコードが表示されていた列は空にします
-                tableHtml += `<td></td>`;
+                
+                if (colorCode) {
+                    const textColor = isDarkColor(colorCode) ? '#FFFFFF' : '#333333';
+                    tableHtml += `<td><div style="background-color:${colorCode}; padding: 1px 3px; border: 1px solid #ccc; color: ${textColor}; font-size: 0.9em; text-align: center;">${colorCode}</div></td>`;
+                } else {
+                    tableHtml += `<td></td>`;
+                }
                 tableHtml += '</tr>';
             });
         });
