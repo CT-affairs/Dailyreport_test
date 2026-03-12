@@ -563,13 +563,13 @@ async function renderCategoriesNetUI(container) {
                             data-color="${colorCode}"
                             ${isChecked ? 'checked' : ''}>
                     </td>`;
-                    
-                    // ★Color列を編集可能にする（カラーピッカー + テキスト表示）
+
+                    // ★Color列を編集可能にする（カラーピッカー + テキスト入力）
                     const displayColor = colorCode || '#ffffff';
                     tableHtml += `<td>
-                        <div style="display: flex; align-items: center; gap: 4px;">
+                        <div class="color-editor" style="display: flex; align-items: center; gap: 4px;">
                             <input type="color" class="net-category-color-picker" value="${displayColor}" data-target-id="${uniqueId}" style="border: 1px solid #ccc; padding: 0; width: 24px; height: 24px; cursor: pointer; background: none;">
-                            <span style="font-size: 0.85em; font-family: monospace; color: #333; min-width: 60px;">${colorCode}</span>
+                            <input type="text" class="net-category-color-text" value="${colorCode.toUpperCase()}" placeholder="#RRGGBB" data-target-id="${uniqueId}" style="font-size: 0.85em; font-family: monospace; color: #333; width: 70px; border: 1px solid #ccc; padding: 2px 4px;">
                         </div>
                     </td>`;
                     tableHtml += '</tr>';
@@ -582,20 +582,45 @@ async function renderCategoriesNetUI(container) {
         tbodyLeft.innerHTML = generateTableHtml(categoriesB_left, categoriesA);
         tbodyRight.innerHTML = generateTableHtml(categoriesB_right, categoriesA);
 
-        // --- カラーピッカー変更時のイベントリスナー ---
-        const handleColorChange = (e) => {
+        // --- カラーピッカーとテキスト入力のイベントリスナー ---
+        const handleColorPickerChange = (e) => {
             const picker = e.target;
             const newColor = picker.value.toUpperCase();
             const targetId = picker.dataset.targetId;
             const checkbox = container.querySelector(`#${targetId}`);
-            const displaySpan = picker.nextElementSibling;
+            const textInput = picker.nextElementSibling; // The text input is the next sibling
 
             if (checkbox) checkbox.dataset.color = newColor;
-            if (displaySpan) displaySpan.textContent = newColor;
+            if (textInput) textInput.value = newColor;
+        };
+
+        const handleColorTextChange = (e) => {
+            const textInput = e.target;
+            let newColor = textInput.value.toUpperCase();
+
+            // Auto-add '#' if missing
+            if (newColor && !newColor.startsWith('#')) {
+                newColor = '#' + newColor;
+            }
+            textInput.value = newColor; // Reflect the formatted value
+
+            // Update picker only if the format is valid
+            if (/^#[0-9A-F]{6}$/i.test(newColor)) {
+                const targetId = textInput.dataset.targetId;
+                const checkbox = container.querySelector(`#${targetId}`);
+                const picker = textInput.previousElementSibling; // The color picker is the previous sibling
+
+                if (checkbox) checkbox.dataset.color = newColor;
+                if (picker) picker.value = newColor;
+            }
         };
 
         container.querySelectorAll('.net-category-color-picker').forEach(picker => {
-            picker.addEventListener('input', handleColorChange);
+            picker.addEventListener('input', handleColorPickerChange);
+        });
+
+        container.querySelectorAll('.net-category-color-text').forEach(textInput => {
+            textInput.addEventListener('change', handleColorTextChange); // Use 'change' to avoid updates on every keystroke
         });
 
         // --- マッピング生成テスト用の保存ボタン ---
