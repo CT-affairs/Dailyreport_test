@@ -536,15 +536,15 @@ async function renderCategoriesNetUI(container) {
                 const catBLabel = catB.label;
                 const catBId = catB.id; // ★カテゴリBのID
                 const catBColor = categoryBColors[bIndex % categoryBColors.length];
-                const colorMap = catB.color_map || {};
+                const settings = catB.category_a_settings || {};
 
                 allCategoriesA.forEach((catA, index) => {
                     const catALabel = catA.label;
                     const catAId = catA.id;
                     // ★カテゴリAのID
-                    const colorCode = colorMap[catAId] || '';
+                    const colorCode = settings[catAId] || '';
                     // マッピング（色設定）があればチェック済みとする
-                    const isChecked = !!colorMap[catAId];
+                    const isChecked = !!settings[catAId];
                     const uniqueId = `cb_${catBId}_${catAId}`;
 
                     tableHtml += '<tr>';
