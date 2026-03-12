@@ -17,16 +17,17 @@
         text-align: center;
     }
 </style>
-<!-- 表示切替トグル -->
-<div style="margin-bottom: 10px; display: flex; align-items: center;">
-    <label for="net-category-toggle-checked" style="cursor: pointer; user-select: none; font-size: 0.9em;">
-        <input type="checkbox" id="net-category-toggle-checked" style="margin-right: 5px; vertical-align: middle;">
-        ✓で表示を絞る
-    </label>
-</div>
-<!-- 左右のテーブルを配置するためのFlexコンテナ -->
-<!-- display: inline-flex に変更し、コンテナ自体がコンテンツ幅になるようにして左寄せを実現 -->
-<div id="net-category-layout-container" style="display: inline-flex; gap: 10px; align-items: flex-start;">
+<!-- 全体を囲むコンテナで幅を制限 -->
+<div style="max-width: 800px;">
+    <!-- 表示切替トグル -->
+    <div style="margin-bottom: 10px; display: flex; align-items: center;">
+        <label for="net-category-toggle-checked" style="cursor: pointer; user-select: none; font-size: 0.9em;">
+            <input type="checkbox" id="net-category-toggle-checked" style="margin-right: 5px; vertical-align: middle;">
+            ✓で表示を絞る
+        </label>
+    </div>
+    <!-- 左右のテーブルを配置するためのFlexコンテナ -->
+    <div id="net-category-layout-container" style="display: flex; gap: 10px; align-items: flex-start;">
     
         <!-- 左側のテーブル -->
         <div id="net-category-table-container-left">
@@ -34,10 +35,10 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th style="min-width: 30px;">集計項目</th>
-                            <th style="min-width: 60px;">業務種別</th>
-                            <th style="width: 12px;">✓</th>
-                            <th style="min-width: 20px;">Color</th>
+                            <th style="min-width: 80px;">集計項目</th>
+                            <th style="min-width: 140px;">業務種別</th>
+                            <th style="width: 30px;">✓</th>
+                            <th style="min-width: 70px;">Color</th>
                         </tr>
                     </thead>
                     <tbody id="net-category-table-body-left">
@@ -53,10 +54,10 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th style="min-width: 30px;">集計項目</th>
-                            <th style="min-width: 60px;">業務種別</th>
-                            <th style="width: 12px;">✓</th>
-                            <th style="min-width: 20px;">Color</th>
+                            <th style="min-width: 80px;">集計項目</th>
+                            <th style="min-width: 140px;">業務種別</th>
+                            <th style="width: 30px;">✓</th>
+                            <th style="min-width: 70px;">Color</th>
                         </tr>
                     </thead>
                     <tbody id="net-category-table-body-right">
@@ -66,3 +67,4 @@
             </div>
         </div>
     </div>
+</div>

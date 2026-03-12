@@ -572,47 +572,60 @@ async function renderCategoriesNetUI(container) {
                 const isCheckedOnly = toggleCheckbox.checked;
                 const tbodies = [tbodyLeft, tbodyRight];
  
+                // フィルターがオフの場合は、すべてのスタイルをリセットして表示
+                if (!isCheckedOnly) {
+                    tbodies.forEach(tbody => {
+                        if (!tbody) return;
+                        tbody.querySelectorAll('tr').forEach(row => {
+                            row.style.visibility = '';
+                            row.querySelectorAll('td').forEach(cell => {
+                                cell.style.visibility = '';
+                            });
+                        });
+                    });
+                    return;
+                }
+ 
+                // フィルターがオンの場合の処理
                 tbodies.forEach(tbody => {
                     if (!tbody) return;
                     const rows = Array.from(tbody.querySelectorAll('tr'));
+                    let groupStartIndex = 0;
  
-                    // 1. 各行のチェックボックス状態に基づいて、まず表示/非表示をいったん設定
-                    rows.forEach(row => {
-                        const selectCheckbox = row.querySelector('.net-category-select');
-                        if (isCheckedOnly && selectCheckbox) {
-                            row.style.visibility = selectCheckbox.checked ? 'visible' : 'collapse';
-                        } else {
-                            row.style.visibility = 'visible';
-                        }
-                    });
- 
-                    // 絞り込み表示でない場合は、これ以降の rowspan 調整は不要
-                    if (!isCheckedOnly) return;
- 
-                    // 2. rowspan を持つ行の表示崩れを補正
-                    // グループ内のいずれかの行が表示されている場合、そのグループの先頭行（集計項目セルを持つ行）も強制的に表示する
-                    for (let i = 0; i < rows.length; i++) {
-                        const row = rows[i];
-                        const rowspanCell = row.querySelector('td[rowspan]');
+                    while (groupStartIndex < rows.length) {
+                        const headerRow = rows[groupStartIndex];
+                        const rowspanCell = headerRow.querySelector('td[rowspan]');
                         
-                        if (rowspanCell) {
-                            const rowspan = parseInt(rowspanCell.getAttribute('rowspan'), 10);
-                            
-                            // 先頭行が非表示になっている場合のみ、表示すべきかチェック
-                            if (row.style.visibility === 'collapse') {
-                                let shouldShow = false;
-                                // rowspan の範囲内の後続行をチェック
-                                for (let j = 1; j < rowspan; j++) {
-                                    if (rows[i + j] && rows[i + j].style.visibility === 'visible') {
-                                        shouldShow = true;
-                                        break;
-                                    }
-                                }
-                                if (shouldShow) {
-                                    row.style.visibility = 'visible';
-                                }
+                        if (!rowspanCell) {
+                            groupStartIndex++;
+                            continue;
+                        }
+ 
+                        const rowspan = parseInt(rowspanCell.getAttribute('rowspan'), 10);
+                        const groupRows = rows.slice(groupStartIndex, groupStartIndex + rowspan);
+ 
+                        const visibleRowsInGroup = groupRows.filter(r => r.querySelector('.net-category-select')?.checked);
+ 
+                        if (visibleRowsInGroup.length === 0) {
+                            // グループ内にチェックされた項目がなければ、グループ全体を非表示
+                            groupRows.forEach(r => r.style.visibility = 'collapse');
+                        } else {
+                            // グループ内にチェックされた項目がある場合
+                            groupRows.forEach(r => {
+                                r.style.visibility = r.querySelector('.net-category-select')?.checked ? 'visible' : 'collapse';
+                                // データセルの表示状態をリセット
+                                r.querySelectorAll('td:not([rowspan])').forEach(cell => cell.style.visibility = '');
+                            });
+ 
+                            // ヘッダー行がチェックされていない場合、データ部分のみを隠す
+                            if (!headerRow.querySelector('.net-category-select')?.checked) {
+                                headerRow.style.visibility = 'visible'; // 行自体は表示
+                                headerRow.querySelectorAll('td:not([rowspan])').forEach(cell => {
+                                    cell.style.visibility = 'hidden'; // データセルを非表示
+                                });
                             }
                         }
+                        groupStartIndex += rowspan;
                     }
                 });
             });
