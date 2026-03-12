@@ -75,6 +75,7 @@
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                         <h3 style="margin:0; font-size:1.0em;">タイムテーブル</h3>
                         <div>
+                            <button type="button" id="show-past-reports-btn" class="btn-secondary" style="padding: 4px 8px; margin-right: 10px;">過去日報</button>
                             <button type="button" id="timetable-zoom-out-top" class="btn-secondary" style="font-size:0.8em; padding: 4px 8px;" title="早出表示を縮小">－</button>
                             <button type="button" id="timetable-zoom-in-top" class="btn-secondary" style="font-size:0.8em; padding: 4px 8px;" title="早出表示を拡大">＋</button>
                         </div>
@@ -167,4 +168,76 @@
             <p>※退勤前だと休憩時間が考慮されていないことがあります。</p>
         </div>
     </div>
+
+    <!-- 過去日報参照モーダル -->
+    <div id="past-reports-modal" class="modal" style="display:none; align-items: flex-start; padding-top: 5vh;">
+        <div class="modal-content" style="width: 95%; max-width: 1200px; height: 85vh; display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <h2>過去日報参照</h2>
+                <span class="close-button" id="past-reports-modal-close" style="font-size: 2rem; cursor: pointer;">&times;</span>
+            </div>
+            <div class="modal-body" style="flex-grow: 1; display: flex; flex-direction: column; overflow: hidden;">
+                <div class="past-reports-nav" style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">
+                    <button id="past-reports-prev-btn" class="btn-secondary">◀ 過去7日</button>
+                    <span id="past-reports-period-display" style="font-weight: bold;"></span>
+                    <button id="past-reports-next-btn" class="btn-secondary">未来7日 ▶</button>
+                </div>
+                <div id="past-reports-container" class="past-reports-grid" style="flex-grow: 1; overflow-y: auto;">
+                    <!-- ここに7日分のタイムテーブルがJSで描画される -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 過去日報モーダル用のスタイル -->
+    <style>
+        .past-reports-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+            padding: 10px;
+            height: 100%;
+        }
+        .past-day-column {
+            border: 1px solid #ddd;
+            background-color: #fdfdfd;
+            display: flex;
+            flex-direction: column;
+        }
+        .past-day-header {
+            text-align: center;
+            padding: 4px;
+            font-weight: bold;
+            font-size: 0.85em;
+            background-color: #f1f1f1;
+            border-bottom: 1px solid #ddd;
+            flex-shrink: 0;
+        }
+        .past-day-header.saturday { color: #3498db; }
+        .past-day-header.sunday { color: #e74c3c; }
+        .past-day-timetable {
+            position: relative;
+            flex-grow: 1;
+            min-height: 400px; /* 最小高さを確保 */
+            background-image: linear-gradient(to bottom, #eee 1px, transparent 1px);
+            background-size: 100% 38.46px;
+        }
+        .past-task-block {
+            position: absolute;
+            left: 2px;
+            right: 2px;
+            font-size: 0.75em;
+            padding: 2px 4px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            box-sizing: border-box;
+            border-radius: 2px;
+        }
+        .past-task-block:hover {
+            opacity: 0.8;
+            outline: 1px solid #007bff;
+        }
+    </style>
 </div>

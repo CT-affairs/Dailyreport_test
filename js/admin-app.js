@@ -4433,6 +4433,22 @@ async function initializeProxyTimetable() {
     const zoomInBottom = document.getElementById('timetable-zoom-in-bottom');
     const zoomOutBottom = document.getElementById('timetable-zoom-out-bottom');
 
+    // ★「過去日報」ボタンのイベントリスナーを追加
+    const showPastReportsBtn = document.getElementById('show-past-reports-btn');
+    if (showPastReportsBtn) {
+        showPastReportsBtn.addEventListener('click', openPastReportsModal);
+    }
+
+    // ★過去日報モーダルの閉じるイベント
+    const pastReportsModal = document.getElementById('past-reports-modal');
+    const pastReportsModalClose = document.getElementById('past-reports-modal-close');
+    if (pastReportsModal && pastReportsModalClose) {
+        const closeModal = () => { pastReportsModal.style.display = 'none'; };
+        pastReportsModalClose.addEventListener('click', closeModal);
+        // モーダルの外側クリックでも閉じる
+        pastReportsModal.addEventListener('click', (e) => { if (e.target === pastReportsModal) closeModal(); });
+    }
+
     if (zoomInTop) {
         zoomInTop.addEventListener('click', () => {
             if (timetableStartHour > TIMETABLE_MIN_START) {
@@ -5423,3 +5439,183 @@ function setupTimetableInteractions() {
             }
         });
 }
+
+// --- ★ここから追加: 過去日報参照機能 ---
+
+let pastReportsCurrentEndDate = null; // 過去日報の表示期間の終了日
+
+/**
+ * 過去日報参照モーダルを開く
+ */
+function openPastReportsModal() {
+    const modal = document.getElementById('past-reports-modal');
+    if (!modal) {
+        console.error('Past reports modal not found.');
+        return;
+    }
+
+    // 表示期間の初期化（今日の1日前を終了日とする）
+    pastReportsCurrentEndDate = new Date(currentProxyTarget.date);
+    pastReportsCurrentEndDate.setDate(pastReportsCurrentEndDate.getDate() - 1);
+
+    modal.style.display = 'flex';
+    fetchAndRenderPastReports();
+
+    // ナビゲーションボタンのイベントリスナーを（再）設定
+    const prevBtn = document.getElementById('past-reports-prev-btn');
+    const nextBtn = document.getElementById('past-reports-next-btn');
+
+    // 一旦リスナーを削除して重複登録を防ぐ
+    prevBtn.replaceWith(prevBtn.cloneNode(true));
+    nextBtn.replaceWith(nextBtn.cloneNode(true));
+
+    document.getElementById('past-reports-prev-btn').addEventListener('click', () => {
+        pastReportsCurrentEndDate.setDate(pastReportsCurrentEndDate.getDate() - 7);
+        fetchAndRenderPastReports();
+    });
+    document.getElementById('past-reports-next-btn').addEventListener('click', () => {
+        pastReportsCurrentEndDate.setDate(pastReportsCurrentEndDate.getDate() + 7);
+        fetchAndRenderPastReports();
+    });
+}
+
+/**
+ * 過去日報データを取得して描画する
+ */
+async function fetchAndRenderPastReports() {
+    const container = document.getElementById('past-reports-container');
+    const periodDisplay = document.getElementById('past-reports-period-display');
+    const nextBtn = document.getElementById('past-reports-next-btn');
+    if (!container || !periodDisplay || !currentProxyTarget) return;
+
+    container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0;">読み込み中...</div>';
+
+    const endDate = new Date(pastReportsCurrentEndDate);
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - 6);
+
+    const formatDate = (d) => d.toISOString().split('T')[0];
+    const startDateStr = formatDate(startDate);
+    const endDateStr = formatDate(endDate);
+
+    periodDisplay.textContent = `${startDateStr} 〜 ${endDateStr}`;
+
+    // 終了日が今日以降になったら「未来」ボタンを無効化
+    const today = new Date(currentProxyTarget.date);
+    nextBtn.disabled = endDate >= today;
+
+    try {
+        // NOTE: バックエンドに /api/manager/past-reports の実装が必要です
+        const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/past-reports?employee_id=${currentProxyTarget.employeeId}&start_date=${startDateStr}&end_date=${endDateStr}`);
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.message || '過去日報の取得に失敗しました。');
+        }
+        const reportsByDate = await response.json();
+        renderPastReportsTimetables(reportsByDate, startDate, endDate);
+
+    } catch (error) {
+        console.error(error);
+        container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0; color: red;">${error.message}</div>`;
+    }
+}
+
+/**
+ * 取得したデータから7日分のタイムテーブルを描画する
+ */
+function renderPastReportsTimetables(reportsByDate, startDate, endDate) {
+    const container = document.getElementById('past-reports-container');
+    container.innerHTML = ''; // コンテナをクリア
+
+    const days = ['日', '月', '火', '水', '木', '金', '土'];
+    const timeToTop = (timeStr) => {
+        const [hour, minute] = timeStr.split(':').map(Number);
+        // 7:00を基準(0%)とする
+        const totalMinutesFromStart = (hour - 7) * 60 + minute;
+        // 7:00-18:00 (11時間 = 660分) を100%とする
+        return (totalMinutesFromStart / 660) * 100;
+    };
+
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        const dayOfWeek = days[d.getDay()];
+        const reports = reportsByDate[dateStr] || [];
+
+        const column = document.createElement('div');
+        column.className = 'past-day-column';
+        
+        let headerClass = '';
+        if (d.getDay() === 0) headerClass = 'sunday';
+        if (d.getDay() === 6) headerClass = 'saturday';
+
+        column.innerHTML = `
+            <div class="past-day-header ${headerClass}">
+                ${dateStr.substring(5).replace('-', '/')} (${dayOfWeek})
+            </div>
+            <div class="past-day-timetable"></div>
+        `;
+
+        const timetableEl = column.querySelector('.past-day-timetable');
+
+        reports.forEach(task => {
+            if (!task.startTime || !task.endTime || task.categoryA_id === 'N99') return; // 休憩タスクは表示しない
+
+            const start = new Date(`1970-01-01T${task.startTime}:00`);
+            const end = new Date(`1970-01-01T${task.endTime}:00`);
+            const duration = (end - start) / 60000;
+            if (duration <= 0) return;
+
+            const top = timeToTop(task.startTime);
+            const height = (duration / 660) * 100;
+
+            const taskBlock = document.createElement('div');
+            taskBlock.className = 'past-task-block';
+            taskBlock.style.top = `${top}%`;
+            taskBlock.style.height = `${height}%`;
+            
+            const catBData = proxyCategoryBOptions.find(opt => opt.id === task.categoryB_id);
+            const settings = catBData ? catBData.category_a_settings : null;
+            const taskColor = settings ? settings[task.categoryA_id] : null;
+            const bgColor = taskColor || '#e0e0e0';
+            taskBlock.style.backgroundColor = bgColor;
+            taskBlock.style.color = isDarkColor(bgColor) ? '#fff' : '#333';
+
+            const displayText = [task.categoryB_label, task.categoryA_label].filter(Boolean).join(' / ');
+            taskBlock.textContent = displayText;
+            taskBlock.title = displayText;
+
+            taskBlock.dataset.categoryBId = task.categoryB_id;
+            taskBlock.dataset.categoryAId = task.categoryA_id;
+
+            taskBlock.addEventListener('click', handlePastTaskClick);
+            timetableEl.appendChild(taskBlock);
+        });
+
+        container.appendChild(column);
+    }
+}
+
+/**
+ * 過去日報のタスクをクリックした際の処理
+ */
+function handlePastTaskClick(event) {
+    const taskBlock = event.currentTarget;
+    const { categoryBId, categoryAId } = taskBlock.dataset;
+
+    if (!categoryBId || !categoryAId) return;
+
+    const catBSelect = document.getElementById('task-category-b-select');
+    const catASelect = document.getElementById('task-category-a-select');
+
+    // 集計項目を選択
+    catBSelect.value = categoryBId;
+    // changeイベントを発火させて業務種別の選択肢を更新
+    catBSelect.dispatchEvent(new Event('change'));
+    // 業務種別を選択
+    catASelect.value = categoryAId;
+
+    // モーダルを閉じる
+    document.getElementById('past-reports-modal').style.display = 'none';
+}
+
+// --- ★ここまで: 過去日報参照機能 ---
