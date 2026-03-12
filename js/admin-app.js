@@ -547,7 +547,7 @@ async function renderCategoriesNetUI(container) {
                         tableHtml += `<td rowspan="${allCategoriesA.length}" style="vertical-align: middle; font-weight: bold; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
                     }
                     tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
-                    tableHtml += `<td><input type="checkbox" class="net-category-select"></td>`;
+                    tableHtml += `<td class="cell-center"><input type="checkbox" class="net-category-select"></td>`;
                     
                     if (colorCode) {
                         const textColor = isDarkColor(colorCode) ? '#FFFFFF' : '#333333';
