@@ -5318,7 +5318,7 @@ function setupTimetableInteractions() {
         })
         // --- ★リサイズ機能を追加 ---
         .resizable({
-            edges: { top: true, bottom: true }, // 上下方向のリサイズを有効化
+            edges: { top: false, bottom: true }, // ★下方向のリサイズのみを有効化
             listeners: {
                 start (event) {
                     // ★休憩タスクのリサイズを禁止
