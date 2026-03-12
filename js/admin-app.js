@@ -5527,6 +5527,12 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate) {
     const container = document.getElementById('past-reports-container');
     container.innerHTML = ''; // コンテナをクリア
 
+    // APIから返されたデータが空オブジェクトの場合、メッセージを表示して終了
+    if (Object.keys(reportsByDate).length === 0) {
+        container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0; color: #666;">この期間に記録された日報はありません。</div>';
+        return;
+    }
+
     const days = ['日', '月', '火', '水', '木', '金', '土'];
     const timeToTop = (timeStr) => {
         const [hour, minute] = timeStr.split(':').map(Number);

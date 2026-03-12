@@ -1717,6 +1717,52 @@ def get_manager_calendar_statuses():
     
     return jsonify(statuses), 200
 
+@api_bp.route("/manager/past-reports", methods=["GET"])
+@token_required
+@manager_required
+def get_past_reports():
+    """
+    指定された従業員・期間の過去の日報データを取得する。
+    ネット事業部の代理入力画面での参照に使用。
+    """
+    employee_id = request.args.get('employee_id')
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+
+    if not all([employee_id, start_date_str, end_date_str]):
+        abort(400, "employee_id, start_date, end_date are required.")
+
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+    except ValueError:
+        abort(400, "Invalid date format. Use YYYY-MM-DD.")
+
+    try:
+        query = db.collection(COLLECTION_DAILY_REPORTS) \
+            .where(filter=FieldFilter("company_employee_id", "==", employee_id)) \
+            .where(filter=FieldFilter("date", ">=", start_date)) \
+            .where(filter=FieldFilter("date", "<=", end_date)) \
+            .order_by("date")
+
+        docs = query.stream()
+
+        reports_by_date = {}
+        for doc in docs:
+            data = doc.to_dict()
+            report_date = data.get('date')
+            if isinstance(report_date, datetime):
+                date_key = report_date.strftime('%Y-%m-%d')
+                # フロントエンドが期待するタスクの形式で返す
+                reports_by_date[date_key] = data.get('tasks', [])
+        
+        # データが存在しない場合でも200 OKと空のオブジェクトを返す
+        return jsonify(reports_by_date), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error fetching past reports for {employee_id}: {e}", exc_info=True)
+        abort(500, "過去日報の取得中にエラーが発生しました。")
+
 @api_bp.route("/manager/work-times", methods=["GET"])
 @token_required
 @login_required
