@@ -4840,6 +4840,12 @@ function addProxyTimetableTask() {
         return;
     }
 
+    // ★ 重複チェックを追加
+    if (checkTaskCollision(startTime, endTime)) {
+        alert('他のタスクと時間が重なっています。');
+        return;
+    }
+
     const startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
     if (!startRow) {
         alert('タイムテーブル上で開始時刻に対応する行が見つかりません。');
@@ -5144,6 +5150,12 @@ function handleEditTask() {
     }
     if (!categoryA_id || !categoryB_id) {
         alert('業務種別と集計項目の両方を選択してください。');
+        return;
+    }
+
+    // ★ 重複チェックを追加 (自分自身はチェック対象から除外)
+    if (checkTaskCollision(startTime, endTime, currentlyEditingTaskElement)) {
+        alert('他のタスクと時間が重なっています。');
         return;
     }
 
