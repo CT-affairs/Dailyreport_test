@@ -834,7 +834,7 @@ def get_manager_category_b():
                 "client": data.get("client", ""),
                 "project": data.get("project", ""),
                 "offices": data.get("offices", []),
-                "color_map": data.get("color_map", {})
+                "category_a_settings": data.get("category_a_settings", {}) # color_map -> category_a_settings
             })
         
         # order降順、label昇順でソート
@@ -872,14 +872,14 @@ def save_net_category_mapping():
             if not isinstance(cat_a_mappings, dict):
                 continue
 
-            new_color_map = {}
+            new_settings = {}
             for cat_a_id, details in cat_a_mappings.items():
                 # activeがtrueで、colorが設定されているものだけをマップに含める
                 if details.get("active") and details.get("color") and str(details["color"]).startswith('#'):
-                    new_color_map[cat_a_id] = str(details["color"]).upper()
+                    new_settings[cat_a_id] = str(details["color"]).upper()
 
             doc_ref = cat_b_ref.document(cat_b_id)
-            batch.update(doc_ref, {"color_map": new_color_map})
+            batch.update(doc_ref, {"category_a_settings": new_settings}) # color_map -> category_a_settings
 
         batch.commit()
         return jsonify({"status": "success", "message": f"{len(mapping_data)}件のカテゴリマッピングを更新しました。"}), 200
