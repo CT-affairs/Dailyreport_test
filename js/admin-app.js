@@ -571,26 +571,49 @@ async function renderCategoriesNetUI(container) {
             toggleCheckbox.addEventListener('change', () => {
                 const isCheckedOnly = toggleCheckbox.checked;
                 const tbodies = [tbodyLeft, tbodyRight];
-
+ 
                 tbodies.forEach(tbody => {
                     if (!tbody) return;
-                    const rows = tbody.querySelectorAll('tr');
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+ 
+                    // 1. 各行のチェックボックス状態に基づいて、まず表示/非表示をいったん設定
                     rows.forEach(row => {
                         const selectCheckbox = row.querySelector('.net-category-select');
-                        // チェックボックスがない行は常に表示
-                        if (!selectCheckbox) {
-                            row.style.visibility = 'visible';
-                            return;
-                        }
-
-                        if (isCheckedOnly) {
-                            // 「選択済みのみ表示」モード
+                        if (isCheckedOnly && selectCheckbox) {
                             row.style.visibility = selectCheckbox.checked ? 'visible' : 'collapse';
                         } else {
-                            // 全表示モード
                             row.style.visibility = 'visible';
                         }
                     });
+ 
+                    // 絞り込み表示でない場合は、これ以降の rowspan 調整は不要
+                    if (!isCheckedOnly) return;
+ 
+                    // 2. rowspan を持つ行の表示崩れを補正
+                    // グループ内のいずれかの行が表示されている場合、そのグループの先頭行（集計項目セルを持つ行）も強制的に表示する
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i];
+                        const rowspanCell = row.querySelector('td[rowspan]');
+                        
+                        if (rowspanCell) {
+                            const rowspan = parseInt(rowspanCell.getAttribute('rowspan'), 10);
+                            
+                            // 先頭行が非表示になっている場合のみ、表示すべきかチェック
+                            if (row.style.visibility === 'collapse') {
+                                let shouldShow = false;
+                                // rowspan の範囲内の後続行をチェック
+                                for (let j = 1; j < rowspan; j++) {
+                                    if (rows[i + j] && rows[i + j].style.visibility === 'visible') {
+                                        shouldShow = true;
+                                        break;
+                                    }
+                                }
+                                if (shouldShow) {
+                                    row.style.visibility = 'visible';
+                                }
+                            }
+                        }
+                    }
                 });
             });
         }
