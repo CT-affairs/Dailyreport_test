@@ -3940,13 +3940,8 @@ function createDefaultBreakTask() {
     taskElement.dataset.categoryBLabel = '休憩';
 
 
-    // 休憩タスクはクリックしても編集フォームを開かないようにする
-    taskElement.addEventListener('click', (e) => {
-        e.stopPropagation(); // イベントの伝播を止める
-        if (currentlyEditingTaskElement) {
-            clearProxyTaskDetailsForm();
-        }
-    });
+    // ★休憩タスクもクリックで編集/削除できるようにする
+    taskElement.addEventListener('click', () => handleTaskClick(taskElement));
 
     startSlotCell.appendChild(taskElement);
 }
@@ -4926,8 +4921,15 @@ function clearProxyTaskDetailsForm() {
     catA_select.disabled = true;
     catA_select.innerHTML = '<option value="">選択してください...</option>';
 
-    document.getElementById('task-category-b-select').value = '';
-    document.getElementById('task-comment').value = '';
+    const catBSelect = document.getElementById('task-category-b-select');
+    const commentInput = document.getElementById('task-comment');
+
+    catBSelect.value = '';
+    commentInput.value = '';
+
+    // ★無効化されたフォームを有効に戻す
+    catBSelect.disabled = false;
+    commentInput.disabled = false;
 
     // 編集モードを解除
     if (currentlyEditingTaskElement) {
@@ -5047,7 +5049,11 @@ function updateTaskFormButtons(mode) {
 
     if (mode === 'edit') {
         addBtn.style.display = 'none';
-        editBtn.style.display = 'inline-block';
+
+        // ★休憩タスクの場合は「変更を保存」を非表示にする
+        const isBreakTask = currentlyEditingTaskElement && currentlyEditingTaskElement.dataset.taskType === 'break';
+        editBtn.style.display = isBreakTask ? 'none' : 'inline-block';
+
         deleteBtn.style.display = 'inline-block';
     } else { // 'add' mode
         addBtn.style.display = 'inline-block';
@@ -5080,16 +5086,26 @@ function handleTaskClick(taskElement) {
     // フォームにデータをロード
     document.getElementById('task-start-time').value = taskElement.dataset.startTime;
     document.getElementById('task-end-time').value = taskElement.dataset.endTime;
-    
-    // ★先に集計項目を設定
-    document.getElementById('task-category-b-select').value = taskElement.dataset.categoryBId;
-    // ★集計項目のchangeイベントを発火させて業務種別の選択肢を更新
-    document.getElementById('task-category-b-select').dispatchEvent(new Event('change'));
-    
-    // ★業務種別を選択（選択肢が更新された後に行う）
-    document.getElementById('task-category-a-select').value = taskElement.dataset.categoryAId;
 
-    document.getElementById('task-comment').value = taskElement.dataset.comment;
+    const isBreakTask = taskElement.dataset.taskType === 'break';
+    const catBSelect = document.getElementById('task-category-b-select');
+    const catASelect = document.getElementById('task-category-a-select');
+    const commentInput = document.getElementById('task-comment');
+
+    // ★先に集計項目を設定
+    catBSelect.value = taskElement.dataset.categoryBId;
+    // ★集計項目のchangeイベントを発火させて業務種別の選択肢を更新
+    catBSelect.dispatchEvent(new Event('change'));
+    // ★業務種別を選択（選択肢が更新された後に行う）
+    catASelect.value = taskElement.dataset.categoryAId;
+
+    commentInput.value = taskElement.dataset.comment;
+
+    // ★休憩タスクの場合、カテゴリとコメントの編集を不可にする
+    catBSelect.disabled = isBreakTask;
+    catASelect.disabled = isBreakTask;
+    commentInput.disabled = isBreakTask;
+
     updateTaskDuration(); // 時間（分）も更新
 
     // ボタンを編集モードに切り替え
