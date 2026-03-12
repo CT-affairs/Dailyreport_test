@@ -4732,6 +4732,29 @@ function updateTaskDuration() {
 }
 
 /**
+ * 色が濃いかどうかを判定するヘルパー関数
+ * @param {string} color - 色コード (#RRGGBB or rgba(r,g,b,a))
+ * @returns {boolean}
+ */
+const isDarkColor = (color) => {
+    if (!color) return false;
+
+    let r, g, b;
+    if (color.startsWith('rgba')) {
+        const parts = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (!parts) return false;
+        [_, r, g, b] = parts.map(Number);
+    } else if (color.startsWith('#')) {
+        const hex = color.replace('#', '');
+        if (hex.length !== 6) return false;
+        r = parseInt(hex.substring(0, 2), 16);
+        g = parseInt(hex.substring(2, 4), 16);
+        b = parseInt(hex.substring(4, 6), 16);
+    } else { return false; }
+    return (r * 0.299 + g * 0.587 + b * 0.114) < 140;
+};
+
+/**
  * タイムテーブルにタスクブロックを追加する
  */
 function addProxyTimetableTask() {
@@ -4774,7 +4797,8 @@ function addProxyTimetableTask() {
     const taskColor = settings ? settings[categoryA_id] : null;
     const defaultBgColor = 'rgba(252, 185, 237, 0.8)'; 
     const bgColor = taskColor || defaultBgColor;
-    const borderColor = '#555555'; // 共通の濃いグレー
+    const borderColor = '#d9534f'; // 未送信タスクを示す赤
+    const textColor = isDarkColor(bgColor) ? '#FFFFFF' : '#333333';
 
     const slots = duration / 15;
     // 各スロットの高さが正確に24pxになったため、計算を単純化
@@ -4787,8 +4811,8 @@ function addProxyTimetableTask() {
         right: 0;
         height: ${taskHeight}px;
         background-color: ${bgColor}; /* 動的に設定 */
-        color: white;
-        border-left: 3px solid ${borderColor}; /* 共通の濃いグレー */
+        color: ${textColor};
+        border-left: 3px solid ${borderColor};
         padding: 4px 6px;
         font-size: 0.8em;
         line-height: 1.3;
@@ -4891,9 +4915,10 @@ function renderExistingTimetableTask(task) {
     const catBData = proxyCategoryBOptions.find(opt => opt.id === categoryB_id);
     const settings = catBData ? catBData.category_a_settings : null;
     const taskColor = settings ? settings[categoryA_id] : null;
-    const defaultBgColor = 'rgba(169, 68, 66, 0.8)';
+    const defaultBgColor = 'rgba(200, 200, 200, 0.8)'; // 少し薄いグレーに変更
     const bgColor = taskColor || defaultBgColor;
-    const borderColor = '#555555'; // 共通の濃いグレー
+    const borderColor = 'transparent'; // ★保存済みタスクはバーなし
+    const textColor = isDarkColor(bgColor) ? '#FFFFFF' : '#333333';
 
     const taskElement = document.createElement('div');
     taskElement.className = 'timetable-task';
@@ -4908,8 +4933,8 @@ function renderExistingTimetableTask(task) {
         right: 0;
         height: ${taskHeight}px;
         background-color: ${bgColor}; /* 動的に設定 */
-        color: white;
-        border-left: 3px solid ${borderColor}; /* 共通の濃いグレー */
+        color: ${textColor};
+        border-left: 3px solid ${borderColor};
         padding: 4px 6px;
         font-size: 0.8em;
         line-height: 1.3;
@@ -5034,6 +5059,14 @@ function handleEditTask() {
         return;
     }
 
+    // 新しい背景色と文字色を計算
+    const selectedCatB = proxyCategoryBOptions.find(opt => opt.id === categoryB_id);
+    const settings = selectedCatB ? selectedCatB.category_a_settings : null;
+    const taskColor = settings ? settings[categoryA_id] : null;
+    const defaultBgColor = 'rgba(252, 185, 237, 0.8)'; // addProxyTimetableTaskのデフォルト色
+    const newBgColor = taskColor || defaultBgColor;
+    const newTextColor = isDarkColor(newBgColor) ? '#FFFFFF' : '#333333';
+
     // 開始行が変更された場合、DOM要素を移動
     const newStartRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
     if (!newStartRow) {
@@ -5055,9 +5088,15 @@ function handleEditTask() {
     const slots = duration / 15;
     const taskHeight = slots * 24;
     currentlyEditingTaskElement.style.height = `${taskHeight}px`;
+    // 背景色と文字色も更新
+    currentlyEditingTaskElement.style.backgroundColor = newBgColor;
+    currentlyEditingTaskElement.style.color = newTextColor;
 
     const displayText = [categoryB_label, categoryA_label, comment].filter(Boolean).join(' / ');
     currentlyEditingTaskElement.innerHTML = `<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(displayText)}">${escapeHTML(displayText)}</div>`;
+
+    // ★ 変更されたタスクなので、未送信を示す赤色バーに更新
+    currentlyEditingTaskElement.style.borderLeftColor = '#d9534f';
 
     // 編集モードを終了
     clearProxyTaskDetailsForm();
