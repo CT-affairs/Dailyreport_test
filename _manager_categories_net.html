@@ -1,15 +1,20 @@
 <style>
     /* この画面専用のスタイル調整 */
     /* コンテナIDが変更されたためセレクタを修正 */
+    #net-category-layout-container .table-container {
+        width: auto !important; /* 親スタイルのwidth: 100%を打ち消す */
+        display: inline-block; /* コンテンツ幅に合わせる */
+    }
     #net-category-layout-container .data-table {
         font-size: 0.8em; /* フォントを小さく */
-        width: auto; /* テーブル幅を自動調整 */
+        width: auto !important; /* 親スタイルのwidth: 100%を打ち消す */
     }
     #net-category-layout-container .data-table th,
     #net-category-layout-container .data-table td {
         padding: 3px 5px; /* 行間を詰める */
         line-height: 1.2; /* 行の高さを最小限に */
         text-align: left; /* 左寄せに統一 */
+        white-space: nowrap; /* 自動で折り返されないようにする */
     }
     /* チェックボックス列のみ中央寄せ */
     #net-category-layout-container .data-table th:nth-child(3), /* ヘッダーはrowspanの影響を受けないため3番目でOK */
@@ -18,7 +23,7 @@
     }
 </style>
 <!-- 全体を囲むコンテナで幅を制限 -->
-<div style="max-width: 800px;">
+<div style="display: inline-block;">
     <!-- 表示切替トグル -->
     <div style="margin-bottom: 10px; display: flex; align-items: center;">
         <label for="net-category-toggle-checked" style="cursor: pointer; user-select: none; font-size: 0.9em;">
@@ -30,15 +35,15 @@
     <div id="net-category-layout-container" style="display: flex; gap: 10px; align-items: flex-start;">
     
         <!-- 左側のテーブル -->
-        <div id="net-category-table-container-left">
+        <div id="net-category-table-container-left" style="flex: 0 0 auto;">
             <div class="table-container">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th style="min-width: 20px;">集計項目</th>
-                            <th style="min-width: 40px;">業務種別</th>
-                            <th style="width: 10px;">✓</th>
-                            <th style="min-width: 20px;">Color</th>
+                            <th>集計項目</th>
+                            <th>業務種別</th>
+                            <th>✓</th>
+                            <th>Color</th>
                         </tr>
                     </thead>
                     <tbody id="net-category-table-body-left">
@@ -49,15 +54,15 @@
         </div>
     
         <!-- 右側のテーブル -->
-        <div id="net-category-table-container-right">
+        <div id="net-category-table-container-right" style="flex: 0 0 auto;">
             <div class="table-container">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th style="min-width: 20px;">集計項目</th>
-                            <th style="min-width: 40px;">業務種別</th>
-                            <th style="width: 10px;">✓</th>
-                            <th style="min-width: 20px;">Color</th>
+                            <th>集計項目</th>
+                            <th>業務種別</th>
+                            <th>✓</th>
+                            <th>Color</th>
                         </tr>
                     </thead>
                     <tbody id="net-category-table-body-right">
