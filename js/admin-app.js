@@ -515,8 +515,8 @@ async function renderCategoriesNetUI(container) {
             .filter(cat => rightOrder.includes(cat.label))
             .sort((a, b) => rightOrder.indexOf(a.label) - rightOrder.indexOf(b.label));
 
-        // 集計項目（カテゴリB）に割り当てる5色の淡い色を定義
-        const categoryBColors = ['#d0e3e6', '#dde4d5', '#dbd9c6', '#dfcad1', '#d6cee2'];
+        // 集計項目（カテゴリB）に割り当てる5色を定義
+        const categoryBColors = ['#e9dce4',' #dae6e9', '#e0ebe0', '#e7e6da', '#e1dce9'];
 
         // 背景色が濃い場合に文字色を白にするための判定用
         const isDarkColor = (color) => {
