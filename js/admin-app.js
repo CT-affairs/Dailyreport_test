@@ -495,39 +495,31 @@ async function renderCategoriesNetUI(container) {
         const categoriesB = await catBRes.json();
         const categoriesA = await catARes.json();
 
-        // カラーマッピングを定義
-        const colorMap = {
-            'KIREI': { '全般': '#FF6600', '新商品アップ': '#FDE9D9', '発注・在庫': '#FABF8F', 'マーケティング・販促': '#F79646', 'メンテナンス': '#CC6600', 'Amazonアップ': '#FF9999', 'メルカリアップ': '#DA9694', 'OEM': '#C0504D', '顧客対応': '#FFC000' },
-            'FAVRAS': { '全般': '#0070C0', '新商品アップ': '#DCE6F1', '発注・在庫': '#92CDDC', 'マーケティング・販促': '#66CCFF', 'メンテナンス': '#4BACC6', 'OEM': '#6699FF', '顧客対応': '#00B0F0' },
-            'KIMITO': { '全般': '#339933', '新商品アップ': '#EBF1DE', '発注・在庫': '#C4D79B', 'マーケティング・販促': '#66FF99', 'メンテナンス': '#00CC00', 'OEM': '#00CC99', '顧客対応': '#92D050' },
-            '全体': { '全般': '#7030A0', '受注・出荷・決済': '#E4DFEC', '入荷管理': '#B1A0C7', '経理': '#8064A2', '総務・設備・人事・勤怠': '#9966FF', '梱包': '#FFFF00', '休み・遅刻・早退': '#000000', '工務課': '#1F497D' }
-        };
-        
-        // 背景色が濃く、文字を白くすべきカラーコードのリスト
-        const darkColors = ['#FF6600', '#CC6600', '#C0504D', '#0070C0', '#4BACC6', '#339933', '#00CC00', '#7030A0', '#8064A2', '#000000', '#1F497D'];
+        // 集計項目に割り当てる5色の淡い色を定義
+        const categoryAColors = ['#E0F7FA', '#F1F8E9', '#FFF9C4', '#FCE4EC', '#EDE7F6'];
 
         let tableHtml = '';
 
         // APIから取得したカテゴリBでループ
         categoriesB.forEach(catB => {
             const catBLabel = catB.label;
-            const subCategoryMap = colorMap[catBLabel] || {};
 
             // APIから取得したカテゴリAでループ
             categoriesA.forEach((catA, index) => {
                 const catALabel = catA.label;
-                const color = subCategoryMap[catALabel] || '#FFFFFF'; // 見つからない場合は白
-                // ★ 要望: カラーコードの文字色をグレー系に変更
-                const textColor = darkColors.includes(color.toUpperCase()) ? '#CCCCCC' : '#666666';
+                // index に基づいて5色を循環させる
+                const backgroundColor = categoryAColors[index % categoryAColors.length];
 
                 tableHtml += '<tr>';
                 if (index === 0) {
                     // 各カテゴリBの最初の行にだけカテゴリB名を表示（rowspanを使う）
                     tableHtml += `<td rowspan="${categoriesA.length}" style="vertical-align: middle; font-weight: bold; text-align: center;">${escapeHTML(catBLabel)}</td>`;
                 }
-                tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
+                // 「集計項目」のセルに背景色を適用
+                tableHtml += `<td style="background-color: ${backgroundColor};">${escapeHTML(catALabel)}</td>`;
                 tableHtml += `<td style="text-align: center;"><input type="checkbox" class="net-category-select"></td>`;
-                tableHtml += `<td><div style="background-color:${color}; padding: 1px 3px; border: 1px solid #ccc; color: ${textColor}; font-size: 0.9em;">${color}</div></td>`;
+                // 以前カラーコードが表示されていた列は空にします
+                tableHtml += `<td></td>`;
                 tableHtml += '</tr>';
             });
         });
