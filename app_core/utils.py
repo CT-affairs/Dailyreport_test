@@ -13,7 +13,7 @@ import requests
 from linebot import LineBotApi
 from linebot.exceptions import LineBotApiError
 from linebot.models import TextSendMessage
-from app_core.config import COLLECTION_JOBCAN_RAW_RESPONSES
+from app_core.config import COLLECTION_JOBCAN_RAW_RESPONSES, COLLECTION_DAILY_REPORTS
 
 # --- メール送信用ライブラリ ---
 import base64
