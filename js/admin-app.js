@@ -2296,7 +2296,8 @@ async function renderCategoryASettingsUI(container) {
     const tbody = document.getElementById('category-a-table-body');
 
     try {
-        const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/a`);
+        // 工務部の業務種別設定画面では、kind='engineering' のカテゴリAのみを対象とする
+        const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/a?kind=engineering`);
         if (!response.ok) throw new Error('データ取得に失敗しました');
         const categories = await response.json();
 
