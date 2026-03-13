@@ -891,10 +891,15 @@ def get_accommodation_notes_for_employees(employee_ids: list[str], start_date: d
         raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES
     )
 
-    # 会社IDとJobcan IDのマッピングを取得
+    # 会社IDとJobcan IDのマッピングを取得（Firestore 'in' は最大30件のためチャンク分割）
     mappings_ref = db.collection("employee_mappings")
-    docs = mappings_ref.where(FieldPath.document_id(), "in", employee_ids).stream()
-    id_map = {doc.id: doc.to_dict().get("jobcan_employee_id") for doc in docs}
+    id_map = {}
+    chunk_size = 30
+    for i in range(0, len(employee_ids), chunk_size):
+        id_chunk = employee_ids[i:i + chunk_size]
+        docs = mappings_ref.where(FieldPath.document_id(), "in", id_chunk).stream()
+        for doc in docs:
+            id_map[doc.id] = doc.to_dict().get("jobcan_employee_id")
 
     all_notes = {}
     from_str = start_date.strftime('%Y-%m-%d')
