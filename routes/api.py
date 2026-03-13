@@ -2457,9 +2457,8 @@ def download_allowance_excel():
             prev_base = start_date - timedelta(days=1)
             start_date, end_date = calculate_monthly_period(prev_base)
 
-        # YYYYMM = 締め月（end_date の年月）
-        yyyymm = end_date.strftime("%Y%m")
-        file_name = f"allowance_{yyyymm}.xlsx"
+        # 出力ファイル名: 手当集計_2026年03月度.xlsx
+        file_name = f"手当集計_{end_date.strftime('%Y')}年{end_date.strftime('%m')}月度.xlsx"
 
         # アクティブな従業員を社員ID順で取得
         mappings_ref = db.collection("employee_mappings")
@@ -2521,22 +2520,12 @@ def download_allowance_excel():
         # 現場: 該当日は 0.5 or 1.0（get_on_site_status_for_employees の値そのまま）
         write_sheet(ws_genba, on_site_employees, on_site, lambda v: v)
 
-        # 列拡張: スタッフが12名を超える場合、M列以降へL列(12)を列コピー（書式含めシート全行）
+        # 入力のなかった列を削除（テンプレートは列を多めに用意している前提）
         for sheet, staff_list_ids in [(ws_shukuhaku, accommodation_employees), (ws_genba, on_site_employees)]:
-            n_staff = len(staff_list_ids)
-            if n_staff > 12:
-                ref_col = 12
-                max_row = sheet.max_row  # テンプレートの実際の行数まで書式をコピー
-                for c in range(13, n_staff + 2):
-                    for r in range(1, max_row + 1):
-                        src = sheet.cell(row=r, column=ref_col)
-                        dst = sheet.cell(row=r, column=c)
-                        if src.has_style:
-                            dst.font = src.font.copy()
-                            dst.border = src.border.copy()
-                            dst.fill = src.fill.copy()
-                            dst.number_format = src.number_format
-                            dst.alignment = src.alignment.copy()
+            last_used_col = 1 + len(staff_list_ids)  # A=1, B〜最終スタッフ列
+            max_col = sheet.max_column
+            if max_col > last_used_col:
+                sheet.delete_cols(last_used_col + 1, max_col - last_used_col)
 
         output = io.BytesIO()
         wb.save(output)
