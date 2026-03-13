@@ -1146,6 +1146,35 @@ async function renderDashboardHome(container) {
         }
     };
 
+    // 宿泊/現場(全社) 手当集計Excelダウンロード（template_allowance → allowance_YYYYMM.xlsx）
+    const handleAllowanceDownload = async (targetMonth, btnId) => {
+        const btn = document.getElementById(btnId);
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+
+        try {
+            const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/allowance/excel`, {
+                method: 'POST',
+                body: JSON.stringify({ target_month: targetMonth })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || `ダウンロード失敗: ${response.status}`);
+            }
+
+            const result = await response.json();
+            downloadExcelFromBase64(result.file_name, result.file_content);
+        } catch (error) {
+            console.error('Allowance Excel download error:', error);
+            alert(`エラーが発生しました: ${error.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    };
+
     // --- 新しいボタンIDに対応したイベントリスナー ---
     // 工番別(工務)
     document.getElementById('koumu-kouban-curr-btn').addEventListener('click', () => handleExcelDownload('current', 'koumu-kouban-curr-btn'));
@@ -1155,9 +1184,9 @@ async function renderDashboardHome(container) {
     document.getElementById('koumu-staff-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'koumu-staff-curr-btn'));
     document.getElementById('koumu-staff-prev-btn').addEventListener('click', () => handleStaffSummaryDownload('previous', 'koumu-staff-prev-btn'));
 
-    // 宿泊/現場(全社) - スタッフ別と同じ処理を呼ぶ
-    document.getElementById('shukuhaku-zenkoku-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'shukuhaku-zenkoku-curr-btn'));
-    document.getElementById('shukuhaku-zenkoku-prev-btn').addEventListener('click', () => handleStaffSummaryDownload('previous', 'shukuhaku-zenkoku-prev-btn'));
+    // 宿泊/現場(全社) - 手当集計Excel（template_allowance → allowance_YYYYMM.xlsx）
+    document.getElementById('shukuhaku-zenkoku-curr-btn').addEventListener('click', () => handleAllowanceDownload('current', 'shukuhaku-zenkoku-curr-btn'));
+    document.getElementById('shukuhaku-zenkoku-prev-btn').addEventListener('click', () => handleAllowanceDownload('previous', 'shukuhaku-zenkoku-prev-btn'));
 
     // 業務別(ネット) - スタッフ別と同じ処理を呼ぶ
     document.getElementById('net-gyomu-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'net-gyomu-curr-btn'));

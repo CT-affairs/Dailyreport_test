@@ -17,7 +17,7 @@ import time
 import requests
 
 from datetime import datetime, timezone, timedelta
-from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history
+from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees
 from app_core.utils import send_push_message, activate_download_link
 # from app_core.utils import send_quick_report_email # 【実装保留】のためコメントアウト
 from app_core.config import COLLECTION_DAILY_REPORTS, COLLECTION_JOBCAN_RAW_RESPONSES
@@ -2423,6 +2423,130 @@ def download_staff_summary_excel():
     except Exception as e:
         current_app.logger.error(f"Staff summary Excel generation failed: {e}", exc_info=True)
         abort(500, f"Excel生成中にエラーが発生しました: {str(e)}")
+
+
+def _date_to_allowance_row(day: int) -> int:
+    """対象期間の日付の「日」から、テンプレートの行番号(1-based)を返す。21〜31→3〜13、1〜20→14〜33。"""
+    if 21 <= day <= 31:
+        return 3 + (day - 21)
+    if 1 <= day <= 20:
+        return 14 + (day - 1)
+    return 0
+
+
+@api_bp.route("/manager/allowance/excel", methods=["POST"])
+@token_required
+@login_required
+def download_allowance_excel():
+    """
+    宿泊/現場(全社)の手当集計Excelを生成する。
+    テンプレート: /temp/template_allowance.xlsx
+    対象期間: 21日開始〜翌月20日締め。宿泊は get_accommodation_notes_for_employees、現場は get_on_site_status_for_employees を使用。
+    """
+    try:
+        from openpyxl.utils import get_column_letter
+
+        data = request.get_json() or {}
+        target_month = data.get("target_month", "current")
+
+        jst = timezone(timedelta(hours=9))
+        base_date = datetime.now(jst)
+        start_date, end_date = calculate_monthly_period(base_date)
+
+        if target_month == "previous":
+            prev_base = start_date - timedelta(days=1)
+            start_date, end_date = calculate_monthly_period(prev_base)
+
+        # YYYYMM = 締め月（end_date の年月）
+        yyyymm = end_date.strftime("%Y%m")
+        file_name = f"allowance_{yyyymm}.xlsx"
+
+        # アクティブな従業員を社員ID順で取得
+        mappings_ref = db.collection("employee_mappings")
+        query_mappings = mappings_ref.where(filter=FieldFilter("status", "==", "active"))
+        mappings_docs = list(query_mappings.stream())
+        all_employees = [(doc.id, doc.to_dict().get("name", "Unknown")) for doc in mappings_docs]
+        all_employees.sort(key=lambda x: x[0])
+        employee_ids = [e[0] for e in all_employees]
+        id_to_name = {e[0]: e[1] for e in all_employees}
+
+        # 宿泊・現場データ取得
+        accommodation = get_accommodation_notes_for_employees(employee_ids, start_date, end_date)
+        on_site = get_on_site_status_for_employees(employee_ids, start_date, end_date)
+
+        # 宿泊が1件以上ある社員のみ
+        accommodation_employees = [eid for eid in employee_ids if accommodation.get(eid)]
+        # 現場が1件以上ある社員のみ（0.5 or 1.0 の日が1日以上）
+        on_site_employees = [eid for eid in employee_ids if any((on_site.get(eid, {}).get(d) or 0) > 0 for d in (on_site.get(eid, {}) or {}))]
+
+        template_dir = os.path.join(current_app.root_path, "temp")
+        template_path = os.path.join(template_dir, "template_allowance.xlsx")
+        if not os.path.exists(template_path):
+            abort(500, f"テンプレートが見つかりません: {template_path}")
+
+        wb = openpyxl.load_workbook(template_path)
+        ws_shukuhaku = wb["宿泊"]
+        ws_genba = wb["現場"]
+
+        # 日付行: A3=21, A4=22, ... A13=31, A14=1, ... A33=20（既にテンプレートにある想定。値は上書きしない）
+        # 対象期間の日付→行マッピング（存在しない日は書かない）
+        def write_sheet(ws, staff_list_emp_ids, value_by_emp_date, value_for_date):
+            """staff_list_emp_ids: 列に出す社員IDリスト, value_by_emp_date: {emp_id: {date_str: value}}, value_for_date: 日付→表示値の関数 or 定数"""
+            for col_idx, emp_id in enumerate(staff_list_emp_ids, start=2):
+                name = id_to_name.get(emp_id, "Unknown")
+                ws.cell(row=2, column=col_idx, value=name)
+                dates_for_emp = value_by_emp_date.get(emp_id, {})
+                for date_str, val in dates_for_emp.items():
+                    try:
+                        d = datetime.strptime(date_str, "%Y-%m-%d")
+                        day = d.day
+                        row = _date_to_allowance_row(day)
+                        if row == 0:
+                            continue
+                        # 月末日数を超える日は書かない（29,30,31）
+                        if day >= 29:
+                            month_len = (d.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+                            if day > month_len.day:
+                                continue
+                        v = value_for_date(val) if callable(value_for_date) else value_for_date
+                        if v is None or (isinstance(v, (int, float)) and v == 0):
+                            continue
+                        ws.cell(row=row, column=col_idx, value=v)
+                    except (ValueError, TypeError):
+                        continue
+
+        # 宿泊: 該当日は 1.0
+        write_sheet(ws_shukuhaku, accommodation_employees, accommodation, 1.0)
+
+        # 現場: 該当日は 0.5 or 1.0（get_on_site_status_for_employees の値そのまま）
+        write_sheet(ws_genba, on_site_employees, on_site, lambda v: v)
+
+        # 列拡張: スタッフが12名を超える場合、M列以降を追加しL列(12)の書式をコピー
+        for sheet, staff_list_ids in [(ws_shukuhaku, accommodation_employees), (ws_genba, on_site_employees)]:
+            n_staff = len(staff_list_ids)
+            if n_staff > 12:
+                ref_col = 12
+                for c in range(13, n_staff + 2):
+                    for r in range(1, 34):
+                        src = sheet.cell(row=r, column=ref_col)
+                        dst = sheet.cell(row=r, column=c)
+                        if src.has_style:
+                            dst.font = src.font.copy()
+                            dst.border = src.border.copy()
+                            dst.fill = src.fill.copy()
+                            dst.number_format = src.number_format
+                            dst.alignment = src.alignment.copy()
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        b64_data = base64.b64encode(output.read()).decode("utf-8")
+        return jsonify({"file_name": file_name, "file_content": b64_data}), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Allowance Excel generation failed: {e}", exc_info=True)
+        abort(500, f"宿泊/現場Excelの生成に失敗しました: {str(e)}")
+
 
 @api_bp.route("/manager/prepare-report-csv", methods=["POST"])
 @token_required

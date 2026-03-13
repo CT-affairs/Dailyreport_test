@@ -868,3 +868,97 @@ def update_user_selection_history(company_employee_id: str, tasks: list):
         })
     except Exception as e:
         current_app.logger.error(f"Failed to update selection history for {company_employee_id}: {e}")
+
+def get_accommodation_notes_for_employees(employee_ids: list[str], start_date: datetime, end_date: datetime) -> dict:
+    """
+    指定された期間と従業員リストについて、宿泊備考（選択備考ID=1）を取得する。
+    
+    Args:
+        employee_ids (list[str]): 会社の従業員IDのリスト。
+        start_date (datetime): 取得開始日。
+        end_date (datetime): 取得終了日。
+
+    Returns:
+        dict: { "company_employee_id": { "YYYY-MM-DD": "備考内容" } }
+    """
+    from services.jobcan_service import JobcanService
+    app_env = os.environ.get("APP_ENV", "development")
+    is_sandbox = app_env != "production"
+    
+    jobcan_service = JobcanService(
+        db=db,
+        sandbox=is_sandbox,
+        raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES
+    )
+
+    # 会社IDとJobcan IDのマッピングを取得
+    mappings_ref = db.collection("employee_mappings")
+    docs = mappings_ref.where(FieldPath.document_id(), "in", employee_ids).stream()
+    id_map = {doc.id: doc.to_dict().get("jobcan_employee_id") for doc in docs}
+
+    all_notes = {}
+    from_str = start_date.strftime('%Y-%m-%d')
+    to_str = end_date.strftime('%Y-%m-%d')
+
+    for company_id, jobcan_id in id_map.items():
+        if not jobcan_id:
+            continue
+        try:
+            notes = jobcan_service.get_selection_notes(jobcan_id, from_str, to_str)
+            if notes:
+                all_notes[company_id] = notes
+        except Exception as e:
+            current_app.logger.error(f"Failed to get accommodation notes for employee {company_id} (Jobcan ID: {jobcan_id}): {e}")
+
+    return all_notes
+
+def get_on_site_status_for_employees(employee_ids: list[str], start_date: datetime, end_date: datetime) -> dict:
+    """
+    指定された期間と従業員リストについて、現場作業ステータス（終日/半日）を取得する。
+    日報のタスク(categoryA_id='A01')の合計時間から判定する。
+
+    Args:
+        employee_ids (list[str]): 会社の従業員IDのリスト。
+        start_date (datetime): 取得開始日。
+        end_date (datetime): 取得終了日。
+
+    Returns:
+        dict: { "company_employee_id": { "YYYY-MM-DD": 1.0 or 0.5 or 0.0 } }
+    """
+    results = {emp_id: {} for emp_id in employee_ids}
+
+    # Firestore 'in' クエリの要素数上限(30)に対応するため、IDをチャンクに分割
+    chunk_size = 30
+    for i in range(0, len(employee_ids), chunk_size):
+        id_chunk = employee_ids[i:i + chunk_size]
+        
+        query = db.collection(COLLECTION_DAILY_REPORTS) \
+            .where(filter=FieldFilter("company_employee_id", "in", id_chunk)) \
+            .where(filter=FieldFilter("date", ">=", start_date)) \
+            .where(filter=FieldFilter("date", "<=", end_date))
+
+        docs = query.stream()
+
+        for doc in docs:
+            data = doc.to_dict()
+            emp_id = data.get("company_employee_id")
+            report_date = data.get("date")
+            tasks = data.get("tasks", [])
+
+            if not emp_id or not report_date:
+                continue
+
+            date_str = report_date.strftime('%Y-%m-%d')
+
+            # A01（現場作業）の時間を集計
+            on_site_minutes = sum(int(task.get("time", 0)) for task in tasks if task.get("categoryA_id") == "A01")
+            
+            status_value = 0.0
+            if on_site_minutes >= 360:
+                status_value = 1.0
+            elif on_site_minutes >= 240:
+                status_value = 0.5
+            
+            results[emp_id][date_str] = status_value
+
+    return results
