@@ -2521,13 +2521,14 @@ def download_allowance_excel():
         # 現場: 該当日は 0.5 or 1.0（get_on_site_status_for_employees の値そのまま）
         write_sheet(ws_genba, on_site_employees, on_site, lambda v: v)
 
-        # 列拡張: スタッフが12名を超える場合、M列以降を追加しL列(12)の書式をコピー
+        # 列拡張: スタッフが12名を超える場合、M列以降へL列(12)を列コピー（書式含めシート全行）
         for sheet, staff_list_ids in [(ws_shukuhaku, accommodation_employees), (ws_genba, on_site_employees)]:
             n_staff = len(staff_list_ids)
             if n_staff > 12:
                 ref_col = 12
+                max_row = sheet.max_row  # テンプレートの実際の行数まで書式をコピー
                 for c in range(13, n_staff + 2):
-                    for r in range(1, 34):
+                    for r in range(1, max_row + 1):
                         src = sheet.cell(row=r, column=ref_col)
                         dst = sheet.cell(row=r, column=c)
                         if src.has_style:
