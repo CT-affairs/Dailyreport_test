@@ -160,9 +160,9 @@
     </div>
 
     <!-- 注意事項モーダル -->
-    <div id="proxy-work-time-notes-modal" class="modal" style="display: none;">
-        <div class="modal-content">
-            <span id="proxy-work-time-notes-close" class="close">&times;</span>
+    <div id="proxy-work-time-notes-modal" class="dr-modal" style="display: none;">
+        <div class="dr-modal-content" style="max-width: 500px;">
+            <span id="proxy-work-time-notes-close" class="dr-close-button">&times;</span>
             <h3>勤務時間について</h3>
             <p>「Jobcanから取得」ボタンを押すと、対象者のJobcanの打刻データから勤務時間を取得します。</p>
             <p>※退勤前だと休憩時間が考慮されていないことがあります。</p>
@@ -170,13 +170,13 @@
     </div>
 
     <!-- 過去日報参照モーダル -->
-    <div id="past-reports-modal" class="modal" style="display:none; justify-content: flex-start;">
-        <div class="modal-content" style="width: 50%; max-width: 700px; height: 100%; display: flex; flex-direction: column; border-radius: 0; margin: 0; box-shadow: none; border-right: 1px solid #ccc;">
-            <div class="modal-header">
+    <div id="past-reports-modal" class="dr-modal dr-modal-pane-container" style="display:none;">
+        <div class="dr-modal-content dr-modal-left-pane">
+            <div class="dr-modal-header">
                 <h2>過去日報参照</h2>
-                <span class="close-button" id="past-reports-modal-close" style="font-size: 2rem; cursor: pointer;">&times;</span>
+                <span class="dr-close-button" id="past-reports-modal-close">&times;</span>
             </div>
-            <div class="modal-body" style="flex-grow: 1; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="dr-modal-body">
                 <div class="past-reports-nav" style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">
                     <button id="past-reports-prev-btn" class="btn-secondary">◀ 過去7日</button>
                     <span id="past-reports-period-display" style="font-weight: bold;"></span>
@@ -191,6 +191,62 @@
 
     <!-- 過去日報モーダル用のスタイル -->
     <style>
+        /* --- 外部CSSの影響をリセットし、モーダルの基本スタイルを定義 --- */
+        .dr-modal {
+            /* 表示位置とサイズ */
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            
+            /* 重なり順 */
+            z-index: 1050 !important;
+
+            /* 背景 */
+            background-color: rgba(0, 0, 0, 0.5) !important;
+            
+            /* 子要素の配置 (デフォルトは中央寄せ) */
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            
+            /* その他のリセット */
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+        }
+
+        /* 左寄せ用のコンテナ */
+        .dr-modal.dr-modal-pane-container {
+            justify-content: flex-start !important;
+            align-items: flex-start !important;
+        }
+
+        .dr-modal-content {
+            background: #fff !important;
+            border-radius: 8px !important;
+            box-shadow: 0 5px 15px rgba(0,0,0,.5) !important;
+            padding: 20px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow: hidden !important;
+            position: relative !important; /* closeボタンの位置基準 */
+        }
+
+        /* 左半分に表示するスタイル */
+        .dr-modal-left-pane {
+            width: 50% !important;
+            max-width: 700px !important;
+            height: 100% !important;
+            border-radius: 0 !important;
+            padding: 0 !important; /* ヘッダー/ボディでパディングを制御するためリセット */
+            box-shadow: none !important;
+            border-right: 1px solid #ccc !important;
+        }
+
+        /* --- 過去日報モーダル固有のスタイル --- */
+        /* (このスタイルは .dr-modal-content の子要素に適用される) */
         .past-reports-grid {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
@@ -238,6 +294,36 @@
         .past-task-block:hover {
             opacity: 0.8;
             outline: 1px solid #007bff;
+        }
+
+        /* --- 共通モーダルパーツのスタイル --- */
+        .dr-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .dr-modal-body {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .dr-close-button {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 2rem;
+            font-weight: 700;
+            line-height: 1;
+            color: #000;
+            text-shadow: 0 1px 0 #fff;
+            opacity: .5;
+            cursor: pointer;
+        }
+        .dr-close-button:hover {
+            opacity: .75;
         }
     </style>
 </div>

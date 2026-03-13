@@ -3409,13 +3409,14 @@ async function initializeProxyReportScreen(isNetTemplate) {
     const notesCloseBtn = document.getElementById('proxy-work-time-notes-close');
 
     if (notesModal && notesTrigger && notesCloseBtn) {
-        notesTrigger.onclick = () => { notesModal.style.display = "block"; };
+        notesTrigger.onclick = () => { notesModal.style.display = "flex"; };
         notesCloseBtn.onclick = () => { notesModal.style.display = "none"; };
-        window.onclick = (event) => {
-            if (event.target == notesModal) {
+        // window.onclick は他のモーダルと競合するため、モーダル自身へのクリックイベントに変更
+        notesModal.addEventListener('click', (event) => {
+            if (event.target.classList.contains('dr-modal')) {
                 notesModal.style.display = "none";
             }
-        };
+        });
     }
 
     // 既存データの読み込み
@@ -4445,8 +4446,11 @@ async function initializeProxyTimetable() {
     if (pastReportsModal && pastReportsModalClose) {
         const closeModal = () => { pastReportsModal.style.display = 'none'; };
         pastReportsModalClose.addEventListener('click', closeModal);
-        // モーダルの外側クリックでも閉じる
-        pastReportsModal.addEventListener('click', (e) => { if (e.target === pastReportsModal) closeModal(); });
+        // モーダルの外側（オーバーレイ部分）クリックでも閉じる
+        pastReportsModal.addEventListener('click', (e) => {
+            // クリックされたのがモーダル自身（背景のオーバーレイ）であるかを確認
+            if (e.target.classList.contains('dr-modal')) closeModal();
+        });
     }
 
     if (zoomInTop) {
