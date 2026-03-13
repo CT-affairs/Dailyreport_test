@@ -3409,12 +3409,12 @@ async function initializeProxyReportScreen(isNetTemplate) {
     const notesCloseBtn = document.getElementById('proxy-work-time-notes-close');
 
     if (notesModal && notesTrigger && notesCloseBtn) {
-        notesTrigger.onclick = () => { notesModal.style.display = "flex"; };
-        notesCloseBtn.onclick = () => { notesModal.style.display = "none"; };
+        notesTrigger.onclick = () => { notesModal.classList.add('is-active'); };
+        notesCloseBtn.onclick = () => { notesModal.classList.remove('is-active'); };
         // window.onclick は他のモーダルと競合するため、モーダル自身へのクリックイベントに変更
         notesModal.addEventListener('click', (event) => {
             if (event.target.classList.contains('dr-modal')) {
-                notesModal.style.display = "none";
+                notesModal.classList.remove('is-active');
             }
         });
     }
@@ -4444,7 +4444,7 @@ async function initializeProxyTimetable() {
     const pastReportsModal = document.getElementById('past-reports-modal');
     const pastReportsModalClose = document.getElementById('past-reports-modal-close');
     if (pastReportsModal && pastReportsModalClose) {
-        const closeModal = () => { pastReportsModal.style.display = 'none'; };
+        const closeModal = () => { pastReportsModal.classList.remove('is-active'); };
         pastReportsModalClose.addEventListener('click', closeModal);
         // モーダルの外側（オーバーレイ部分）クリックでも閉じる
         pastReportsModal.addEventListener('click', (e) => {
@@ -5462,7 +5462,7 @@ function openPastReportsModal() {
     pastReportsCurrentEndDate = new Date(currentProxyTarget.date);
     pastReportsCurrentEndDate.setDate(pastReportsCurrentEndDate.getDate() - 1);
 
-    modal.style.display = 'flex';
+    modal.classList.add('is-active');
     fetchAndRenderPastReports();
 
     // ナビゲーションボタンのイベントリスナーを（再）設定
@@ -5625,7 +5625,7 @@ function handlePastTaskClick(event) {
     catASelect.value = categoryAId;
 
     // モーダルを閉じる
-    document.getElementById('past-reports-modal').style.display = 'none';
+    document.getElementById('past-reports-modal').classList.remove('is-active');
 }
 
 // --- ★ここまで: 過去日報参照機能 ---

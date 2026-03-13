@@ -160,7 +160,7 @@
     </div>
 
     <!-- 注意事項モーダル -->
-    <div id="proxy-work-time-notes-modal" class="dr-modal" style="display: none;">
+    <div id="proxy-work-time-notes-modal" class="dr-modal">
         <div class="dr-modal-content" style="max-width: 500px;">
             <span id="proxy-work-time-notes-close" class="dr-close-button">&times;</span>
             <h3>勤務時間について</h3>
@@ -170,7 +170,7 @@
     </div>
 
     <!-- 過去日報参照モーダル -->
-    <div id="past-reports-modal" class="dr-modal dr-modal-pane-container" style="display:none;">
+    <div id="past-reports-modal" class="dr-modal dr-modal-pane-container">
         <div class="dr-modal-content dr-modal-left-pane">
             <div class="dr-modal-header">
                 <h2>過去日報参照</h2>
@@ -193,6 +193,7 @@
     <style>
         /* --- 外部CSSの影響をリセットし、モーダルの基本スタイルを定義 --- */
         .dr-modal {
+            display: none !important; /* デフォルトは非表示 */
             /* 表示位置とサイズ */
             position: fixed !important;
             top: 0 !important;
@@ -207,7 +208,6 @@
             background-color: rgba(0, 0, 0, 0.5) !important;
             
             /* 子要素の配置 (デフォルトは中央寄せ) */
-            display: flex !important;
             justify-content: center !important;
             align-items: center !important;
             
@@ -215,6 +215,9 @@
             margin: 0 !important;
             padding: 0 !important;
             border: none !important;
+        }
+        .dr-modal.is-active {
+            display: flex !important; /* is-activeクラスで表示 */
         }
 
         /* 左寄せ用のコンテナ */
