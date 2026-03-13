@@ -3350,25 +3350,25 @@ async function initializeProxyReportScreen(isNetTemplate) {
     // 共通バッジスタイルを適用
     setupSharedBadgeStyles();
 
+    // 戻るボタン用の共通遷移ロジック
+    const navigateBack = () => {
+        // ★タイマー停止と下書き破棄
+        if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
+        const draftKey = getProxyDraftKey();
+        if (draftKey) localStorage.removeItem(draftKey);
+
+        const target = currentProxyTarget?.returnTarget || 'dashboard';
+        const params = {};
+        // 遷移先が個別カレンダー画面の場合、対象者のemployeeIdをパラメータとして渡す
+        if ((target === 'staff_calendar' || target === 'staff_calendar_net') && currentProxyTarget?.employeeId) {
+            params.employeeId = currentProxyTarget.employeeId;
+        }
+        handleNavigation(target, params);
+    };
+
     // イベントリスナー設定
-    document.getElementById('close-proxy-report-btn').addEventListener('click', () => {
-        // ★タイマー停止と下書き破棄
-        if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
-        const draftKey = getProxyDraftKey();
-        if (draftKey) localStorage.removeItem(draftKey);
-
-        // 一覧画面に戻る
-        handleNavigation(currentProxyTarget?.returnTarget || 'dashboard');
-    });
-    
-    document.getElementById('proxy-back-to-list-btn').addEventListener('click', () => {
-        // ★タイマー停止と下書き破棄
-        if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
-        const draftKey = getProxyDraftKey();
-        if (draftKey) localStorage.removeItem(draftKey);
-
-        handleNavigation(currentProxyTarget?.returnTarget || 'dashboard');
-    });
+    document.getElementById('close-proxy-report-btn').addEventListener('click', navigateBack);
+    document.getElementById('proxy-back-to-list-btn').addEventListener('click', navigateBack);
 
     // ボタンのテキストと機能を変更
     const syncBtn = document.getElementById('proxy-get-work-time-button');
