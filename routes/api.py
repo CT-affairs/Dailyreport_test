@@ -2426,11 +2426,11 @@ def download_staff_summary_excel():
 
 
 def _date_to_allowance_row(day: int) -> int:
-    """対象期間の日付の「日」から、テンプレートの行番号(1-based)を返す。21〜31→3〜13、1〜20→14〜33。"""
+    """対象期間の日付の「日」から、テンプレートの行番号(1-based)を返す。21〜31→2〜12、1〜20→13〜32。"""
     if 21 <= day <= 31:
-        return 3 + (day - 21)
+        return 2 + (day - 21)
     if 1 <= day <= 20:
-        return 14 + (day - 1)
+        return 13 + (day - 1)
     return 0
 
 
@@ -2487,13 +2487,12 @@ def download_allowance_excel():
         ws_shukuhaku = wb["宿泊"]
         ws_genba = wb["現場"]
 
-        # 日付行: A3=21, A4=22, ... A13=31, A14=1, ... A33=20（既にテンプレートにある想定。値は上書きしない）
-        # 対象期間の日付→行マッピング（存在しない日は書かない）
+        # 1行目: B1,C1,D1…にスタッフ名。2行目〜32行目: データ（A2=21日…A12=31日、A13=1日…A32=20日）
         def write_sheet(ws, staff_list_emp_ids, value_by_emp_date, value_for_date):
             """staff_list_emp_ids: 列に出す社員IDリスト, value_by_emp_date: {emp_id: {date_str: value}}, value_for_date: 日付→表示値の関数 or 定数"""
             for col_idx, emp_id in enumerate(staff_list_emp_ids, start=2):
                 name = id_to_name.get(emp_id, "Unknown")
-                ws.cell(row=2, column=col_idx, value=name)
+                ws.cell(row=1, column=col_idx, value=name)
                 dates_for_emp = value_by_emp_date.get(emp_id, {})
                 for date_str, val in dates_for_emp.items():
                     try:
