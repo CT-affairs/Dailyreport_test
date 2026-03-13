@@ -1188,13 +1188,14 @@ async function renderDashboardHome(container) {
     document.getElementById('shukuhaku-zenkoku-curr-btn').addEventListener('click', () => handleAllowanceDownload('current', 'shukuhaku-zenkoku-curr-btn'));
     document.getElementById('shukuhaku-zenkoku-prev-btn').addEventListener('click', () => handleAllowanceDownload('previous', 'shukuhaku-zenkoku-prev-btn'));
 
-    // 業務別(ネット) - スタッフ別と同じ処理を呼ぶ
-    document.getElementById('net-gyomu-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'net-gyomu-curr-btn'));
-    document.getElementById('net-gyomu-prev-btn').addEventListener('click', () => handleStaffSummaryDownload('previous', 'net-gyomu-prev-btn'));
-
-    // スタッフ別(ネット)
-    document.getElementById('net-staff-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'net-staff-curr-btn'));
-    document.getElementById('net-staff-prev-btn').addEventListener('click', () => handleStaffSummaryDownload('previous', 'net-staff-prev-btn'));
+    // 業務別(ネット) / スタッフ別(ネット) は未実装のためアラートのみ表示して何もしない
+    const showNetNotImplemented = () => {
+        alert('ネット事業部向けの集計表ダウンロードは現在未実装です。');
+    };
+    document.getElementById('net-gyomu-curr-btn').addEventListener('click', showNetNotImplemented);
+    document.getElementById('net-gyomu-prev-btn').addEventListener('click', showNetNotImplemented);
+    document.getElementById('net-staff-curr-btn').addEventListener('click', showNetNotImplemented);
+    document.getElementById('net-staff-prev-btn').addEventListener('click', showNetNotImplemented);
 
     // 残業/休出(全社) - 非表示だが念のためリスナーを追加
     document.getElementById('zankyu-zensha-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'zankyu-zensha-curr-btn'));
