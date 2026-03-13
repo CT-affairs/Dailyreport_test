@@ -3599,8 +3599,11 @@ async function loadProxyExistingData() {
         updateProxyWorkTimeSummary();
         messageDiv.textContent = '';
 
-        // ★ 既存データ読み込み後に、デフォルトの休憩タスクを生成
-        createDefaultBreakTask();
+        // ★ 既存データに休憩タスクが含まれていない場合のみ、デフォルト（12:00-13:00）を生成
+        const hasBreakTask = isNetTemplate && existingTasks.some(t => t.categoryA_id === 'N99');
+        if (!hasBreakTask) {
+            createDefaultBreakTask();
+        }
 
     } catch (error) {
         console.error("データ読み込みエラー:", error);
@@ -3900,12 +3903,56 @@ function updateProxySliderRemainingTime() {
 }
 
 /**
+ * 休憩タスクを指定された開始・終了時刻でタイムテーブルに描画する（共通処理）
+ * @param {string} startTime - 例: '12:00'
+ * @param {string} endTime - 例: '13:00'
+ */
+function renderBreakTask(startTime, endTime) {
+    const start = new Date(`1970-01-01T${startTime}:00`);
+    const end = new Date(`1970-01-01T${endTime}:00`);
+    if (end <= start) end.setDate(end.getDate() + 1);
+    const duration = (end - start) / 1000 / 60;
+
+    const startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+    if (!startRow) {
+        console.warn('Could not find start row for break task:', startTime);
+        return;
+    }
+    const startSlotCell = startRow.querySelector('.timetable-slot');
+
+    const taskElement = document.createElement('div');
+    taskElement.className = 'timetable-task';
+    taskElement.dataset.taskType = 'break';
+
+    const bgColor = '#e9ecef';
+    const textColor = '#6c757d';
+    const borderColor = 'transparent';
+    const taskHeight = (duration / 15) * 24;
+
+    taskElement.style.cssText = `position: absolute; top: 0; left: 0; right: 0; height: ${taskHeight}px; background-color: ${bgColor}; color: ${textColor}; border-left: 3px solid ${borderColor}; padding: 4px 6px; font-size: 0.8em; line-height: 1.3; overflow: hidden; z-index: 10; box-sizing: border-box; cursor: grab; display: flex; align-items: center; justify-content: center;`;
+
+    taskElement.innerHTML = `<div>昼休憩</div>`;
+
+    taskElement.dataset.startTime = startTime;
+    taskElement.dataset.endTime = endTime;
+    taskElement.dataset.comment = '昼休憩';
+    taskElement.dataset.categoryAId = 'N99';
+    taskElement.dataset.categoryALabel = '昼休憩';
+    taskElement.dataset.categoryBId = 'n_break';
+    taskElement.dataset.categoryBLabel = '休憩';
+
+    taskElement.addEventListener('click', () => handleTaskClick(taskElement));
+
+    startSlotCell.appendChild(taskElement);
+}
+
+/**
  * デフォルトの休憩タスク（12:00-13:00）をタイムテーブルに描画する
+ * 既に休憩がいる、または保存データから復元する場合は呼ばれない想定
  */
 function createDefaultBreakTask() {
     const startTime = '12:00';
     const endTime = '13:00';
-    const duration = 60;
 
     // 既に休憩タスクが存在する場合は何もしない
     if (document.querySelector('.timetable-task[data-task-type="break"]')) {
@@ -3918,43 +3965,7 @@ function createDefaultBreakTask() {
         return;
     }
 
-    const startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
-    if (!startRow) {
-        console.warn('Could not find start row for default break task (12:00).');
-        return;
-    }
-    const startSlotCell = startRow.querySelector('.timetable-slot');
-
-    const taskElement = document.createElement('div');
-    taskElement.className = 'timetable-task';
-    taskElement.dataset.taskType = 'break'; // 休憩タスクを識別
-
-    const bgColor = '#e9ecef'; // 薄いグレー
-    const textColor = '#6c757d'; // 少し濃いグレー
-    const borderColor = 'transparent'; // バーなし
-
-    const taskHeight = (duration / 15) * 24; // 60分 = 4スロット * 24px = 96px
-
-    taskElement.style.cssText = `position: absolute; top: 0; left: 0; right: 0; height: ${taskHeight}px; background-color: ${bgColor}; color: ${textColor}; border-left: 3px solid ${borderColor}; padding: 4px 6px; font-size: 0.8em; line-height: 1.3; overflow: hidden; z-index: 10; box-sizing: border-box; cursor: grab; display: flex; align-items: center; justify-content: center;`;
-
-    taskElement.innerHTML = `<div>昼休憩</div>`;
-
-    // datasetを設定
-    taskElement.dataset.startTime = startTime;
-    taskElement.dataset.endTime = endTime;
-    taskElement.dataset.comment = '昼休憩';
-    // ★ 保存・送信処理で識別するためのIDを設定
-    taskElement.dataset.categoryAId = 'N99';
-    taskElement.dataset.categoryALabel = '昼休憩';
-    // 休憩タスクのカテゴリBは固定の識別子とする
-    taskElement.dataset.categoryBId = 'n_break'; 
-    taskElement.dataset.categoryBLabel = '休憩';
-
-
-    // ★休憩タスクもクリックで編集/削除できるようにする
-    taskElement.addEventListener('click', () => handleTaskClick(taskElement));
-
-    startSlotCell.appendChild(taskElement);
+    renderBreakTask(startTime, endTime);
 }
 
 /**
@@ -5027,9 +5038,9 @@ function clearProxyTaskDetailsForm() {
  * @param {object} task APIから取得したタスクオブジェクト
  */
 function renderExistingTimetableTask(task) {
-    // ★休憩タスクの場合、デフォルト休憩タスク生成関数を呼び出して描画する
-    if (task.categoryA_id === 'N99') {
-        createDefaultBreakTask(); // 休憩タスクは常に1つなので、これでOK
+    // ★休憩タスクの場合、保存された開始・終了時刻で描画する（デフォルトの12:00-13:00に戻さない）
+    if (task.categoryA_id === 'N99' && task.startTime && task.endTime) {
+        renderBreakTask(task.startTime, task.endTime);
         return;
     }
 
