@@ -5463,6 +5463,9 @@ function openPastReportsModal() {
     pastReportsCurrentEndDate.setDate(pastReportsCurrentEndDate.getDate() - 1);
 
     modal.classList.add('is-active');
+    // !important を使ったCSS変更を確実に反映させるためのハック
+    void modal.offsetWidth;
+
     fetchAndRenderPastReports();
 
     // ナビゲーションボタンのイベントリスナーを（再）設定
