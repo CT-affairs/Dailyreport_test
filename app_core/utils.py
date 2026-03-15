@@ -119,27 +119,27 @@ def get_calendar_statuses(jobcan_employee_id: str, company_employee_id: str, dat
     """
     指定された期間のJobcan勤務時間とFirestoreの報告時間を比較し、
     カレンダー表示用のステータスを生成する。
+    jobcan_employee_id が None/空の場合はJobcanを呼ばず勤務時間を0として扱い、
+    Firestoreの日報データのみでステータスを返す（active_officer 等に対応）。
     """
-    # --- 1. Jobcanから勤務サマリーを取得 ---
-    # Jobcanの勤務サマリーAPI(get_daily_summaries)は、仕様上、前日までの確定した勤務実績しか返さない。
-    # そのため、まず過去日分の実績をこのAPIで取得し、当日分は後続の処理でリアルタイムに計算する。
-    from services.jobcan_service import JobcanService
-
-    # 実行環境に応じてサンドボックスフラグを設定
-    app_env = os.environ.get("APP_ENV", "development")
-    is_sandbox = app_env != "production"
-
-    jobcan_service = JobcanService(
-        db=db,
-        sandbox=is_sandbox, # JobcanServiceがこのフラグを元に認証情報とURLを決定する
-        raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES
-    )
-    jobcan_data = jobcan_service.get_daily_summaries(employee_id=jobcan_employee_id, dates=dates)
-    default_shift_data = jobcan_service.get_default_shifts(employee_id=jobcan_employee_id)
-
-    # --- デバッグログ ---
-    current_app.logger.debug("--- [DEBUG] API (/default-shifts) Response ---")
-    current_app.logger.debug(f"Data: {default_shift_data}")
+    # --- 1. Jobcanから勤務サマリーを取得（IDが無い場合はスキップし勤務時間0とする）---
+    if not jobcan_employee_id:
+        jobcan_data = {"daily_summaries": []}
+        default_shift_data = None
+        current_app.logger.info(f"[get_calendar_statuses] jobcan_employee_id is empty for company_employee_id={company_employee_id}; skipping Jobcan API, treating work time as 0.")
+    else:
+        from services.jobcan_service import JobcanService
+        app_env = os.environ.get("APP_ENV", "development")
+        is_sandbox = app_env != "production"
+        jobcan_service = JobcanService(
+            db=db,
+            sandbox=is_sandbox,
+            raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES
+        )
+        jobcan_data = jobcan_service.get_daily_summaries(employee_id=jobcan_employee_id, dates=dates)
+        default_shift_data = jobcan_service.get_default_shifts(employee_id=jobcan_employee_id)
+        current_app.logger.debug("--- [DEBUG] API (/default-shifts) Response ---")
+        current_app.logger.debug(f"Data: {default_shift_data}")
 
     # 最終的な結果を格納する辞書を初期化
     calendar_statuses = {date: {"status": None, "jobcan_minutes": None, "reported_minutes": None, "has_shift": False, "has_accommodation": False, "jobcan_note": "", "on_site": None} for date in dates}
