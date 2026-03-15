@@ -1553,8 +1553,8 @@ def get_manager_daily_reports():
         # 1. 全社員マッピングを取得 (IDと名前のマッピング用)
         # これにより、未提出者も一覧に表示できる
         mappings_ref = db.collection('employee_mappings')
-        # status: "active" の従業員のみを対象とする
-        query = mappings_ref.where(filter=FieldFilter("status", "==", "active"))
+        # 日報_一覧では status: "active" に加え "active_officer"（日報を書く役員）も表示対象とする
+        query = mappings_ref.where(filter=FieldFilter("status", "in", ["active", "active_officer"]))
         mappings_docs = query.stream()
         
         # usersコレクションからグループ情報を取得するためのマップを作成
