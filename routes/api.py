@@ -1587,8 +1587,9 @@ def get_manager_daily_reports():
         for doc in reports_docs:
             data = doc.to_dict()
             emp_id = data.get('company_employee_id')
-            if emp_id:
-                reports_map[emp_id] = data
+            if emp_id is not None:
+                # キーは文字列に統一（doc.id と型を揃え、active_officer 等の日報も確実に突き合う）
+                reports_map[str(emp_id)] = data
 
         # 3. 結合と集計
         results = []
@@ -1596,7 +1597,7 @@ def get_manager_daily_reports():
             emp_id = emp['id']
             name = emp['name']
             group_id = emp.get('group_id') # グループIDを取得
-            report = reports_map.get(emp_id)
+            report = reports_map.get(str(emp_id))
             
             if report:
                 work_time = report.get('jobcan_work_minutes', 0)
