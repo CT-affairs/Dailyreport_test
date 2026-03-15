@@ -2265,7 +2265,14 @@ async function main() {
             }, 0);
         } else {
             // デフォルトまたは page=report の場合は工数入力画面を表示
-            await showReportPage(urlParams);
+            // main_group が 3（数値）または '3'（文字列）のときのみネット用コピー画面を表示
+            const mg = cachedEmployeeInfo && cachedEmployeeInfo.main_group;
+            const isNetGroup = mg === 3 || mg === '3';
+            if (isNetGroup) {
+                await showReportPageNet(urlParams);
+            } else {
+                await showReportPage(urlParams);
+            }
         }
 
         loadingContainer.style.display = 'none'; // コンテンツの準備ができてからローディング表示を消す
@@ -2656,6 +2663,170 @@ async function showReportPage(urlParams) {
     ]);
 
     displayUserInfo(reportContainer);
+    if (workTimeResult.success) {
+        document.getElementById('report-work').value = workTimeResult.workTime;
+        updateWorkTimeSummary();
+    } else {
+        console.error("自動受信エラー:", workTimeResult.error);
+    }
+
+    initializeTaskArea(reportDetailsResult.tasks);
+    updateReportStatusBadges(reportDetailsResult);
+}
+
+/**
+ * 工数入力画面（ネット事業部・main_group=3 用コピー）の表示と初期化を行う
+ * @param {URLSearchParams} urlParams
+ */
+async function showReportPageNet(urlParams) {
+    document.title = "工数入力（ネット）";
+
+    const reportHtml = await fetchHtmlAsString('_report_net.html');
+    const reportNetContainer = document.getElementById('report-net-container');
+    reportNetContainer.style.display = 'block';
+    reportNetContainer.innerHTML = reportHtml;
+
+    const dateParam = urlParams.get('date');
+    const targetDate = dateParam || toUTCDateString(new Date());
+    document.getElementById('report-date').value = targetDate;
+
+    document.getElementById('report-form').addEventListener('submit', handleReportSubmit);
+    document.getElementById('get-work-time-button').addEventListener('click', handleGetWorkTime);
+
+    const submitBtn = document.getElementById('submit-button');
+    if (submitBtn) {
+        const backBtnContainer = document.createElement('div');
+        backBtnContainer.style.display = 'flex';
+        backBtnContainer.style.justifyContent = 'flex-end';
+        backBtnContainer.style.marginTop = '5px';
+
+        const backBtn = document.createElement('button');
+        backBtn.type = 'button';
+        backBtn.textContent = '出勤簿へ戻る';
+        backBtn.className = submitBtn.className;
+        backBtn.style.backgroundColor = '#777';
+        backBtn.style.borderColor = '#777';
+        backBtn.style.color = 'white';
+        backBtn.style.width = '45%';
+        backBtn.style.paddingLeft = '15px';
+        backBtn.style.paddingRight = '15px';
+
+        backBtn.onclick = () => {
+            const reportedDateStr = document.getElementById('report-date').value;
+            let targetMonthStr = '';
+            if (reportedDateStr && dateToMonthMap[reportedDateStr]) {
+                targetMonthStr = toUTCDateString(dateToMonthMap[reportedDateStr]);
+            }
+            const url = targetMonthStr ? `?page=calendar&month=${targetMonthStr}` : '?page=calendar';
+            window.location.href = url;
+        };
+
+        backBtnContainer.appendChild(backBtn);
+        submitBtn.parentNode.insertBefore(backBtnContainer, submitBtn.nextSibling);
+    }
+
+    document.getElementById('add-task-button').addEventListener('click', () => {
+        addTaskEntry(lastDeletedTask);
+        lastDeletedTask = null;
+        updateWorkTimeSummary();
+    });
+
+    const addTaskButton = document.getElementById('add-task-button');
+    if (addTaskButton && !document.getElementById('ui-toggle-button')) {
+        const uiToggleButton = document.createElement('button');
+        uiToggleButton.type = 'button';
+        uiToggleButton.id = 'ui-toggle-button';
+        uiToggleButton.className = 'ui-toggle-button';
+        uiToggleButton.textContent = 'UI';
+        uiToggleButton.classList.add('active');
+        uiToggleButton.addEventListener('click', () => {
+            uiToggleButton.classList.toggle('active');
+        });
+        addTaskButton.parentNode.insertBefore(uiToggleButton, addTaskButton);
+    }
+    document.getElementById('report-work').addEventListener('input', updateWorkTimeSummary);
+
+    document.getElementById('continue-button').addEventListener('click', () => {
+        document.getElementById('completion-screen').style.display = 'none';
+        const loadingContainer = document.getElementById('loading-container');
+        const loadingMessage = document.getElementById('loading-message');
+        loadingContainer.style.display = 'block';
+        loadingMessage.innerText = 'カレンダーに戻っています...';
+        const reportedDateStr = document.getElementById('report-date').value;
+        let targetMonthStr = '';
+        if (reportedDateStr && dateToMonthMap[reportedDateStr]) {
+            targetMonthStr = toUTCDateString(dateToMonthMap[reportedDateStr]);
+        }
+        const url = targetMonthStr ? `?page=calendar&month=${targetMonthStr}` : '?page=calendar';
+        window.location.href = url;
+    });
+    document.getElementById('close-button').addEventListener('click', () => liff.closeWindow());
+
+    const modal = document.getElementById('work-time-notes-modal');
+    const openBtn = document.getElementById('work-time-notes-trigger');
+    const sliderModal = document.getElementById('time-slider-modal');
+    const timeSlider = document.getElementById('time-slider');
+    const sliderValueDisplay = document.getElementById('slider-value-display');
+
+    timeSlider.addEventListener('input', () => {
+        sliderValueDisplay.textContent = `${timeSlider.value} 分`;
+    });
+
+    document.getElementById('slider-step-up').addEventListener('click', () => {
+        let currentValue = parseInt(timeSlider.value, 10);
+        let currentMax = parseInt(timeSlider.max, 10);
+        const newValue = currentValue + 15;
+        if (newValue > currentMax) timeSlider.max = newValue;
+        timeSlider.value = newValue;
+        sliderValueDisplay.textContent = `${newValue} 分`;
+    });
+
+    document.getElementById('slider-step-down').addEventListener('click', () => {
+        let currentValue = parseInt(timeSlider.value, 10);
+        let newValue = currentValue - 15;
+        if (newValue < 0) newValue = 0;
+        timeSlider.value = newValue;
+        sliderValueDisplay.textContent = `${newValue} 分`;
+    });
+
+    document.getElementById('slider-ok-button').addEventListener('click', () => {
+        if (activeSliderInput) {
+            activeSliderInput.value = timeSlider.value;
+            updateWorkTimeSummary();
+        }
+        hideSliderModal();
+    });
+
+    document.getElementById('slider-cancel-button').addEventListener('click', hideSliderModal);
+    sliderModal.addEventListener('click', (e) => { if (e.target === sliderModal) hideSliderModal(); });
+
+    const closeBtn = document.getElementById('modal-close-button');
+    if (modal && openBtn && closeBtn) {
+        const closeNotesModal = () => {
+            closeModalState();
+            modal.style.display = "none";
+            document.body.classList.remove('modal-open');
+        };
+        openBtn.onclick = () => {
+            openModalState(closeNotesModal);
+            modal.classList.add('modal');
+            modal.style.display = "block";
+            document.body.classList.add('modal-open');
+        };
+        closeBtn.onclick = closeNotesModal;
+        window.onclick = (event) => {
+            if (event.target == modal) closeNotesModal();
+        };
+    }
+
+    setupCategoryDatalists();
+
+    const [workTimeResult, reportDetailsResult] = await Promise.all([
+        fetchWorkTime(targetDate),
+        fetchReportDetails(targetDate)
+    ]);
+
+    displayUserInfo(reportNetContainer);
     if (workTimeResult.success) {
         document.getElementById('report-work').value = workTimeResult.workTime;
         updateWorkTimeSummary();
