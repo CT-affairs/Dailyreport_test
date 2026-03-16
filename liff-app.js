@@ -257,8 +257,8 @@ function addTaskEntry(task = null) {
             <input type="text" class="task-category-minor" placeholder="集計" style="flex: 0 0 86px; min-width: 0; align-self: center;" required readonly>
             <input type="text" class="task-category-major" placeholder="業務" style="flex: 1 1 0; min-width: 0; align-self: center;" required readonly>
             <div class="task-time-range-wrap" style="flex: 0 0 84px; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
-                <input type="time" class="task-start-time" step="900" style="width: 100%; box-sizing: border-box;">
-                <input type="time" class="task-end-time" step="900" style="width: 100%; box-sizing: border-box;">
+                <input type="text" class="task-start-time" placeholder="09:00" style="width: 100%; box-sizing: border-box;">
+                <input type="text" class="task-end-time" placeholder="18:00" style="width: 100%; box-sizing: border-box;">
             </div>
             <input type="number" class="task-time time-input" inputmode="numeric" placeholder="分" style="flex: 0 0 48px; align-self: center;" required>
             <div class="net-task-remove-wrap"><button type="button" class="remove-task-button net-task-remove-btn">－</button></div>
@@ -277,6 +277,8 @@ function addTaskEntry(task = null) {
     const majorInput = entryDiv.querySelector('.task-category-major');
     const minorInput = entryDiv.querySelector('.task-category-minor');
     const timeInput = entryDiv.querySelector('.task-time');
+    const startTimeInput = entryDiv.querySelector('.task-start-time');
+    const endTimeInput = entryDiv.querySelector('.task-end-time');
 
     // 初期データがあれば設定する
     if (task) {
@@ -290,6 +292,24 @@ function addTaskEntry(task = null) {
             const endEl = entryDiv.querySelector('.task-end-time');
             if (startEl && task.startTime) startEl.value = task.startTime;
             if (endEl && task.endTime) endEl.value = task.endTime;
+        }
+    }
+
+    // ネット画面では開始/終了時刻を Flatpickr で時刻ピッカー化（15分刻み）
+    if (isReportNetPage && typeof flatpickr !== 'undefined' && (startTimeInput || endTimeInput)) {
+        const timePickerOptions = {
+            enableTime: true,
+            noCalendar: true,
+            dateFormat: 'H:i',
+            time_24hr: true,
+            minuteIncrement: 15,
+            defaultDate: new Date()
+        };
+        if (startTimeInput) {
+            flatpickr(startTimeInput, { ...timePickerOptions });
+        }
+        if (endTimeInput) {
+            flatpickr(endTimeInput, { ...timePickerOptions });
         }
     }
 
@@ -311,6 +331,8 @@ function addTaskEntry(task = null) {
             const ee = entryToRemove.querySelector('.task-end-time');
             lastDeletedTask.startTime = se ? se.value : '';
             lastDeletedTask.endTime = ee ? ee.value : '';
+            if (se && se._flatpickr) se._flatpickr.destroy();
+            if (ee && ee._flatpickr) ee._flatpickr.destroy();
         }
         entryToRemove.remove();
         updateWorkTimeSummary();
