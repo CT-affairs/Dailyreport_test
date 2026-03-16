@@ -257,8 +257,8 @@ function addTaskEntry(task = null) {
             <input type="text" class="task-category-minor" placeholder="集計" style="flex: 0 0 86px; min-width: 0; align-self: center;" required readonly>
             <input type="text" class="task-category-major" placeholder="業務" style="flex: 1 1 0; min-width: 0; align-self: center;" required readonly>
             <div class="task-time-range-wrap" style="flex: 0 0 84px; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
-                <input type="text" class="task-start-time" placeholder="09:00" readonly style="width: 100%; box-sizing: border-box;">
-                <input type="text" class="task-end-time" placeholder="18:00" readonly style="width: 100%; box-sizing: border-box;">
+                <input type="time" class="task-start-time" style="width: 100%; box-sizing: border-box;">
+                <input type="time" class="task-end-time" style="width: 100%; box-sizing: border-box;">
             </div>
             <input type="number" class="task-time time-input" inputmode="numeric" placeholder="分" style="flex: 0 0 48px; align-self: center;" required>
             <div class="net-task-remove-wrap"><button type="button" class="remove-task-button net-task-remove-btn">－</button></div>
@@ -295,35 +295,29 @@ function addTaskEntry(task = null) {
         }
     }
 
-    // ネット画面では開始/終了時刻を Flatpickr で時刻ピッカー化（15分刻み）
-    // Android でネイティブピッカーが出ないよう readonly にし、タップで Flatpickr を開く
-    if (isReportNetPage && typeof flatpickr !== 'undefined' && (startTimeInput || endTimeInput)) {
-        const timePickerOptions = {
-            enableTime: true,
-            noCalendar: true,
-            dateFormat: 'H:i',
-            time_24hr: true,
-            minuteIncrement: 15,
-            defaultDate: new Date()
+    // ネット画面: ネイティブ時刻ピッカー使用。選択値を15分刻みに丸めてフォームに反映
+    if (isReportNetPage && (startTimeInput || endTimeInput)) {
+        const roundTimeTo15 = (value) => {
+            if (!value || typeof value !== 'string') return '';
+            const [h, m] = value.split(':').map(v => parseInt(v, 10));
+            if (isNaN(h) || isNaN(m)) return value;
+            const total = h * 60 + m;
+            const rounded = Math.round(total / 15) * 15;
+            const rh = Math.floor(rounded / 60) % 24;
+            const rm = rounded % 60;
+            return String(rh).padStart(2, '0') + ':' + String(rm).padStart(2, '0');
         };
-        const openFp = (fp) => {
-            return (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (e.target && e.target.blur) e.target.blur();
-                fp.open();
-            };
+        const applyRound = (input) => {
+            if (!input) return;
+            input.addEventListener('change', () => {
+                if (input.value) {
+                    input.value = roundTimeTo15(input.value);
+                    updateWorkTimeSummary();
+                }
+            });
         };
-        if (startTimeInput) {
-            const fpStart = flatpickr(startTimeInput, { ...timePickerOptions });
-            startTimeInput.addEventListener('click', openFp(fpStart));
-            startTimeInput.addEventListener('focus', openFp(fpStart));
-        }
-        if (endTimeInput) {
-            const fpEnd = flatpickr(endTimeInput, { ...timePickerOptions });
-            endTimeInput.addEventListener('click', openFp(fpEnd));
-            endTimeInput.addEventListener('focus', openFp(fpEnd));
-        }
+        applyRound(startTimeInput);
+        applyRound(endTimeInput);
     }
 
     // イベントリスナーを新しい要素に設定
@@ -344,8 +338,6 @@ function addTaskEntry(task = null) {
             const ee = entryToRemove.querySelector('.task-end-time');
             lastDeletedTask.startTime = se ? se.value : '';
             lastDeletedTask.endTime = ee ? ee.value : '';
-            if (se && se._flatpickr) se._flatpickr.destroy();
-            if (ee && ee._flatpickr) ee._flatpickr.destroy();
         }
         entryToRemove.remove();
         updateWorkTimeSummary();
