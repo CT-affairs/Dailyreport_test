@@ -8,9 +8,12 @@
     <style>
         body { font-family: sans-serif; padding: 1em; background-color: #f0f4f8; color: #333; }
         .container { max-width: 600px; margin: 0 auto; background-color: #fff; padding: 2em; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        /* 工数入力（ネット）: 枠の左右余白を小さく、タスク1行幅130%、ユーザー情報ははみ出さない */
-        #report-net-container.container { max-width: 936px; padding-left: 0.6em; padding-right: 0.6em; }
+        /* 工数入力（ネット）: タスク1行は全幅MAX、行の高さ130%で統一、＋／－は右寄せで揃える */
+        #report-net-container.container { max-width: none; width: 100%; padding-left: 0.6em; padding-right: 0.6em; }
         #report-net-container .user-info-bar { margin-left: 0; margin-right: 0; }
+        #report-net-container .task-entry { min-height: 5.85em; }
+        #report-net-container .task-header-buttons { margin-left: auto; flex-shrink: 0; width: 38px; min-width: 38px; display: flex; justify-content: flex-end; align-items: center; }
+        #report-net-container .task-entry .net-task-remove-wrap { width: 38px; min-width: 38px; flex-shrink: 0; margin-left: auto; display: flex; justify-content: flex-end; align-items: center; }
         h1 { color: #397939; text-align: center; font-size: 1.5em; }
         label { display: block; margin-top: 1em; font-weight: bold; color: #555; }
         input[type="date"], input[type="text"], input[type="number"], textarea {

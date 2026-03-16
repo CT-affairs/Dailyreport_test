@@ -251,8 +251,7 @@ function addTaskEntry(task = null) {
     const categoryBLabel = getCategoryBLabel();
 
     if (isReportNetPage) {
-        // ネット: 集計→業務(各120%幅)→開始/終了(120%幅)→分。－は右寄せで「＋」と揃え。行幅130%想定。
-        entryDiv.style.minHeight = '4.5em';
+        // ネット: 集計→業務→開始/終了→分。－は右寄せで「＋」と揃え（.net-task-remove-wrapで幅38px統一）。
         entryDiv.style.alignItems = 'stretch';
         entryDiv.innerHTML = `
             <input type="text" class="task-category-minor" placeholder="集計" style="flex: 0 0 86px; min-width: 0; align-self: center;" required readonly>
@@ -262,7 +261,7 @@ function addTaskEntry(task = null) {
                 <input type="time" class="task-end-time" style="width: 100%; box-sizing: border-box;">
             </div>
             <input type="number" class="task-time time-input" inputmode="numeric" placeholder="分" style="flex: 0 0 48px; align-self: center;" required>
-            <button type="button" class="remove-task-button net-task-remove-btn" style="align-self: center; margin-left: auto;">－</button>
+            <div class="net-task-remove-wrap"><button type="button" class="remove-task-button net-task-remove-btn">－</button></div>
         `;
     } else {
         entryDiv.innerHTML = `
