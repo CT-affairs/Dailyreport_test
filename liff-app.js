@@ -255,7 +255,7 @@ function addTaskEntry(task = null) {
         entryDiv.style.alignItems = 'stretch';
         entryDiv.innerHTML = `
             <input type="text" class="task-category-minor" placeholder="集計" style="flex: 0 0 86px; min-width: 0; align-self: center;" required readonly>
-            <input type="text" class="task-category-major" placeholder="業務" style="flex: 0 0 86px; min-width: 0; align-self: center;" required readonly>
+            <input type="text" class="task-category-major" placeholder="業務" style="flex: 1 1 0; min-width: 0; align-self: center;" required readonly>
             <div class="task-time-range-wrap" style="flex: 0 0 84px; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
                 <input type="time" class="task-start-time" style="width: 100%; box-sizing: border-box;">
                 <input type="time" class="task-end-time" style="width: 100%; box-sizing: border-box;">
