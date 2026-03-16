@@ -257,8 +257,8 @@ function addTaskEntry(task = null) {
             <input type="text" class="task-category-minor" placeholder="集計" style="flex: 0 0 86px; min-width: 0; align-self: center;" required readonly>
             <input type="text" class="task-category-major" placeholder="業務" style="flex: 1 1 0; min-width: 0; align-self: center;" required readonly>
             <div class="task-time-range-wrap" style="flex: 0 0 84px; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
-                <input type="text" class="task-start-time" placeholder="09:00" style="width: 100%; box-sizing: border-box;">
-                <input type="text" class="task-end-time" placeholder="18:00" style="width: 100%; box-sizing: border-box;">
+                <input type="text" class="task-start-time" placeholder="09:00" readonly style="width: 100%; box-sizing: border-box;">
+                <input type="text" class="task-end-time" placeholder="18:00" readonly style="width: 100%; box-sizing: border-box;">
             </div>
             <input type="number" class="task-time time-input" inputmode="numeric" placeholder="分" style="flex: 0 0 48px; align-self: center;" required>
             <div class="net-task-remove-wrap"><button type="button" class="remove-task-button net-task-remove-btn">－</button></div>
@@ -296,6 +296,7 @@ function addTaskEntry(task = null) {
     }
 
     // ネット画面では開始/終了時刻を Flatpickr で時刻ピッカー化（15分刻み）
+    // Android でネイティブピッカーが出ないよう readonly にし、タップで Flatpickr を開く
     if (isReportNetPage && typeof flatpickr !== 'undefined' && (startTimeInput || endTimeInput)) {
         const timePickerOptions = {
             enableTime: true,
@@ -305,11 +306,23 @@ function addTaskEntry(task = null) {
             minuteIncrement: 15,
             defaultDate: new Date()
         };
+        const openFp = (fp) => {
+            return (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.target && e.target.blur) e.target.blur();
+                fp.open();
+            };
+        };
         if (startTimeInput) {
-            flatpickr(startTimeInput, { ...timePickerOptions });
+            const fpStart = flatpickr(startTimeInput, { ...timePickerOptions });
+            startTimeInput.addEventListener('click', openFp(fpStart));
+            startTimeInput.addEventListener('focus', openFp(fpStart));
         }
         if (endTimeInput) {
-            flatpickr(endTimeInput, { ...timePickerOptions });
+            const fpEnd = flatpickr(endTimeInput, { ...timePickerOptions });
+            endTimeInput.addEventListener('click', openFp(fpEnd));
+            endTimeInput.addEventListener('focus', openFp(fpEnd));
         }
     }
 
