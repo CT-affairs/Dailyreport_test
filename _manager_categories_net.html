@@ -9,6 +9,9 @@
         font-size: 0.8em; /* フォントを小さく */
         width: auto !important; /* 親スタイルのwidth: 100%を打ち消す */
     }
+    #net-category-layout-container .data-table {
+        table-layout: fixed; /* 列幅を固定してガタつきを防ぐ */
+    }
     #net-category-layout-container .data-table th,
     #net-category-layout-container .data-table td {
         padding: 3px 5px; /* 行間を詰める */
@@ -16,6 +19,15 @@
         text-align: left; /* 左寄せに統一 */
         white-space: nowrap; /* 自動で折り返されないようにする */
     }
+    /* 列幅を各テーブルで揃える */
+    #net-category-layout-container .data-table th:nth-child(1),
+    #net-category-layout-container .data-table td:nth-child(1) { width: 26%; }
+    #net-category-layout-container .data-table th:nth-child(2),
+    #net-category-layout-container .data-table td:nth-child(2) { width: 44%; }
+    #net-category-layout-container .data-table th:nth-child(3),
+    #net-category-layout-container .data-table td:nth-child(3) { width: 10%; text-align: center; }
+    #net-category-layout-container .data-table th:nth-child(4),
+    #net-category-layout-container .data-table td:nth-child(4) { width: 20%; }
     /* 集計項目ごとのブロックを一定幅に揃える */
     #net-category-layout-container .net-category-block {
         margin-bottom: 8px;
