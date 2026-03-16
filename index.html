@@ -12,7 +12,7 @@
         #report-net-container.container { max-width: none; width: 100%; padding-left: 0.6em; padding-right: 0.6em; }
         #report-net-container .user-info-bar { margin-left: 0; margin-right: 0; }
         #report-net-container .task-entry { min-height: 5.85em; }
-        /* タスク行の入力フォーム自体を高くする（余白だけでなくフィールドの高さを130%程度に） */
+        /* その他要素で1行の高さをそろえる（集計・業務・分は十分な高さに） */
         #report-net-container .task-entry .task-category-minor,
         #report-net-container .task-entry .task-category-major,
         #report-net-container .task-entry .task-time {
@@ -20,10 +20,17 @@
             padding: 0.55em 0.45em;
             box-sizing: border-box;
         }
+        /* 開始・終了時刻は2行表示のため高さをギリギリまで低くする */
+        #report-net-container .task-entry .task-time-range-wrap {
+            gap: 1px;
+            justify-content: center;
+        }
         #report-net-container .task-entry .task-start-time,
         #report-net-container .task-entry .task-end-time {
-            min-height: 2.2em;
-            padding: 0.45em 0.35em;
+            min-height: 0;
+            padding: 0.2em 0.3em;
+            font-size: 0.9em;
+            line-height: 1.2;
             box-sizing: border-box;
         }
         #report-net-container .task-header-buttons { margin-left: auto; flex-shrink: 0; width: 38px; min-width: 38px; display: flex; justify-content: flex-end; align-items: center; }
