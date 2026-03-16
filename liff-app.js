@@ -588,48 +588,43 @@ async function fetchWorkTime(date, source = 'report') { // デフォルトは 'r
 
 /**
  * LINE LIFF 上で Flatpickr の時刻ピッカーだけを試すための実験用セットアップ
- * 既存のタスク入力や送信処理には一切影響しない
+ * input を一切使わず div に static 表示するため、ネイティブUIが起動しない想定
  */
 function setupNetTimepickerExperiment(container) {
     if (!container) return;
     const testButton = container.querySelector('#net-timepicker-test-button');
     const testDisplay = container.querySelector('#net-timepicker-test-display');
-    if (!testButton || !testDisplay) return;
+    const staticContainer = container.querySelector('#net-timepicker-static-container');
+    if (!testButton || !testDisplay || !staticContainer) return;
     if (typeof flatpickr === 'undefined') {
         testDisplay.textContent = '（Flatpickr が読み込まれていません）';
         return;
     }
 
-    // 実験用の隠し input（DOM に追加するが画面には出さない）
-    const hiddenInput = document.createElement('input');
-    hiddenInput.type = 'text';
-    hiddenInput.style.position = 'absolute';
-    hiddenInput.style.opacity = '0';
-    hiddenInput.style.pointerEvents = 'none';
-    hiddenInput.style.height = '0';
-    hiddenInput.style.width = '0';
-    container.appendChild(hiddenInput);
-
-    const fp = flatpickr(hiddenInput, {
-        enableTime: true,
-        noCalendar: true,
-        dateFormat: 'H:i',
-        time_24hr: true,
-        minuteIncrement: 15,
-        defaultDate: new Date(),
-        onChange: (selectedDates, dateStr) => {
-            testDisplay.textContent = dateStr ? `選択時刻: ${dateStr}` : '';
-        },
-        onClose: () => {
-            // ピッカーを閉じたらフォーカスをボタンに戻す
-            testButton.focus();
-        }
-    });
+    let fpInstance = null;
 
     testButton.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        fp.open();
+        if (staticContainer.style.display === 'none' || !staticContainer.style.display) {
+            staticContainer.style.display = 'block';
+            if (!fpInstance) {
+                fpInstance = flatpickr(staticContainer, {
+                    enableTime: true,
+                    noCalendar: true,
+                    dateFormat: 'H:i',
+                    time_24hr: true,
+                    minuteIncrement: 15,
+                    defaultDate: new Date(),
+                    static: true,
+                    onChange: (selectedDates, dateStr) => {
+                        testDisplay.textContent = dateStr ? `選択時刻: ${dateStr}` : '';
+                    }
+                });
+            }
+        } else {
+            staticContainer.style.display = 'none';
+        }
     });
 }
 
