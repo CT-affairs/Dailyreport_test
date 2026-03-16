@@ -1105,31 +1105,59 @@ async function handleReportSubmit(e) {
 
     try {
         const tasks = [];
-        document.querySelectorAll('.task-entry').forEach(entry => {
-            const categoryMajor = entry.querySelector('.task-category-major').value;
-            const categoryMajorId = entry.querySelector('.task-category-major').dataset.id || null;
-            const categoryMinor = entry.querySelector('.task-category-minor').value;
-            const categoryMinorId = entry.querySelector('.task-category-minor').dataset.id || null;
-            const time = parseInt(entry.querySelector('.task-time').value, 10) || 0;
-            // すべてのフィールドが入力されている場合のみ追加
-            if (categoryMajor && categoryMinor && time > 0) {
+        if (isReportNetPage) {
+            // ネット: カテゴリA/B・開始/終了・分数・comment を送信（/api/reports_net）
+            document.querySelectorAll('.task-entry').forEach(entry => {
+                const categoryMajor = entry.querySelector('.task-category-major');
+                const categoryMinor = entry.querySelector('.task-category-minor');
+                const timeInput = entry.querySelector('.task-time');
+                const startEl = entry.querySelector('.task-start-time');
+                const endEl = entry.querySelector('.task-end-time');
+                const majorVal = categoryMajor ? categoryMajor.value : '';
+                const minorVal = categoryMinor ? categoryMinor.value : '';
+                const time = parseInt(timeInput ? timeInput.value : 0, 10) || 0;
+                const startTime = startEl ? startEl.value : '';
+                const endTime = endEl ? endEl.value : '';
+                if (!majorVal || !minorVal || !startTime || !endTime) return;
                 tasks.push({
-                    categoryA_id: categoryMajorId,
-                    categoryA_label: categoryMajor,
-                    categoryB_id: categoryMinorId,
-                    categoryB_label: categoryMinor,
-                    time
+                    categoryA_id: categoryMajor ? categoryMajor.dataset.id || '' : '',
+                    categoryA_label: majorVal,
+                    categoryB_id: categoryMinor ? categoryMinor.dataset.id || '' : '',
+                    categoryB_label: minorVal,
+                    time,
+                    startTime,
+                    endTime,
+                    comment: entry.dataset.comment || ''
                 });
-            }
-        });
+            });
+        } else {
+            // 工務: 従来形式（/api/reports）
+            document.querySelectorAll('.task-entry').forEach(entry => {
+                const categoryMajor = entry.querySelector('.task-category-major').value;
+                const categoryMajorId = entry.querySelector('.task-category-major').dataset.id || null;
+                const categoryMinor = entry.querySelector('.task-category-minor').value;
+                const categoryMinorId = entry.querySelector('.task-category-minor').dataset.id || null;
+                const time = parseInt(entry.querySelector('.task-time').value, 10) || 0;
+                if (categoryMajor && categoryMinor && time > 0) {
+                    tasks.push({
+                        categoryA_id: categoryMajorId,
+                        categoryA_label: categoryMajor,
+                        categoryB_id: categoryMinorId,
+                        categoryB_label: categoryMinor,
+                        time
+                    });
+                }
+            });
+        }
 
         const requestBody = {
             date: document.getElementById('report-date').value,
-            taskTotalMinutes: allocatedMinutes, // バックエンドに合わせてキー名を変更
-            jobcanWorkMinutes: parseInt(document.getElementById('report-work').value, 10) || 0, // 勤務時間を追加
-            tasks: tasks // 業務内容を配列で送信
+            taskTotalMinutes: allocatedMinutes,
+            jobcanWorkMinutes: parseInt(document.getElementById('report-work').value, 10) || 0,
+            tasks: tasks
         };
-        const response = await fetchWithAuth(`${API_BASE_URL}/api/reports`, {
+        const reportEndpoint = isReportNetPage ? `${API_BASE_URL}/api/reports_net` : `${API_BASE_URL}/api/reports`;
+        const response = await fetchWithAuth(reportEndpoint, {
             method: 'POST',
             body: JSON.stringify(requestBody)
         });
