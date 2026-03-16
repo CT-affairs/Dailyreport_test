@@ -569,7 +569,8 @@ async function renderCategoriesNetUI(container) {
 
                     tableHtml += '<tr>';
                     if (index === 0) {
-                        tableHtml += `<td rowspan="${allCategoriesA.length}" style="vertical-align: middle; font-weight: bold; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
+                        // rowspan はカテゴリAの件数。後でフィルタ表示を切り替える際に元の値へ戻せるよう data-original-rowspan も保持する
+                        tableHtml += `<td rowspan="${allCategoriesA.length}" data-original-rowspan="${allCategoriesA.length}" style="vertical-align: middle; font-weight: bold; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
                     }
                     tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
                     // ★データ属性を追加
@@ -714,61 +715,65 @@ async function renderCategoriesNetUI(container) {
             toggleCheckbox.addEventListener('change', () => {
                 const isCheckedOnly = toggleCheckbox.checked;
                 const tbodies = [tbodyLeft, tbodyRight];
- 
-                // フィルターがオフの場合は、すべてのスタイルをリセットして表示
+
+                // フィルターがオフの場合は、すべての行を表示し、rowspanを元に戻す
                 if (!isCheckedOnly) {
                     tbodies.forEach(tbody => {
                         if (!tbody) return;
                         tbody.querySelectorAll('tr').forEach(row => {
-                            row.style.visibility = '';
-                            row.querySelectorAll('td').forEach(cell => {
-                                cell.style.visibility = '';
-                            });
+                            row.style.display = '';
+                            const rowspanCell = row.querySelector('td[rowspan]');
+                            if (rowspanCell) {
+                                const original = rowspanCell.getAttribute('data-original-rowspan');
+                                if (original) {
+                                    rowspanCell.rowSpan = parseInt(original, 10);
+                                }
+                            }
                         });
                     });
                     return;
                 }
- 
+
                 // フィルターがオンの場合の処理
                 tbodies.forEach(tbody => {
                     if (!tbody) return;
                     const rows = Array.from(tbody.querySelectorAll('tr'));
                     let groupStartIndex = 0;
- 
+
                     while (groupStartIndex < rows.length) {
                         const headerRow = rows[groupStartIndex];
                         const rowspanCell = headerRow.querySelector('td[rowspan]');
-                        
+
                         if (!rowspanCell) {
                             groupStartIndex++;
                             continue;
                         }
- 
-                        const rowspan = parseInt(rowspanCell.getAttribute('rowspan'), 10);
-                        const groupRows = rows.slice(groupStartIndex, groupStartIndex + rowspan);
- 
+
+                        const originalRowspan = parseInt(
+                            rowspanCell.getAttribute('data-original-rowspan') || rowspanCell.getAttribute('rowspan'),
+                            10
+                        );
+                        const groupRows = rows.slice(groupStartIndex, groupStartIndex + originalRowspan);
+
                         const visibleRowsInGroup = groupRows.filter(r => r.querySelector('.net-category-select')?.checked);
- 
+
                         if (visibleRowsInGroup.length === 0) {
                             // グループ内にチェックされた項目がなければ、グループ全体を非表示
-                            groupRows.forEach(r => r.style.visibility = 'collapse');
+                            groupRows.forEach(r => {
+                                r.style.display = 'none';
+                            });
                         } else {
                             // グループ内にチェックされた項目がある場合
-                            groupRows.forEach(r => {
-                                r.style.visibility = r.querySelector('.net-category-select')?.checked ? 'visible' : 'collapse';
-                                // データセルの表示状態をリセット
-                                r.querySelectorAll('td:not([rowspan])').forEach(cell => cell.style.visibility = '');
+                            // ヘッダー行は常に表示し、rowspan を「表示対象行数」に合わせて更新
+                            headerRow.style.display = '';
+                            rowspanCell.rowSpan = visibleRowsInGroup.length;
+
+                            groupRows.slice(1).forEach(r => {
+                                const isRowChecked = !!r.querySelector('.net-category-select')?.checked;
+                                r.style.display = isRowChecked ? '' : 'none';
                             });
- 
-                            // ヘッダー行がチェックされていない場合、データ部分のみを隠す
-                            if (!headerRow.querySelector('.net-category-select')?.checked) {
-                                headerRow.style.visibility = 'visible'; // 行自体は表示
-                                headerRow.querySelectorAll('td:not([rowspan])').forEach(cell => {
-                                    cell.style.visibility = 'hidden'; // データセルを非表示
-                                });
-                            }
                         }
-                        groupStartIndex += rowspan;
+                        groupStartIndex += originalRowspan;
                     }
                 });
             });
