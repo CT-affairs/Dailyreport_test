@@ -286,7 +286,7 @@ function addTaskEntry(task = null) {
         majorInput.dataset.id = task.categoryA_id || '';
         minorInput.value = task.categoryB_label || task.categoryB || '';
         minorInput.dataset.id = task.categoryB_id || '';
-        timeInput.value = task.time || '';
+        timeInput.value = (task.time !== undefined && task.time !== null) ? String(task.time) : '';
         if (isReportNetPage) {
             const startEl = entryDiv.querySelector('.task-start-time');
             const endEl = entryDiv.querySelector('.task-end-time');
@@ -2856,9 +2856,14 @@ async function showReportPageNet(urlParams) {
             lastDeletedTask = null;
         } else {
             const entries = document.querySelectorAll('#task-entries-container .task-entry');
-            const lastEntry = entries.length > 0 ? entries[entries.length - 1] : null;
-            const endInput = lastEntry ? lastEntry.querySelector('.task-end-time') : null;
-            const prevEnd = endInput ? endInput.value : '';
+            let prevEnd = '';
+            for (let i = entries.length - 1; i >= 0; i--) {
+                const endInput = entries[i].querySelector('.task-end-time');
+                if (endInput && endInput.value) {
+                    prevEnd = endInput.value;
+                    break;
+                }
+            }
             addTaskEntry(prevEnd ? { startTime: prevEnd } : null);
         }
         updateWorkTimeSummary();
