@@ -2730,7 +2730,7 @@ function renderStaffCalendarUI(container, params = {}) {
              <div class="calendar-header" style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
                  <button id="staff-cal-prev-month" class="btn-secondary">&lt; 前月度</button>
                  <h3 id="staff-cal-title" style="margin: 0; font-size: 1.2em; min-width: 120px; text-align: center;"></h3>
-                 <button id="staff-cal-sync-holidays" class="btn-secondary" style="background-color: #006400; color: white; margin-right: 5px;">Jobcan同期</button>
+                <button id="staff-cal-sync-holidays" class="btn-secondary" style="background-color: #006400; color: white; margin-right: 5px;">更新</button>
                  <button id="staff-cal-next-month" class="btn-secondary">次月度 &gt;</button>
              </div>
          </div>
@@ -3091,7 +3091,18 @@ function renderStaffCalendar() {
             .custom-calendar-table td:hover { background-color: #f5f5f5; }
             .custom-calendar-table .day-cell-content { padding: 4px; }
             .custom-calendar-table .day-number { font-size: 0.9em; }
-            .custom-calendar-table .is-today .day-number { font-weight: bold; color: #d9534f; background-color: #ffebcd; border-radius: 50%; width: 1.5em; height: 1.5em; display: inline-block; text-align: center; line-height: 1.5em;}
+            /* 今日: 祝日っぽく見えないよう、黒文字＋薄いグリーンの円に変更 */
+            .custom-calendar-table .is-today .day-number {
+                font-weight: bold;
+                color: #000000;
+                background-color: #d4f4dd; /* 薄いグリーン */
+                border-radius: 50%;
+                width: 1.5em;
+                height: 1.5em;
+                display: inline-block;
+                text-align: center;
+                line-height: 1.5em;
+            }
             .custom-calendar-table .is-sunday { color: #e74c3c; } .custom-calendar-table .is-saturday { color: #3498db; }
             .custom-calendar-table .other-month { color: #ccc; background-color: #fafafa; cursor: default; } .custom-calendar-table .other-month:hover { background-color: #fafafa; }
             .status-container { margin-top: 4px; }
@@ -3401,9 +3412,9 @@ async function initializeProxyReportScreen(isNetTemplate) {
     document.getElementById('close-proxy-report-btn').addEventListener('click', navigateBack);
     document.getElementById('proxy-back-to-list-btn').addEventListener('click', navigateBack);
 
-    // ボタンのテキストと機能を変更
+    // ボタンのテキストと機能を変更（ラベルは「更新」に変更）
     const syncBtn = document.getElementById('proxy-get-work-time-button');
-    syncBtn.textContent = 'Jobcan同期';
+    syncBtn.textContent = '更新';
     syncBtn.removeEventListener('click', handleProxyGetWorkTime); // 古いリスナーを削除
     syncBtn.addEventListener('click', handleProxySyncData); // 新しいリスナーを設定
 

@@ -2818,10 +2818,12 @@ def sync_paid_holidays():
             f"[sync_paid_holidays] No Jobcan ID or active_officer for {target_company_id}. "
             f"Set jobcan_work_minutes=0 for {updated_count} existing report(s) in period {from_str}–{to_str}."
         )
+        # フロントエンドは result.count を参照しているため、従来のフィールド名に合わせて count も返す
         return jsonify({
             "status": "success",
             "message": "Jobcan IDがありません（active_officer 等）。当月の既存日報の勤務時間を0分に設定しました。",
-            "updated_count": updated_count
+            "updated_count": updated_count,
+            "count": updated_count
         }), 200
 
     # 3. Jobcanからデータ取得

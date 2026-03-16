@@ -229,10 +229,25 @@ def get_calendar_statuses(jobcan_employee_id: str, company_employee_id: str, dat
     for doc in all_docs:
         doc_data = doc.to_dict()
         date = doc_data.get("date")
-        if date: # dateはTimestamp型で取得される
+        if date:  # dateはTimestamp型で取得される
             date_str = date.strftime('%Y-%m-%d')
             if date_str in calendar_statuses:
-                calendar_statuses[date_str]["reported_minutes"] = doc_data.get("task_total_minutes", 0)
+                # 基本は task_total_minutes を使う
+                reported = doc_data.get("task_total_minutes", 0)
+                # 万一 task_total_minutes が 0 / 未設定でも、tasks に時間が入っている場合は
+                # タスク合計から再計算してカレンダー表示用の reported_minutes に反映する
+                if (reported is None or reported == 0) and doc_data.get("tasks"):
+                    try:
+                        reported_from_tasks = sum(
+                            int(t.get("time", 0)) for t in doc_data.get("tasks", [])
+                        )
+                        if reported_from_tasks > 0:
+                            reported = reported_from_tasks
+                    except (ValueError, TypeError):
+                        # 不正値が混じっていても、ここで例外にせず task_total_minutes の値を優先
+                        pass
+
+                calendar_statuses[date_str]["reported_minutes"] = reported
                 calendar_statuses[date_str]["has_accommodation"] = doc_data.get("has_accommodation", False)
                 calendar_statuses[date_str]["jobcan_note"] = doc_data.get("jobcan_note", "")
                 calendar_statuses[date_str]["on_site"] = doc_data.get("on_site")

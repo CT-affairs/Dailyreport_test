@@ -2362,10 +2362,10 @@ async function main() {
                 nextBtn.innerText = '次>';
                 nextBtn.style.cssText = btnStyleBase + "background-color: #555;";
 
-                // 有休反映ボタンの作成と挿入
+                // 有休反映ボタンの作成と挿入（ラベルは「更新」に変更）
                 const syncBtn = document.createElement('button');
                 syncBtn.id = 'sync-holidays-button';
-                syncBtn.innerText = '有休反映';
+                syncBtn.innerText = '更新';
                 syncBtn.className = 'sub-button'; // 既存のスタイルクラスがあれば利用
                 // スタイル調整: 暗いグリーン、マージンなど
                 syncBtn.style.cssText = btnStyleBase + "background-color: #006400; margin: 0 5px;";
@@ -3002,13 +3002,13 @@ async function showReportPageNet(urlParams) {
 }
 
 /**
- * 有休情報をJobcanから取得して日報に反映する
+ * 有休情報をJobcanから取得して日報に反映する（ボタンラベルは「更新」）
  */
 async function handleSyncPaidHolidays() {
     if (!confirm("Jobcanから有休情報を取得し、日報データに反映しますか？\n※表示中の月度が対象です。")) return;
 
     const btn = document.getElementById('sync-holidays-button');
-    const originalText = btn ? btn.innerText : '有休反映';
+    const originalText = btn ? btn.innerText : '更新';
     
     try {
         if (btn) {
