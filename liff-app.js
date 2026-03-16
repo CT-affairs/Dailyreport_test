@@ -380,7 +380,7 @@ function addTaskEntry(task = null) {
                     return;
                 }
             }
-            const selectedObj = await showSelectionModal('業務種別を選択', optionsForA, majorInput);
+            const selectedObj = await showSelectionModal('業務種別を選択', optionsForA, majorInput, isReportNetPage ? { skipOfficeFilter: true } : {});
             if (typeof selectedObj === 'object') {
                 majorInput.value = selectedObj.label;
                 majorInput.dataset.id = selectedObj.id || '';
@@ -724,10 +724,11 @@ async function setupCategoryDatalists() {
  * 選択肢のモーダルを表示し、ユーザーの選択を待つPromiseを返す
  * @param {string} title モーダルのタイトル
  * @param {Array} options 選択肢の配列 (文字列 または {label, client, project} オブジェクト)
- * @returns {Promise<string|object>} ユーザーが選択した値（文字列またはオブジェクト）
  * @param {HTMLInputElement} inputElement - 検索機能の対象となる入力要素
+ * @param {{ skipOfficeFilter?: boolean }} modalOptions - skipOfficeFilter: true で拠点フィルターを出さない（ネットの業務A用）
+ * @returns {Promise<string|object>} ユーザーが選択した値（文字列またはオブジェクト）
  */
-function showSelectionModal(title, options, inputElement) {
+function showSelectionModal(title, options, inputElement, modalOptions = {}) {
     return new Promise((resolve, reject) => {
         const modal = document.getElementById('selection-modal');
         modal.classList.add('modal');
@@ -916,9 +917,8 @@ function showSelectionModal(title, options, inputElement) {
             }
         };
 
-        // フィルタリング機能の初期化
-        // optionsの要素がofficesを持っているかチェック
-        const hasOffices = options.length > 0 && typeof options[0] === 'object' && Array.isArray(options[0].offices);
+        // フィルタリング機能の初期化（工務のみ。ネットでは拠点フィルターは使わない）
+        const hasOffices = !modalOptions.skipOfficeFilter && options.length > 0 && typeof options[0] === 'object' && Array.isArray(options[0].offices);
 
         if (hasOffices) {
             modalTitle.style.display = 'none'; // 見出しを非表示
@@ -2822,8 +2822,16 @@ async function showReportPageNet(urlParams) {
     }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
-        addTaskEntry(lastDeletedTask);
-        lastDeletedTask = null;
+        if (lastDeletedTask) {
+            addTaskEntry(lastDeletedTask);
+            lastDeletedTask = null;
+        } else {
+            const entries = document.querySelectorAll('#task-entries-container .task-entry');
+            const lastEntry = entries.length > 0 ? entries[entries.length - 1] : null;
+            const endInput = lastEntry ? lastEntry.querySelector('.task-end-time') : null;
+            const prevEnd = endInput ? endInput.value : '';
+            addTaskEntry(prevEnd ? { startTime: prevEnd } : null);
+        }
         updateWorkTimeSummary();
     });
 
