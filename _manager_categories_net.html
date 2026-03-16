@@ -34,41 +34,17 @@
     <!-- 左右のテーブルを配置するためのFlexコンテナ -->
     <div id="net-category-layout-container" style="display: flex; gap: 10px; align-items: flex-start;">
     
-        <!-- 左側のテーブル -->
+        <!-- 左側（最大3コンテナ） -->
         <div id="net-category-table-container-left" style="flex: 0 0 auto;">
-            <div class="table-container">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>集計項目</th>
-                            <th>業務種別</th>
-                            <th>✓</th>
-                            <th>Color</th>
-                        </tr>
-                    </thead>
-                    <tbody id="net-category-table-body-left">
-                        <tr><td colspan="4" style="text-align:center; padding: 2em;">読み込み中...</td></tr>
-                    </tbody>
-                </table>
+            <div id="net-category-table-body-left">
+                <div style="text-align:center; padding: 2em;">読み込み中...</div>
             </div>
         </div>
     
-        <!-- 右側のテーブル -->
+        <!-- 右側（最大2コンテナ） -->
         <div id="net-category-table-container-right" style="flex: 0 0 auto;">
-            <div class="table-container">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>集計項目</th>
-                            <th>業務種別</th>
-                            <th>✓</th>
-                            <th>Color</th>
-                        </tr>
-                    </thead>
-                    <tbody id="net-category-table-body-right">
-                        <tr><td colspan="4" style="text-align:center; padding: 2em;">読み込み中...</td></tr>
-                    </tbody>
-                </table>
+            <div id="net-category-table-body-right">
+                <div style="text-align:center; padding: 2em;">読み込み中...</div>
             </div>
         </div>
     </div>

@@ -549,7 +549,7 @@ async function renderCategoriesNetUI(container) {
             return (r * 0.299 + g * 0.587 + b * 0.114) < 140;
         };
 
-        // テーブルHTMLを生成する共通関数
+        // テーブルHTMLを生成する共通関数（カテゴリBごとに1コンテナ）
         const generateTableHtml = (targetCategoriesB, allCategoriesA) => {
             let tableHtml = '';
             targetCategoriesB.forEach((catB, bIndex) => {
@@ -558,23 +558,22 @@ async function renderCategoriesNetUI(container) {
                 const catBColor = categoryBColors[bIndex % categoryBColors.length];
                 const settings = catB.category_a_settings || {};
 
+                // カテゴリBごとに独立したテーブルコンテナを作成
+                let rowsHtml = '';
                 allCategoriesA.forEach((catA, index) => {
                     const catALabel = catA.label;
                     const catAId = catA.id;
-                    // ★カテゴリAのID
                     const colorCode = settings[catAId] || '';
-                    // マッピング（色設定）があればチェック済みとする
                     const isChecked = !!settings[catAId];
                     const uniqueId = `cb_${catBId}_${catAId}`;
 
-                    tableHtml += '<tr>';
+                    rowsHtml += '<tr>';
                     if (index === 0) {
-                        // rowspan はカテゴリAの件数。後でフィルタ表示を切り替える際に元の値へ戻せるよう data-original-rowspan も保持する
-                        tableHtml += `<td rowspan="${allCategoriesA.length}" data-original-rowspan="${allCategoriesA.length}" style="vertical-align: middle; font-weight: bold; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
+                        // 1列目: 集計項目の値（見出し）を上だけに表示し、rowspan で固定
+                        rowsHtml += `<td rowspan="${allCategoriesA.length}" data-original-rowspan="${allCategoriesA.length}" style="vertical-align: middle; font-weight: bold; background-color: ${catBColor};">${escapeHTML(catBLabel)}</td>`;
                     }
-                    tableHtml += `<td>${escapeHTML(catALabel)}</td>`;
-                    // ★データ属性を追加
-                    tableHtml += `<td class="cell-center">
+                    rowsHtml += `<td>${escapeHTML(catALabel)}</td>`;
+                    rowsHtml += `<td class="cell-center">
                         <input type="checkbox" class="net-category-select"
                             id="${uniqueId}"
                             data-b-id="${catBId}"
@@ -585,21 +584,40 @@ async function renderCategoriesNetUI(container) {
                             ${isChecked ? 'checked' : ''}>
                     </td>`;
 
-                    // ★Color列を編集可能にする（カラーピッカー + テキスト入力）
                     const displayColor = colorCode || '#ffffff';
-                    tableHtml += `<td>
+                    rowsHtml += `<td>
                         <div class="color-editor" style="display: flex; align-items: center; gap: 4px;">
                             <input type="color" class="net-category-color-picker" value="${displayColor}" data-target-id="${uniqueId}" style="border: 1px solid #ccc; padding: 0; width: 24px; height: 24px; cursor: pointer; background: none;">
                             <input type="text" class="net-category-color-text" value="${colorCode.toUpperCase()}" placeholder="#RRGGBB" data-target-id="${uniqueId}" style="font-size: 0.85em; font-family: monospace; color: #333; width: 70px; border: 1px solid #ccc; padding: 2px 4px;">
                         </div>
                     </td>`;
-                    tableHtml += '</tr>';
+                    rowsHtml += '</tr>';
                 });
+
+                tableHtml += `
+                    <div class="net-category-block">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>集計項目の値</th>
+                                        <th>業務種別</th>
+                                        <th>✓</th>
+                                        <th>Color</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rowsHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
             });
             return tableHtml;
         };
 
-        // 左右のテーブルHTMLを生成して描画
+        // 左右のテーブルHTMLを生成して描画（カテゴリBごとにコンテナを並べる）
         tbodyLeft.innerHTML = generateTableHtml(categoriesB_left, categoriesA);
         tbodyRight.innerHTML = generateTableHtml(categoriesB_right, categoriesA);
 
@@ -714,67 +732,52 @@ async function renderCategoriesNetUI(container) {
         if (toggleCheckbox) {
             toggleCheckbox.addEventListener('change', () => {
                 const isCheckedOnly = toggleCheckbox.checked;
-                const tbodies = [tbodyLeft, tbodyRight];
+                const sideContainers = [tbodyLeft, tbodyRight];
 
-                // フィルターがオフの場合は、すべての行を表示し、rowspanを元に戻す
-                if (!isCheckedOnly) {
-                    tbodies.forEach(tbody => {
-                        if (!tbody) return;
-                        tbody.querySelectorAll('tr').forEach(row => {
-                            row.style.display = '';
-                            const rowspanCell = row.querySelector('td[rowspan]');
-                            if (rowspanCell) {
-                                const original = rowspanCell.getAttribute('data-original-rowspan');
-                                if (original) {
-                                    rowspanCell.rowSpan = parseInt(original, 10);
+                sideContainers.forEach(side => {
+                    if (!side) return;
+                    const blocks = Array.from(side.querySelectorAll('.net-category-block'));
+
+                    blocks.forEach(block => {
+                        const rows = Array.from(block.querySelectorAll('tbody tr'));
+                        if (!isCheckedOnly) {
+                            // フィルターOFF: すべて表示し、rowspanを元に戻す
+                            block.style.display = '';
+                            rows.forEach((row, idx) => {
+                                row.style.display = '';
+                                if (idx === 0) {
+                                    const headerCell = row.querySelector('td[data-original-rowspan]');
+                                    if (headerCell) {
+                                        const original = parseInt(headerCell.getAttribute('data-original-rowspan') || rows.length, 10);
+                                        headerCell.rowSpan = original;
+                                    }
                                 }
-                            }
+                            });
+                            return;
+                        }
+
+                        // フィルターON: チェックされた業務種別のみ表示
+                        const checkedRows = rows.filter(r => r.querySelector('.net-category-select')?.checked);
+
+                        if (checkedRows.length === 0) {
+                            // この集計項目には有効な行が無いのでコンテナごと非表示
+                            block.style.display = 'none';
+                            return;
+                        }
+
+                        block.style.display = '';
+                        rows.forEach(row => {
+                            const isRowChecked = !!row.querySelector('.net-category-select')?.checked;
+                            row.style.display = isRowChecked ? '' : 'none';
                         });
+
+                        // 先頭行の見出しセルのrowspanを表示行数に合わせて更新
+                        const headerRow = rows[0];
+                        const headerCell = headerRow.querySelector('td[data-original-rowspan]');
+                        if (headerCell) {
+                            headerCell.rowSpan = checkedRows.length;
+                        }
                     });
-                    return;
-                }
-
-                // フィルターがオンの場合の処理
-                tbodies.forEach(tbody => {
-                    if (!tbody) return;
-                    const rows = Array.from(tbody.querySelectorAll('tr'));
-                    let groupStartIndex = 0;
-
-                    while (groupStartIndex < rows.length) {
-                        const headerRow = rows[groupStartIndex];
-                        const rowspanCell = headerRow.querySelector('td[rowspan]');
-
-                        if (!rowspanCell) {
-                            groupStartIndex++;
-                            continue;
-                        }
-
-                        const originalRowspan = parseInt(
-                            rowspanCell.getAttribute('data-original-rowspan') || rowspanCell.getAttribute('rowspan'),
-                            10
-                        );
-                        const groupRows = rows.slice(groupStartIndex, groupStartIndex + originalRowspan);
-
-                        const visibleRowsInGroup = groupRows.filter(r => r.querySelector('.net-category-select')?.checked);
-
-                        if (visibleRowsInGroup.length === 0) {
-                            // グループ内にチェックされた項目がなければ、グループ全体を非表示
-                            groupRows.forEach(r => {
-                                r.style.display = 'none';
-                            });
-                        } else {
-                            // グループ内にチェックされた項目がある場合
-                            // ヘッダー行は常に表示し、rowspan を「表示対象行数」に合わせて更新
-                            headerRow.style.display = '';
-                            rowspanCell.rowSpan = visibleRowsInGroup.length;
-
-                            groupRows.slice(1).forEach(r => {
-                                const isRowChecked = !!r.querySelector('.net-category-select')?.checked;
-                                r.style.display = isRowChecked ? '' : 'none';
-                            });
-                        }
-                        groupStartIndex += originalRowspan;
-                    }
                 });
             });
         }
