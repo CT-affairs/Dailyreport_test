@@ -214,6 +214,8 @@ let categoryAOptions = []; // 大分類の候補を保持する配列
 let categoryBOptions = []; // 小分類の候補を保持する配列 (オブジェクト配列: {label, client, project})
 let lastDeletedTask = null; // 直前に削除されたタスクを保持する変数
 let activeSliderInput = null; // スライダーで操作中の入力フィールドを保持
+/** 工数入力（ネット）画面かどうか。true のとき1行レイアウト（開始・終了時刻あり）で描画する */
+let isReportNetPage = false;
 
 /**
  * ユーザーの所属グループに基づいて、小分類（Category B）の表示ラベルを決定する
@@ -236,22 +238,36 @@ function getCategoryBLabel() {
 function addTaskEntry(task = null) {
     taskCounter++;
     const container = document.getElementById('task-entries-container');
+    if (!container) return;
     const entryDiv = document.createElement('div');
     entryDiv.className = 'task-entry';
     entryDiv.id = `task-entry-${taskCounter}`;
     entryDiv.style.display = 'flex';
     entryDiv.style.alignItems = 'center';
-    entryDiv.style.gap = '5px'; // ボタン間のスペースを少し詰める
+    entryDiv.style.gap = '5px';
     entryDiv.style.marginBottom = '10px';
+    entryDiv.style.flexWrap = 'nowrap';
 
     const categoryBLabel = getCategoryBLabel();
 
-    entryDiv.innerHTML = `
-        <input type="text" class="task-category-major" placeholder="業務種別" style="flex-grow: 1.5;" required readonly>
-        <input type="text" class="task-category-minor" placeholder="${categoryBLabel}" style="flex-grow: 1;" required readonly>
-        <input type="number" class="task-time time-input" inputmode="numeric" required>
-        <button type="button" class="remove-task-button">－</button>
-    `;
+    if (isReportNetPage) {
+        // ネット: categoryA, categoryB(小さめ), 開始時刻, 終了時刻, 分数, －
+        entryDiv.innerHTML = `
+            <input type="text" class="task-category-major" placeholder="業務" style="flex: 0 0 72px; min-width: 0;" required readonly>
+            <input type="text" class="task-category-minor" placeholder="${categoryBLabel}" style="flex: 0 0 72px; min-width: 0;" required readonly>
+            <input type="time" class="task-start-time" style="flex: 0 0 70px;">
+            <input type="time" class="task-end-time" style="flex: 0 0 70px;">
+            <input type="number" class="task-time time-input" inputmode="numeric" placeholder="分" style="flex: 0 0 48px;" required>
+            <button type="button" class="remove-task-button">－</button>
+        `;
+    } else {
+        entryDiv.innerHTML = `
+            <input type="text" class="task-category-major" placeholder="業務種別" style="flex-grow: 1.5;" required readonly>
+            <input type="text" class="task-category-minor" placeholder="${categoryBLabel}" style="flex-grow: 1;" required readonly>
+            <input type="number" class="task-time time-input" inputmode="numeric" required>
+            <button type="button" class="remove-task-button">－</button>
+        `;
+    }
 
     container.appendChild(entryDiv);
 
@@ -266,6 +282,12 @@ function addTaskEntry(task = null) {
         minorInput.value = task.categoryB_label || task.categoryB || '';
         minorInput.dataset.id = task.categoryB_id || '';
         timeInput.value = task.time || '';
+        if (isReportNetPage) {
+            const startEl = entryDiv.querySelector('.task-start-time');
+            const endEl = entryDiv.querySelector('.task-end-time');
+            if (startEl && task.startTime) startEl.value = task.startTime;
+            if (endEl && task.endTime) endEl.value = task.endTime;
+        }
     }
 
     // イベントリスナーを新しい要素に設定
@@ -274,8 +296,6 @@ function addTaskEntry(task = null) {
         const entryToRemove = e.currentTarget.closest('.task-entry');
         const majorIn = entryToRemove.querySelector('.task-category-major');
         const minorIn = entryToRemove.querySelector('.task-category-minor');
-        
-        // 削除する前に行のデータを保存
         lastDeletedTask = {
             categoryA_label: majorIn.value,
             categoryA_id: majorIn.dataset.id,
@@ -283,8 +303,12 @@ function addTaskEntry(task = null) {
             categoryB_id: minorIn.dataset.id,
             time: entryToRemove.querySelector('.task-time').value
         };
-
-        // 行を削除
+        if (isReportNetPage) {
+            const se = entryToRemove.querySelector('.task-start-time');
+            const ee = entryToRemove.querySelector('.task-end-time');
+            lastDeletedTask.startTime = se ? se.value : '';
+            lastDeletedTask.endTime = ee ? ee.value : '';
+        }
         entryToRemove.remove();
         updateWorkTimeSummary();
     });
@@ -2500,6 +2524,7 @@ function escapeHTML(str) {
  * @param {URLSearchParams} urlParams 
  */
 async function showReportPage(urlParams) {
+    isReportNetPage = false;
     document.title = "工数入力";
 
     const reportHtml = await fetchHtmlAsString('_report.html');
@@ -2679,6 +2704,7 @@ async function showReportPage(urlParams) {
  * @param {URLSearchParams} urlParams
  */
 async function showReportPageNet(urlParams) {
+    isReportNetPage = true;
     document.title = "工数入力（ネット）";
 
     const reportHtml = await fetchHtmlAsString('_report_net.html');
