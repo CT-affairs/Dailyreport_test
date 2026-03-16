@@ -295,7 +295,7 @@ function addTaskEntry(task = null) {
         }
     }
 
-    // ネット画面: ネイティブ時刻ピッカー使用。選択値を15分刻みに丸めてフォームに反映
+    // ネット画面: ネイティブ時刻ピッカー使用。15分刻みに丸め＋開始/終了から分数を自動計算して .task-time にセット
     if (isReportNetPage && (startTimeInput || endTimeInput)) {
         const roundTimeTo15 = (value) => {
             if (!value || typeof value !== 'string') return '';
@@ -307,17 +307,35 @@ function addTaskEntry(task = null) {
             const rm = rounded % 60;
             return String(rh).padStart(2, '0') + ':' + String(rm).padStart(2, '0');
         };
-        const applyRound = (input) => {
+        const timeToMinutes = (value) => {
+            if (!value || typeof value !== 'string') return null;
+            const [h, m] = value.split(':').map(v => parseInt(v, 10));
+            if (isNaN(h) || isNaN(m)) return null;
+            return h * 60 + m;
+        };
+        const updateMinutesFromRange = () => {
+            const startVal = startTimeInput ? startTimeInput.value : '';
+            const endVal = endTimeInput ? endTimeInput.value : '';
+            const startMin = timeToMinutes(startVal);
+            const endMin = timeToMinutes(endVal);
+            if (startMin !== null && endMin !== null) {
+                let diff = endMin - startMin;
+                if (diff < 0) diff += 24 * 60; // 翌日跨ぎ
+                timeInput.value = Math.max(0, diff);
+            }
+            updateWorkTimeSummary();
+        };
+        const applyRoundAndMinutes = (input) => {
             if (!input) return;
             input.addEventListener('change', () => {
                 if (input.value) {
                     input.value = roundTimeTo15(input.value);
-                    updateWorkTimeSummary();
+                    updateMinutesFromRange();
                 }
             });
         };
-        applyRound(startTimeInput);
-        applyRound(endTimeInput);
+        applyRoundAndMinutes(startTimeInput);
+        applyRoundAndMinutes(endTimeInput);
     }
 
     // イベントリスナーを新しい要素に設定
@@ -576,107 +594,6 @@ async function fetchWorkTime(date, source = 'report') { // デフォルトは 'r
     } catch (error) {
         return { success: false, error: error.message };
     }
-}
-
-/**
- * 実験用: input を一切使わない15分刻み時刻選択（div/button のみでネイティブUIを出さない）
- */
-function setupNetTimepickerExperiment(container) {
-    if (!container) return;
-    const testButton = container.querySelector('#net-timepicker-test-button');
-    const testDisplay = container.querySelector('#net-timepicker-test-display');
-    const staticContainer = container.querySelector('#net-timepicker-static-container');
-    if (!testButton || !testDisplay || !staticContainer) return;
-
-    // 時刻選択状態
-    let selectedHour = null;
-
-    // 05〜22時をボタンにする
-    const hours = [];
-    for (let h = 5; h <= 22; h++) {
-        hours.push(String(h).padStart(2, '0'));
-    }
-    const minutes = ['00', '15', '30', '45'];
-
-    function renderHourMinute() {
-        staticContainer.innerHTML = '';
-
-        // 時ボタン行
-        const hourRow = document.createElement('div');
-        hourRow.style.display = 'flex';
-        hourRow.style.flexWrap = 'wrap';
-        hourRow.style.gap = '4px';
-        hourRow.style.marginBottom = '6px';
-
-        hours.forEach((h) => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.textContent = h;
-            btn.className = 'selection-option';
-            btn.style.flex = '1 0 20%';
-            btn.style.padding = '0.35em 0.4em';
-            btn.style.margin = '0';
-            btn.style.border = '1px solid ' + (selectedHour === h ? '#083969' : '#ddd');
-            btn.style.borderRadius = '4px';
-            btn.style.background = selectedHour === h ? '#083969' : '#fff';
-            btn.style.color = selectedHour === h ? '#fff' : '#333';
-            btn.style.fontSize = '0.9em';
-            btn.style.textAlign = 'center';
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                selectedHour = h;
-                renderHourMinute(); // 再描画して選択状態を反映
-            });
-            hourRow.appendChild(btn);
-        });
-
-        staticContainer.appendChild(hourRow);
-
-        // 分ボタン行
-        const minuteRow = document.createElement('div');
-        minuteRow.style.display = 'flex';
-        minuteRow.style.gap = '6px';
-        minuteRow.style.marginTop = '4px';
-
-        minutes.forEach((m) => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.textContent = m;
-            btn.className = 'selection-option';
-            btn.style.flex = '1 0 22%';
-            btn.style.padding = '0.35em 0.4em';
-            btn.style.margin = '0';
-            btn.style.border = '1px solid #ddd';
-            btn.style.borderRadius = '4px';
-            btn.style.background = '#fff';
-            btn.style.color = '#333';
-            btn.style.fontSize = '0.9em';
-            btn.style.textAlign = 'center';
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!selectedHour) return; // 時が未選択なら何もしない
-                const timeStr = `${selectedHour}:${m}`;
-                testDisplay.textContent = '選択: ' + timeStr;
-                staticContainer.style.display = 'none';
-            });
-            minuteRow.appendChild(btn);
-        });
-
-        staticContainer.appendChild(minuteRow);
-    }
-
-    testButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (staticContainer.style.display === 'none' || !staticContainer.style.display) {
-            renderHourMinute();
-            staticContainer.style.display = 'block';
-        } else {
-            staticContainer.style.display = 'none';
-        }
-    });
 }
 
 /**
@@ -2842,9 +2759,6 @@ async function showReportPageNet(urlParams) {
     const reportNetContainer = document.getElementById('report-net-container');
     reportNetContainer.style.display = 'block';
     reportNetContainer.innerHTML = reportHtml;
-
-    // Flatpickr 実験用UIのセットアップ（送信処理とは無関係）
-    setupNetTimepickerExperiment(reportNetContainer);
 
     const dateParam = urlParams.get('date');
     const targetDate = dateParam || toUTCDateString(new Date());
