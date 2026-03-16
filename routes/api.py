@@ -2734,6 +2734,22 @@ def get_jobcan_paid_holidays():
         current_app.logger.error(f"Error in get_jobcan_paid_holidays: {e}")
         abort(500, f'サーバーエラー: {str(e)}')
 
+
+def _is_effectively_no_jobcan_id(value):
+    """
+    「Jobcan ID が実質ない」とみなす判定。
+    None または空文字（空白のみ含む）のみを「IDなし」とする。
+    0 や '0' は有効な従業員IDの可能性があるため「IDあり」と扱い、
+    以前まで勤務時間が取得できていたユーザーを誤って全日付ゼロにしない。
+    """
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    # 数値 0 などは有効IDの可能性があるため False
+    return False
+
+
 @api_bp.route("/sync-paid-holidays", methods=["POST"])
 @token_required
 def sync_paid_holidays():
@@ -2761,6 +2777,7 @@ def sync_paid_holidays():
     target_jobcan_id = user_info.get("jobcan_employee_id")
 
     # 管理者が他人のIDを指定した場合
+    mapping_doc = None
     if target_employee_id_req:
         if not user_info.get('is_manager'):
             abort(403, "管理者権限が必要です。")
@@ -2771,14 +2788,41 @@ def sync_paid_holidays():
         if not mapping_doc.exists:
              abort(404, "指定された従業員が見つかりません。")
         target_jobcan_id = mapping_doc.to_dict().get("jobcan_employee_id")
+    else:
+        # 本人の場合は employee_mappings から status を取得するため取得
+        mapping_doc = db.collection("employee_mappings").document(target_company_id).get()
 
-    if not target_jobcan_id:
-        return jsonify({"status": "error", "message": "Jobcan ID not found."}), 400
+    mapping_status = mapping_doc.to_dict().get("status") if mapping_doc and mapping_doc.exists else None
 
     # 2. 期間の計算 (月度)
     start_date, end_date = calculate_monthly_period(target_date)
     from_str = start_date.strftime('%Y-%m-%d')
     to_str = end_date.strftime('%Y-%m-%d')
+
+    # Jobcan ID が実質ない（None/空文字のみ）、または status が active_officer の場合は
+    # JOBCAN にIDが無い前提のため、エラーにせず当月の全日付で勤務時間を 0 に設定して成功で返す。
+    # 0 や '0' は「IDあり」と扱い誤ゼロ化を防ぐ。
+    if _is_effectively_no_jobcan_id(target_jobcan_id) or mapping_status == "active_officer":
+        updated_count = 0
+        current = start_date
+        while current <= end_date:
+            date_str = current.strftime('%Y-%m-%d')
+            doc_id = f"{target_company_id}_{date_str}"
+            doc_ref = db.collection(COLLECTION_DAILY_REPORTS).document(doc_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                doc_ref.update({"jobcan_work_minutes": 0})
+                updated_count += 1
+            current += timedelta(days=1)
+        current_app.logger.info(
+            f"[sync_paid_holidays] No Jobcan ID or active_officer for {target_company_id}. "
+            f"Set jobcan_work_minutes=0 for {updated_count} existing report(s) in period {from_str}–{to_str}."
+        )
+        return jsonify({
+            "status": "success",
+            "message": "Jobcan IDがありません（active_officer 等）。当月の既存日報の勤務時間を0分に設定しました。",
+            "updated_count": updated_count
+        }), 200
 
     # 3. Jobcanからデータ取得
     from services.jobcan_service import JobcanService
