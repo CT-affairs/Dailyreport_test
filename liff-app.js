@@ -400,7 +400,13 @@ function addTaskEntry(task = null) {
     });
     minorInput.addEventListener('click', async () => {
         try {
-            const selectedObj = await showSelectionModal('集計軸カテゴリを選択', categoryBOptions, minorInput);
+            // ネット事業部では拠点フィルタは表示しない（skipOfficeFilter: true）
+            const selectedObj = await showSelectionModal(
+                '集計軸カテゴリを選択',
+                categoryBOptions,
+                minorInput,
+                isReportNetPage ? { skipOfficeFilter: true } : {}
+            );
             if (typeof selectedObj === 'object') {
                 minorInput.value = selectedObj.label;
                 minorInput.dataset.id = selectedObj.id || '';
