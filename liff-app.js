@@ -596,45 +596,90 @@ function setupNetTimepickerExperiment(container) {
     const staticContainer = container.querySelector('#net-timepicker-static-container');
     if (!testButton || !testDisplay || !staticContainer) return;
 
-    // 15分刻みの "HH:MM" リストを生成（00:00 ～ 23:45）
-    const options = [];
-    for (let h = 0; h < 24; h++) {
-        for (let m = 0; m < 60; m += 15) {
-            options.push(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
-        }
-    }
+    // 時刻選択状態
+    let selectedHour = null;
 
-    function renderList() {
+    // 05〜22時をボタンにする
+    const hours = [];
+    for (let h = 5; h <= 22; h++) {
+        hours.push(String(h).padStart(2, '0'));
+    }
+    const minutes = ['00', '15', '30', '45'];
+
+    function renderHourMinute() {
         staticContainer.innerHTML = '';
-        options.forEach((timeStr) => {
+
+        // 時ボタン行
+        const hourRow = document.createElement('div');
+        hourRow.style.display = 'flex';
+        hourRow.style.flexWrap = 'wrap';
+        hourRow.style.gap = '4px';
+        hourRow.style.marginBottom = '6px';
+
+        hours.forEach((h) => {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.textContent = timeStr;
+            btn.textContent = h;
             btn.className = 'selection-option';
-            btn.style.display = 'block';
-            btn.style.width = '100%';
-            btn.style.textAlign = 'left';
-            btn.style.padding = '0.5em 0.8em';
+            btn.style.flex = '1 0 20%';
+            btn.style.padding = '0.35em 0.4em';
             btn.style.margin = '0';
-            btn.style.border = 'none';
-            btn.style.borderBottom = '1px solid #eee';
-            btn.style.background = '#fff';
-            btn.style.cursor = 'pointer';
+            btn.style.border = '1px solid ' + (selectedHour === h ? '#083969' : '#ddd');
+            btn.style.borderRadius = '4px';
+            btn.style.background = selectedHour === h ? '#083969' : '#fff';
+            btn.style.color = selectedHour === h ? '#fff' : '#333';
+            btn.style.fontSize = '0.9em';
+            btn.style.textAlign = 'center';
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                selectedHour = h;
+                renderHourMinute(); // 再描画して選択状態を反映
+            });
+            hourRow.appendChild(btn);
+        });
+
+        staticContainer.appendChild(hourRow);
+
+        // 分ボタン行
+        const minuteRow = document.createElement('div');
+        minuteRow.style.display = 'flex';
+        minuteRow.style.gap = '6px';
+        minuteRow.style.marginTop = '4px';
+
+        minutes.forEach((m) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = m;
+            btn.className = 'selection-option';
+            btn.style.flex = '1 0 22%';
+            btn.style.padding = '0.35em 0.4em';
+            btn.style.margin = '0';
+            btn.style.border = '1px solid #ddd';
+            btn.style.borderRadius = '4px';
+            btn.style.background = '#fff';
+            btn.style.color = '#333';
+            btn.style.fontSize = '0.9em';
+            btn.style.textAlign = 'center';
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!selectedHour) return; // 時が未選択なら何もしない
+                const timeStr = `${selectedHour}:${m}`;
                 testDisplay.textContent = '選択: ' + timeStr;
                 staticContainer.style.display = 'none';
             });
-            staticContainer.appendChild(btn);
+            minuteRow.appendChild(btn);
         });
+
+        staticContainer.appendChild(minuteRow);
     }
 
     testButton.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (staticContainer.style.display === 'none' || !staticContainer.style.display) {
-            renderList();
+            renderHourMinute();
             staticContainer.style.display = 'block';
         } else {
             staticContainer.style.display = 'none';
