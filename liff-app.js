@@ -290,8 +290,8 @@ function addTaskEntry(task = null) {
         if (isReportNetPage) {
             const startEl = entryDiv.querySelector('.task-start-time');
             const endEl = entryDiv.querySelector('.task-end-time');
-            if (startEl && task.startTime) startEl.value = task.startTime;
-            if (endEl && task.endTime) endEl.value = task.endTime;
+            if (startEl && task.startTime) { startEl.value = task.startTime; entryDiv.dataset.startTime = task.startTime; }
+            if (endEl && task.endTime) { endEl.value = task.endTime; entryDiv.dataset.endTime = task.endTime; }
         }
         if (task.comment) entryDiv.dataset.comment = task.comment;
     }
@@ -331,6 +331,8 @@ function addTaskEntry(task = null) {
             input.addEventListener('change', () => {
                 if (input.value) {
                     input.value = roundTimeTo15(input.value);
+                    if (input.classList.contains('task-start-time')) entryDiv.dataset.startTime = input.value;
+                    if (input.classList.contains('task-end-time')) entryDiv.dataset.endTime = input.value;
                     updateMinutesFromRange();
                 }
             });
@@ -2858,9 +2860,11 @@ async function showReportPageNet(urlParams) {
             const entries = document.querySelectorAll('#task-entries-container .task-entry');
             let prevEnd = '';
             for (let i = entries.length - 1; i >= 0; i--) {
-                const endInput = entries[i].querySelector('.task-end-time');
-                if (endInput && endInput.value) {
-                    prevEnd = endInput.value;
+                const entry = entries[i];
+                const endInput = entry.querySelector('.task-end-time');
+                const endVal = (endInput && endInput.value) || entry.dataset.endTime || '';
+                if (endVal) {
+                    prevEnd = endVal;
                     break;
                 }
             }
