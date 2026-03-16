@@ -251,14 +251,18 @@ function addTaskEntry(task = null) {
     const categoryBLabel = getCategoryBLabel();
 
     if (isReportNetPage) {
-        // ネット: categoryA, categoryB(小さめ), 開始時刻, 終了時刻, 分数, －
+        // ネット: categoryA, categoryB(小さめ), 開始/終了(縦並び1列), 分数, －。行の高さ150%程度
+        entryDiv.style.minHeight = '4.5em';
+        entryDiv.style.alignItems = 'stretch';
         entryDiv.innerHTML = `
-            <input type="text" class="task-category-major" placeholder="業務" style="flex: 0 0 72px; min-width: 0;" required readonly>
-            <input type="text" class="task-category-minor" placeholder="${categoryBLabel}" style="flex: 0 0 72px; min-width: 0;" required readonly>
-            <input type="time" class="task-start-time" style="flex: 0 0 70px;">
-            <input type="time" class="task-end-time" style="flex: 0 0 70px;">
-            <input type="number" class="task-time time-input" inputmode="numeric" placeholder="分" style="flex: 0 0 48px;" required>
-            <button type="button" class="remove-task-button">－</button>
+            <input type="text" class="task-category-major" placeholder="業務" style="flex: 0 0 72px; min-width: 0; align-self: center;" required readonly>
+            <input type="text" class="task-category-minor" placeholder="${categoryBLabel}" style="flex: 0 0 72px; min-width: 0; align-self: center;" required readonly>
+            <div class="task-time-range-wrap" style="flex: 0 0 70px; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
+                <input type="time" class="task-start-time" style="width: 100%; box-sizing: border-box;">
+                <input type="time" class="task-end-time" style="width: 100%; box-sizing: border-box;">
+            </div>
+            <input type="number" class="task-time time-input" inputmode="numeric" placeholder="分" style="flex: 0 0 48px; align-self: center;" required>
+            <button type="button" class="remove-task-button" style="align-self: center;">－</button>
         `;
     } else {
         entryDiv.innerHTML = `
