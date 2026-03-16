@@ -750,6 +750,10 @@ async function renderCategoriesNetUI(container) {
                                     if (headerCell) {
                                         const original = parseInt(headerCell.getAttribute('data-original-rowspan') || rows.length, 10);
                                         headerCell.rowSpan = original;
+                                        // ヘッダー行の2〜4列目も必ず表示
+                                        row.querySelectorAll('td:not([data-original-rowspan])').forEach(cell => {
+                                            cell.style.display = '';
+                                        });
                                     }
                                 }
                             });
@@ -766,16 +770,29 @@ async function renderCategoriesNetUI(container) {
                         }
 
                         block.style.display = '';
-                        rows.forEach(row => {
+                        const headerRow = rows[0];
+                        const headerCell = headerRow.querySelector('td[data-original-rowspan]');
+                        const otherRows = rows.slice(1);
+                        const checkedOtherRows = otherRows.filter(r => r.querySelector('.net-category-select')?.checked);
+
+                        // ヘッダー行は、ブロック内に1つでもチェックがあれば常に表示
+                        headerRow.style.display = '';
+                        const headerChecked = !!headerRow.querySelector('.net-category-select')?.checked;
+                        headerRow.querySelectorAll('td:not([data-original-rowspan])').forEach(cell => {
+                            // 1行目自身が未チェックなら、2〜4列目は隠す（見出しセルだけ残す）
+                            cell.style.display = headerChecked ? '' : 'none';
+                        });
+
+                        // 2行目以降は、チェックされた行だけ表示
+                        otherRows.forEach(row => {
                             const isRowChecked = !!row.querySelector('.net-category-select')?.checked;
                             row.style.display = isRowChecked ? '' : 'none';
                         });
 
-                        // 先頭行の見出しセルのrowspanを表示行数に合わせて更新
-                        const headerRow = rows[0];
-                        const headerCell = headerRow.querySelector('td[data-original-rowspan]');
+                        // 先頭行の見出しセルのrowspanを「表示中の行数」に合わせて更新
                         if (headerCell) {
-                            headerCell.rowSpan = checkedRows.length;
+                            const visibleCount = 1 + checkedOtherRows.length; // ヘッダー行 + 表示されているデータ行
+                            headerCell.rowSpan = visibleCount;
                         }
                     });
                 });

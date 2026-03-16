@@ -16,6 +16,13 @@
         text-align: left; /* 左寄せに統一 */
         white-space: nowrap; /* 自動で折り返されないようにする */
     }
+    /* 集計項目ごとのブロックを一定幅に揃える */
+    #net-category-layout-container .net-category-block {
+        margin-bottom: 8px;
+    }
+    #net-category-layout-container .net-category-block .data-table {
+        min-width: 260px;
+    }
     /* チェックボックス列のみ中央寄せ */
     #net-category-layout-container .data-table th:nth-child(3), /* ヘッダーはrowspanの影響を受けないため3番目でOK */
     #net-category-layout-container .data-table td.cell-center { /* データセルはrowspanの影響を受けるためクラスで指定 */
