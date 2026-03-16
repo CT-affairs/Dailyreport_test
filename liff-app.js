@@ -364,31 +364,52 @@ function addTaskEntry(task = null) {
     // --- 入力欄クリックで選択モーダルを表示 ---
     majorInput.addEventListener('click', async () => {
         try {
-            const selectedObj = await showSelectionModal('業務種別を選択', categoryAOptions, majorInput);
+            let optionsForA = categoryAOptions;
+            if (isReportNetPage) {
+                // ネット: 集計(B)を先に選び、それに紐づく業務(A)だけ選べる
+                const selectedBId = minorInput.dataset.id || (minorInput.value ? (categoryBOptions.find(b => b.label === minorInput.value) || {}).id : '');
+                if (!selectedBId) {
+                    alert('先に集計を選択してください。');
+                    return;
+                }
+                const bOption = categoryBOptions.find(b => b.id === selectedBId);
+                const allowedAIds = bOption && bOption.category_a_settings ? Object.keys(bOption.category_a_settings) : [];
+                optionsForA = categoryAOptions.filter(a => allowedAIds.includes(a.id));
+                if (optionsForA.length === 0) {
+                    alert('この集計に紐づく業務がありません。');
+                    return;
+                }
+            }
+            const selectedObj = await showSelectionModal('業務種別を選択', optionsForA, majorInput);
             if (typeof selectedObj === 'object') {
                 majorInput.value = selectedObj.label;
                 majorInput.dataset.id = selectedObj.id || '';
             } else {
                 majorInput.value = selectedObj;
             }
-            // 大分類が変更されたら、小分類をクリアする (IDもクリア)
-            minorInput.value = '';
-            minorInput.dataset.id = '';
-            updateWorkTimeSummary(); // 選択後にもサマリーを更新
+            if (!isReportNetPage) {
+                // 工務: 大分類が変更されたら、小分類をクリアする
+                minorInput.value = '';
+                minorInput.dataset.id = '';
+            }
+            updateWorkTimeSummary();
         } catch (error) { /* キャンセル時は何もしない */ }
     });
     minorInput.addEventListener('click', async () => {
         try {
-            // categoryBOptionsはオブジェクト配列になっているため、showSelectionModalで適切に処理される
             const selectedObj = await showSelectionModal('集計軸カテゴリを選択', categoryBOptions, minorInput);
-            // 選択されたオブジェクトからラベル部分だけを入力欄に設定
             if (typeof selectedObj === 'object') {
                 minorInput.value = selectedObj.label;
                 minorInput.dataset.id = selectedObj.id || '';
             } else {
                 minorInput.value = selectedObj;
             }
-            updateWorkTimeSummary(); // 選択後にもサマリーを更新
+            if (isReportNetPage) {
+                // ネット: 集計(B)を変更したら業務(A)をクリア（紐づくAのリストが変わるため）
+                majorInput.value = '';
+                majorInput.dataset.id = '';
+            }
+            updateWorkTimeSummary();
         } catch (error) { /* キャンセル時は何もしない */ }
     });
 
@@ -680,13 +701,14 @@ async function setupCategoryDatalists() {
             // アクティブなカテゴリのみを抽出
             const activeCategories = categories.filter(cat => cat.active !== false);
 
-            // ラベルだけでなく、clientとprojectの情報も保持する
+            // ラベルだけでなく、client・project・category_a_settings（ネット時: Bに紐づくAのID一覧）も保持
             categoryBOptions = activeCategories.map(cat => ({
                 id: cat.id,
                 label: cat.label,
                 client: cat.client || '',
                 project: cat.project || '',
-                offices: cat.offices || []
+                offices: cat.offices || [],
+                category_a_settings: cat.category_a_settings || {}
             }));
 
             // 履歴があればソート

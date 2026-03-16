@@ -1104,14 +1104,18 @@ def get_category_b_for_user():
         categories = []
         for doc in docs:
             data = doc.to_dict()
-            categories.append({
+            item = {
                 "id": doc.id,
                 "label": data.get("label", ""),
                 "client": data.get("client", ""),
                 "project": data.get("project", ""),
                 "order": data.get("order", 0),
                 "offices": data.get("offices", [])
-            })
+            }
+            # ネット用: 集計(B)に紐づく業務(A)のID一覧を返す（B先選択→A絞り込みに利用）
+            if kind == "net":
+                item["category_a_settings"] = data.get("category_a_settings", {})
+            categories.append(item)
 
         # order降順、label昇順でソート
         categories.sort(key=lambda x: (-x['order'], x['label']))
