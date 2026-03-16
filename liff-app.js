@@ -587,8 +587,7 @@ async function fetchWorkTime(date, source = 'report') { // デフォルトは 'r
 }
 
 /**
- * LINE LIFF 上で Flatpickr の時刻ピッカーだけを試すための実験用セットアップ
- * input を一切使わず div に static 表示するため、ネイティブUIが起動しない想定
+ * 実験用: input を一切使わない15分刻み時刻選択（div/button のみでネイティブUIを出さない）
  */
 function setupNetTimepickerExperiment(container) {
     if (!container) return;
@@ -596,32 +595,47 @@ function setupNetTimepickerExperiment(container) {
     const testDisplay = container.querySelector('#net-timepicker-test-display');
     const staticContainer = container.querySelector('#net-timepicker-static-container');
     if (!testButton || !testDisplay || !staticContainer) return;
-    if (typeof flatpickr === 'undefined') {
-        testDisplay.textContent = '（Flatpickr が読み込まれていません）';
-        return;
+
+    // 15分刻みの "HH:MM" リストを生成（00:00 ～ 23:45）
+    const options = [];
+    for (let h = 0; h < 24; h++) {
+        for (let m = 0; m < 60; m += 15) {
+            options.push(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
+        }
     }
 
-    let fpInstance = null;
+    function renderList() {
+        staticContainer.innerHTML = '';
+        options.forEach((timeStr) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = timeStr;
+            btn.className = 'selection-option';
+            btn.style.display = 'block';
+            btn.style.width = '100%';
+            btn.style.textAlign = 'left';
+            btn.style.padding = '0.5em 0.8em';
+            btn.style.margin = '0';
+            btn.style.border = 'none';
+            btn.style.borderBottom = '1px solid #eee';
+            btn.style.background = '#fff';
+            btn.style.cursor = 'pointer';
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                testDisplay.textContent = '選択: ' + timeStr;
+                staticContainer.style.display = 'none';
+            });
+            staticContainer.appendChild(btn);
+        });
+    }
 
     testButton.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (staticContainer.style.display === 'none' || !staticContainer.style.display) {
+            renderList();
             staticContainer.style.display = 'block';
-            if (!fpInstance) {
-                fpInstance = flatpickr(staticContainer, {
-                    enableTime: true,
-                    noCalendar: true,
-                    dateFormat: 'H:i',
-                    time_24hr: true,
-                    minuteIncrement: 15,
-                    defaultDate: new Date(),
-                    static: true,
-                    onChange: (selectedDates, dateStr) => {
-                        testDisplay.textContent = dateStr ? `選択時刻: ${dateStr}` : '';
-                    }
-                });
-            }
         } else {
             staticContainer.style.display = 'none';
         }

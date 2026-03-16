@@ -29,12 +29,12 @@
             <!-- ここに動的にタスク入力行が追加されます -->
         </div>
 
-        <!-- Flatpickr 動作確認用（実験用UI・送信処理とは無関係・input を使わず div に static 表示） -->
+        <!-- 実験用: input を一切使わない15分刻み時刻選択（ネイティブUI回避の検証用） -->
         <div id="net-timepicker-experiment" style="margin-top: 0.75em; padding: 0.4em 0.6em; background-color: #fff9e6; border-radius: 4px; border: 1px dashed #f0ad4e;">
-            <span style="font-size: 0.75em; color: #666;">※実験用: LINE LIFF 上での Flatpickr 時刻ピッカー（input なし）</span><br>
-            <button type="button" id="net-timepicker-test-button" class="sub-button" style="margin-top: 0.4em;">時刻ピッカーを表示</button>
+            <span style="font-size: 0.75em; color: #666;">※実験用: input なし・div/button のみの15分刻み選択</span><br>
+            <button type="button" id="net-timepicker-test-button" class="sub-button" style="margin-top: 0.4em;">時刻リストを表示</button>
             <span id="net-timepicker-test-display" style="margin-left: 0.5em; font-size: 0.9em; color: #083969;"></span>
-            <div id="net-timepicker-static-container" style="display: none; margin-top: 0.5em;"></div>
+            <div id="net-timepicker-static-container" style="display: none; margin-top: 0.5em; max-height: 200px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; background: #fff;"></div>
         </div>
 
         <!-- 時間サマリー -->
