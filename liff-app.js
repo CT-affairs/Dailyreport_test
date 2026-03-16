@@ -587,6 +587,53 @@ async function fetchWorkTime(date, source = 'report') { // デフォルトは 'r
 }
 
 /**
+ * LINE LIFF 上で Flatpickr の時刻ピッカーだけを試すための実験用セットアップ
+ * 既存のタスク入力や送信処理には一切影響しない
+ */
+function setupNetTimepickerExperiment(container) {
+    if (!container) return;
+    const testButton = container.querySelector('#net-timepicker-test-button');
+    const testDisplay = container.querySelector('#net-timepicker-test-display');
+    if (!testButton || !testDisplay) return;
+    if (typeof flatpickr === 'undefined') {
+        testDisplay.textContent = '（Flatpickr が読み込まれていません）';
+        return;
+    }
+
+    // 実験用の隠し input（DOM に追加するが画面には出さない）
+    const hiddenInput = document.createElement('input');
+    hiddenInput.type = 'text';
+    hiddenInput.style.position = 'absolute';
+    hiddenInput.style.opacity = '0';
+    hiddenInput.style.pointerEvents = 'none';
+    hiddenInput.style.height = '0';
+    hiddenInput.style.width = '0';
+    container.appendChild(hiddenInput);
+
+    const fp = flatpickr(hiddenInput, {
+        enableTime: true,
+        noCalendar: true,
+        dateFormat: 'H:i',
+        time_24hr: true,
+        minuteIncrement: 15,
+        defaultDate: new Date(),
+        onChange: (selectedDates, dateStr) => {
+            testDisplay.textContent = dateStr ? `選択時刻: ${dateStr}` : '';
+        },
+        onClose: () => {
+            // ピッカーを閉じたらフォーカスをボタンに戻す
+            testButton.focus();
+        }
+    });
+
+    testButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        fp.open();
+    });
+}
+
+/**
  * 指定された日付の既存の工数報告詳細を取得するヘルパー関数
  * @param {string} date - "YYYY-MM-DD" 形式の日付文字列
  * @returns {Promise<{tasks: Array}>} 取得結果
@@ -2749,6 +2796,9 @@ async function showReportPageNet(urlParams) {
     const reportNetContainer = document.getElementById('report-net-container');
     reportNetContainer.style.display = 'block';
     reportNetContainer.innerHTML = reportHtml;
+
+    // Flatpickr 実験用UIのセットアップ（送信処理とは無関係）
+    setupNetTimepickerExperiment(reportNetContainer);
 
     const dateParam = urlParams.get('date');
     const targetDate = dateParam || toUTCDateString(new Date());
