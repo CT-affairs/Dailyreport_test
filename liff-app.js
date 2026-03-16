@@ -293,6 +293,7 @@ function addTaskEntry(task = null) {
             if (startEl && task.startTime) startEl.value = task.startTime;
             if (endEl && task.endTime) endEl.value = task.endTime;
         }
+        if (task.comment) entryDiv.dataset.comment = task.comment;
     }
 
     // ネット画面: ネイティブ時刻ピッカー使用。15分刻みに丸め＋開始/終了から分数を自動計算して .task-time にセット
@@ -2847,6 +2848,27 @@ async function showReportPageNet(urlParams) {
             uiToggleButton.classList.toggle('active');
         });
         addTaskButton.parentNode.insertBefore(uiToggleButton, addTaskButton);
+
+        const lunchButton = document.createElement('button');
+        lunchButton.type = 'button';
+        lunchButton.id = 'lunch-preset-button';
+        lunchButton.className = 'ui-toggle-button';
+        lunchButton.textContent = '昼';
+        lunchButton.title = '昼休憩の行を追加';
+        lunchButton.addEventListener('click', () => {
+            addTaskEntry({
+                categoryA_id: 'N99',
+                categoryA_label: '昼休憩',
+                categoryB_id: 'n_break',
+                categoryB_label: '休憩',
+                comment: '昼休憩',
+                startTime: '12:00',
+                endTime: '13:00',
+                time: 0
+            });
+            updateWorkTimeSummary();
+        });
+        addTaskButton.parentNode.insertBefore(lunchButton, addTaskButton);
     }
     document.getElementById('report-work').addEventListener('input', updateWorkTimeSummary);
 
