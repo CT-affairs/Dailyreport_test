@@ -19,15 +19,15 @@
         text-align: left; /* 左寄せに統一 */
         white-space: nowrap; /* 自動で折り返されないようにする */
     }
-    /* 列幅を各テーブルで揃える */
+    /* 列幅を各テーブルで固定（px）に揃える */
     #net-category-layout-container .data-table th:nth-child(1),
-    #net-category-layout-container .data-table td:nth-child(1) { width: 26%; }
+    #net-category-layout-container .data-table td:nth-child(1) { width: 80px; max-width: 80px; }
     #net-category-layout-container .data-table th:nth-child(2),
-    #net-category-layout-container .data-table td:nth-child(2) { width: 44%; }
+    #net-category-layout-container .data-table td:nth-child(2) { width: 160px; max-width: 160px; }
     #net-category-layout-container .data-table th:nth-child(3),
-    #net-category-layout-container .data-table td:nth-child(3) { width: 10%; text-align: center; }
+    #net-category-layout-container .data-table td:nth-child(3) { width: 32px; max-width: 32px; text-align: center; }
     #net-category-layout-container .data-table th:nth-child(4),
-    #net-category-layout-container .data-table td:nth-child(4) { width: 20%; }
+    #net-category-layout-container .data-table td:nth-child(4) { width: 90px; max-width: 90px; }
     /* 集計項目ごとのブロックを一定幅に揃える */
     #net-category-layout-container .net-category-block {
         margin-bottom: 8px;
