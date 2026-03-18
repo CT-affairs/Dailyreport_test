@@ -557,6 +557,7 @@ async function renderCategoriesNetUI(container) {
                 const catBId = catB.id; // ★カテゴリBのID
                 const catBColor = categoryBColors[bIndex % categoryBColors.length];
                 const settings = catB.category_a_settings || {};
+                const sortSettings = catB.category_a_sort || {}; // ★PC入力画面専用 並び順設定
 
                 // カテゴリBごとに独立したテーブルコンテナを作成
                 let rowsHtml = '';
@@ -565,6 +566,7 @@ async function renderCategoriesNetUI(container) {
                     const catAId = catA.id;
                     const colorCode = settings[catAId] || '';
                     const isChecked = !!settings[catAId];
+                    const sortValue = typeof sortSettings[catAId] === 'number' ? sortSettings[catAId] : '';
                     const uniqueId = `cb_${catBId}_${catAId}`;
 
                     rowsHtml += '<tr>';
@@ -591,6 +593,18 @@ async function renderCategoriesNetUI(container) {
                             <input type="text" class="net-category-color-text" value="${colorCode.toUpperCase()}" placeholder="#RRGGBB" data-target-id="${uniqueId}" style="font-size: 0.85em; font-family: monospace; color: #333; width: 70px; border: 1px solid #ccc; padding: 2px 4px;">
                         </div>
                     </td>`;
+
+                    // ★PC入力画面専用の並び順（category_a_sort）
+                    rowsHtml += `<td>
+                        <input type="number"
+                               class="net-category-sort"
+                               data-b-id="${catBId}"
+                               data-a-id="${catAId}"
+                               value="${sortValue !== '' ? sortValue : ''}"
+                               min="0"
+                               step="1"
+                               style="width: 60px; padding: 2px 4px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.8em; text-align: right;">
+                    </td>`;
                     rowsHtml += '</tr>';
                 });
 
@@ -604,6 +618,7 @@ async function renderCategoriesNetUI(container) {
                                         <th>業務種別</th>
                                         <th>✓</th>
                                         <th>Color</th>
+                                        <th>順序(PC)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -694,10 +709,32 @@ async function renderCategoriesNetUI(container) {
 
         document.getElementById('save-net-mapping-btn').addEventListener('click', async () => {
             const mapping = {};
+
+            // まずカテゴリAごとの色と有効フラグを収集
             container.querySelectorAll('.net-category-select').forEach(cb => {
                 const { bId, aId, color, aLabel } = cb.dataset;
                 if (!mapping[bId]) mapping[bId] = {};
-                mapping[bId][aId] = { active: cb.checked, color, label: aLabel };
+                if (!mapping[bId][aId]) mapping[bId][aId] = {};
+                mapping[bId][aId].active = cb.checked;
+                mapping[bId][aId].color = color;
+                mapping[bId][aId].label = aLabel;
+            });
+
+            // 続いてPC専用の並び順(category_a_sort)も一緒に送る
+            container.querySelectorAll('.net-category-sort').forEach(input => {
+                const bId = input.dataset.bId;
+                const aId = input.dataset.aId;
+                if (!mapping[bId]) mapping[bId] = {};
+                if (!mapping[bId][aId]) mapping[bId][aId] = {};
+
+                const val = input.value;
+                const num = val === '' ? null : Number(val);
+                if (num !== null && !Number.isNaN(num)) {
+                    mapping[bId][aId].sort = num;
+                } else {
+                    // 値が空 or 不正な場合は sort を送らない（既存値維持はサーバー側に委ねる）
+                    // 明示的に削除したい場合は、別途サーバー側で対応する
+                }
             });
 
             const btn = document.getElementById('save-net-mapping-btn');
