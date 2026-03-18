@@ -3596,15 +3596,15 @@ async function setupProxyCategoryDatalists() {
             proxyCategoryBOptions = activeCategories.map(cat => ({
                 id: cat.id,
                 label: cat.label,
+                order: typeof cat.order === 'number' ? cat.order : 0,
                 client: cat.client || '',
                 project: cat.project || '',
                 offices: cat.offices || [],
                 category_a_settings: cat.category_a_settings || {},
                 category_a_sort: cat.category_a_sort || {}
             }));
-            proxyCategoryBOptions.sort((a, b) => b.label.localeCompare(a.label, undefined, { numeric: true }));
-            // 履歴でソート (通常のソートの後に適用することで、履歴外のものは元の順序を維持)
-            proxyCategoryBOptions = sortProxyOptionsByHistory(proxyCategoryBOptions, currentProxyHistory.catB);
+            // 集計項目は order 昇順で表示（PC日報入力・ネット事業部）
+            proxyCategoryBOptions.sort((a, b) => (a.order - b.order) || a.label.localeCompare(b.label || '', 'ja'));
         }
     } catch (error) {
         console.error("カテゴリ候補の取得に失敗しました:", error);
