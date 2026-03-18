@@ -834,7 +834,8 @@ def get_manager_category_b():
                 "client": data.get("client", ""),
                 "project": data.get("project", ""),
                 "offices": data.get("offices", []),
-                "category_a_settings": data.get("category_a_settings", {}) # color_map -> category_a_settings
+                "category_a_settings": data.get("category_a_settings", {}),  # color_map -> category_a_settings
+                "category_a_sort": data.get("category_a_sort", {})  # PC入力画面専用 並び順
             })
         
         # order降順、label昇順でソート
@@ -854,11 +855,12 @@ def save_net_category_mapping():
     リクエストボディは以下の形式:
     {
         "cat_b_id_1": {
-            "cat_a_id_1": { "active": true, "color": "#FFFFFF", "label": "..." },
-            "cat_a_id_2": { "active": false, "color": "#000000", "label": "..." }
+            "cat_a_id_1": { "active": true, "color": "#FFFFFF", "label": "...", "sort": 10 },
+            "cat_a_id_2": { "active": false, "color": "#000000", "label": "...", "sort": 20 }
         },
         ...
     }
+    sort: PC入力画面での業務種別の並び順（数値・省略可）。category_a_sort に保存される。
     """
     mapping_data = request.get_json()
     if not isinstance(mapping_data, dict):
@@ -873,13 +875,21 @@ def save_net_category_mapping():
                 continue
 
             new_settings = {}
+            new_sort = {}
             for cat_a_id, details in cat_a_mappings.items():
                 # activeがtrueで、colorが設定されているものだけをマップに含める
                 if details.get("active") and details.get("color") and str(details["color"]).startswith('#'):
                     new_settings[cat_a_id] = str(details["color"]).upper()
+                # PC入力画面専用の並び順（sort が数値の場合のみ category_a_sort に含める）
+                sort_val = details.get("sort")
+                if sort_val is not None and isinstance(sort_val, (int, float)) and not isinstance(sort_val, bool):
+                    new_sort[cat_a_id] = int(sort_val)
 
             doc_ref = cat_b_ref.document(cat_b_id)
-            batch.update(doc_ref, {"category_a_settings": new_settings}) # color_map -> category_a_settings
+            batch.update(doc_ref, {
+                "category_a_settings": new_settings,
+                "category_a_sort": new_sort
+            })
 
         batch.commit()
         return jsonify({"status": "success", "message": f"{len(mapping_data)}件のカテゴリマッピングを更新しました。"}), 200
