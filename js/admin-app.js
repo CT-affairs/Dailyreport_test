@@ -3599,7 +3599,8 @@ async function setupProxyCategoryDatalists() {
                 client: cat.client || '',
                 project: cat.project || '',
                 offices: cat.offices || [],
-                category_a_settings: cat.category_a_settings || {}
+                category_a_settings: cat.category_a_settings || {},
+                category_a_sort: cat.category_a_sort || {}
             }));
             proxyCategoryBOptions.sort((a, b) => b.label.localeCompare(a.label, undefined, { numeric: true }));
             // 履歴でソート (通常のソートの後に適用することで、履歴外のものは元の順序を維持)
@@ -4657,11 +4658,12 @@ async function initializeProxyTimetable() {
             catB_select.appendChild(option);
         });
 
-        // ★ 3) イベントリスナーの追加
+        // ★ 3) イベントリスナーの追加（category_a_sort でPC入力画面専用の並び順を反映）
         catB_select.addEventListener('change', () => {
             const selectedCatB_Id = catB_select.value;
             const selectedCatB = proxyCategoryBOptions.find(opt => opt.id === selectedCatB_Id);
             const settings = selectedCatB ? selectedCatB.category_a_settings : null;
+            const sortMap = selectedCatB ? (selectedCatB.category_a_sort || {}) : {};
 
             // 業務種別プルダウンをリセット
             catA_select.innerHTML = '<option value="">選択してください...</option>';
@@ -4673,8 +4675,19 @@ async function initializeProxyTimetable() {
                 // 許可された業務種別のIDリスト
                 const allowedCatA_Ids = Object.keys(settings);
                 
-                // 選択肢をフィルタリングして追加
-                const filteredOptions = proxyCategoryAOptions.filter(opt => allowedCatA_Ids.includes(opt.id));
+                // 選択肢をフィルタリング
+                let filteredOptions = proxyCategoryAOptions.filter(opt => allowedCatA_Ids.includes(opt.id));
+                
+                // category_a_sort で並び替え（PC入力画面限定の並び順）
+                filteredOptions.sort((a, b) => {
+                    const sa = sortMap[a.id];
+                    const sb = sortMap[b.id];
+                    if (typeof sa === 'number' && typeof sb === 'number') {
+                        if (sa !== sb) return sa - sb;
+                    } else if (typeof sa === 'number') return -1;
+                    else if (typeof sb === 'number') return 1;
+                    return (a.label || '').localeCompare(b.label || '', 'ja');
+                });
                 
                 filteredOptions.forEach(opt => {
                     const option = document.createElement('option');
