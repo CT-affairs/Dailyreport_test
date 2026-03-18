@@ -1,0 +1,302 @@
+from flask import Flask, jsonify
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.errors import HttpError
+from google.cloud import vision
+from google.cloud import storage
+from google.cloud import vision_v1 as vision_pdf
+from pdfminer.high_level import extract_text
+import google.auth
+import io
+import json
+import os
+import urllib.request
+import urllib.error
+
+app = Flask(__name__)
+
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+
+FOLDER_ID = "1cQdDHAg8zIG7oVxE_WUoXD5tsb_Ql89U"
+
+# Vision PDF OCR 用（GCS 経由）
+GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "")
+GCS_OCR_OUTPUT_PREFIX = os.environ.get("GCS_OCR_OUTPUT_PREFIX", "vision-output")
+
+
+# ----------------------------
+# Drive認証（Application Default Credentials 使用）
+# ----------------------------
+def get_drive_service():
+    creds, _ = google.auth.default(scopes=SCOPES)
+    return build('drive', 'v3', credentials=creds)
+
+
+# ----------------------------
+# PDFダウンロード
+# ----------------------------
+def download_file(file_id, drive_service):
+    request = drive_service.files().get_media(fileId=file_id)
+    file_data = io.BytesIO()
+
+    downloader = MediaIoBaseDownload(file_data, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    file_data.seek(0)
+    return file_data
+
+
+# ----------------------------
+# デジタルPDF判定
+# ----------------------------
+def extract_text_if_digital(file_bytes):
+    try:
+        text = extract_text(io.BytesIO(file_bytes))
+        if text and text.strip():
+            return text
+    except Exception:
+        pass
+    return None
+
+
+# ----------------------------
+# Vision OCR（スキャン用）
+# ----------------------------
+def vision_ocr(file_bytes):
+    client = vision.ImageAnnotatorClient()
+
+    image = vision.Image(content=file_bytes)
+    response = client.document_text_detection(image=image)
+
+    if response.error and getattr(response.error, "message", ""):
+        return f"[VISION_ERROR] {response.error.message}"
+
+    if response.full_text_annotation:
+        return response.full_text_annotation.text
+
+    return ""
+
+
+# ----------------------------
+# GCS upload（Vision PDF OCR 用）
+# ----------------------------
+def upload_pdf_to_gcs(pdf_bytes: bytes, blob_name: str) -> str:
+    if not GCS_BUCKET_NAME:
+        raise RuntimeError("GCS_BUCKET_NAME is not set")
+
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+    blob = bucket.blob(blob_name)
+    blob.upload_from_string(pdf_bytes, content_type="application/pdf")
+    return f"gs://{GCS_BUCKET_NAME}/{blob_name}"
+
+
+# ----------------------------
+# Vision PDF OCR（GCS 経由・async）
+# ----------------------------
+def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> str:
+    if not GCS_BUCKET_NAME:
+        return "[CONFIG_ERROR] GCS_BUCKET_NAME is not set"
+
+    input_blob_name = f"input/{file_id}.pdf"
+    gcs_source_uri = upload_pdf_to_gcs(pdf_bytes, input_blob_name)
+    gcs_output_uri = f"gs://{GCS_BUCKET_NAME}/{GCS_OCR_OUTPUT_PREFIX}/{file_id}/"
+
+    client = vision_pdf.ImageAnnotatorClient()
+
+    feature = vision_pdf.Feature(type_=vision_pdf.Feature.Type.DOCUMENT_TEXT_DETECTION)
+    gcs_source = vision_pdf.GcsSource(uri=gcs_source_uri)
+    input_config = vision_pdf.InputConfig(
+        gcs_source=gcs_source, mime_type="application/pdf"
+    )
+
+    gcs_destination = vision_pdf.GcsDestination(uri=gcs_output_uri)
+    output_config = vision_pdf.OutputConfig(
+        gcs_destination=gcs_destination, batch_size=1
+    )
+
+    async_request = vision_pdf.AsyncAnnotateFileRequest(
+        features=[feature],
+        input_config=input_config,
+        output_config=output_config,
+    )
+
+    operation = client.async_batch_annotate_files(requests=[async_request])
+
+    try:
+        operation.result(timeout=300)
+    except Exception as e:
+        return f"[VISION_PDF_OCR_ERROR] {e}"
+
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+    prefix = f"{GCS_OCR_OUTPUT_PREFIX}/{file_id}/"
+
+    texts: list[str] = []
+    for blob in bucket.list_blobs(prefix=prefix):
+        if not blob.name.endswith(".json"):
+            continue
+
+        try:
+            data = json.loads(blob.download_as_text())
+        except Exception as e:
+            return f"[OCR_OUTPUT_PARSE_ERROR] {e}"
+
+        for resp in data.get("responses", []):
+            full_text = resp.get("fullTextAnnotation", {}).get("text")
+            if full_text:
+                texts.append(full_text)
+
+    return "\n".join(texts).strip()
+
+
+# ----------------------------
+# OCRメイン処理（自動判定）
+# ----------------------------
+def ocr_pdf(file_id):
+
+    drive_service = get_drive_service()
+    file_data = download_file(file_id, drive_service)
+
+    file_bytes = file_data.read()
+
+    # ① まずデジタルPDFとしてテキスト抽出を試す
+    text = extract_text_if_digital(file_bytes)
+    if text:
+        return {
+            "method": "digital_pdf_text_extract",
+            "text": text
+        }
+
+    # ② ダメなら Vision の PDF OCR（GCS 経由）
+    text = vision_pdf_ocr_via_gcs(file_bytes, file_id)
+    return {
+        "method": "vision_pdf_ocr_via_gcs",
+        "text": text
+    }
+
+
+# ----------------------------
+# フォルダ内PDF取得
+# ----------------------------
+def get_drive_files():
+    drive_service = get_drive_service()
+
+    query = (
+        f"'{FOLDER_ID}' in parents and "
+        "mimeType='application/pdf' and "
+        "trashed=false"
+    )
+
+    try:
+        results = drive_service.files().list(
+            q=query,
+            pageSize=10,
+            fields="files(id, name, mimeType, parents)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
+        return results.get("files", [])
+    except HttpError as e:
+        # 呼び出し失敗のときに原因が見えるよう、例外内容を呼び出し元で扱える形式にする
+        return [{"error": "drive_list_failed", "details": str(e)}]
+
+
+# ----------------------------
+# APIエンドポイント
+# ----------------------------
+@app.route("/")
+def index():
+
+    files = get_drive_files()
+
+    if not files:
+        return jsonify({"message": "No PDF found"})
+
+    if isinstance(files, list) and files and isinstance(files[0], dict) and files[0].get("error"):
+        # Drive API 自体が失敗している
+        return jsonify({"message": "Drive API error", "debug": files[0]}), 500
+
+    file_id = files[0]["id"]
+
+    ocr_result = ocr_pdf(file_id)
+
+    return jsonify({
+        "file_id": file_id,
+        "method_used": ocr_result["method"],
+        "ocr_text": ocr_result["text"]
+    })
+
+
+@app.route("/debug")
+def debug():
+    """
+    Cloud Run 上でサービスアカウントから Drive が見えているか切り分ける。
+    - FOLDER_ID にアクセスできるか（files.get）
+    - FOLDER_ID 配下の子要素が取れるか（files.list）
+    """
+    # Drive と同じ ADC から「実際に使われた認証情報」を可視化
+    creds, project_id = google.auth.default(scopes=SCOPES)
+    drive_service = build("drive", "v3", credentials=creds)
+
+    # Cloud Run 実行中のサービスアカウント email をメタデータサーバから取得
+    runtime_sa_email = None
+    try:
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            runtime_sa_email = resp.read().decode("utf-8")
+    except Exception:
+        runtime_sa_email = None
+
+    out = {
+        "adc_project_id": project_id,
+        "adc_credential_type": type(creds).__name__,
+        "adc_service_account_email": getattr(creds, "service_account_email", None),
+        "runtime_service_account_email": runtime_sa_email,
+        "folder_id": FOLDER_ID,
+        "folder_get": None,
+        "children_list": None,
+        "notes": [
+            "folder_get が 404/403 なら、サービスアカウントがそのフォルダにアクセスできていません（共有が必要）",
+            "children_list が空なら、フォルダ内にファイルが無い/条件に合うファイルが無い可能性があります",
+            "adc_service_account_email が期待値と違う場合、Cloud Run のサービスアカウント設定が別のものになっています",
+            "runtime_service_account_email が Cloud Run の実行サービスアカウントです。これを Drive 側で共有してください",
+        ],
+    }
+
+    try:
+        out["folder_get"] = drive_service.files().get(
+            fileId=FOLDER_ID,
+            fields="id,name,mimeType,parents,driveId",
+            supportsAllDrives=True,
+        ).execute()
+    except HttpError as e:
+        out["folder_get"] = {"error": "folder_get_failed", "details": str(e)}
+
+    try:
+        out["children_list"] = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and trashed=false",
+            pageSize=20,
+            fields="files(id,name,mimeType,parents)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
+    except HttpError as e:
+        out["children_list"] = {"error": "children_list_failed", "details": str(e)}
+
+    # jsonify が Bytes を扱えないので念のため整形
+    return app.response_class(
+        response=json.dumps(out, ensure_ascii=False),
+        status=200,
+        mimetype="application/json",
+    )
+
+
+# Cloud Run用
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)

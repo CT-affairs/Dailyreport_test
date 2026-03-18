@@ -5671,12 +5671,13 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate) {
             taskBlock.style.backgroundColor = bgColor;
             taskBlock.style.color = isDarkColor(bgColor) ? '#fff' : '#333';
 
-            const displayText = [task.categoryB_label, task.categoryA_label].filter(Boolean).join(' / ');
+            const displayText = [task.categoryB_label, task.categoryA_label, task.comment].filter(Boolean).join(' / ');
             taskBlock.textContent = displayText;
             taskBlock.title = displayText;
 
             taskBlock.dataset.categoryBId = task.categoryB_id;
             taskBlock.dataset.categoryAId = task.categoryA_id;
+            taskBlock.dataset.comment = task.comment || '';
 
             taskBlock.addEventListener('click', handlePastTaskClick);
             timetableEl.appendChild(taskBlock);
@@ -5691,12 +5692,13 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate) {
  */
 function handlePastTaskClick(event) {
     const taskBlock = event.currentTarget;
-    const { categoryBId, categoryAId } = taskBlock.dataset;
+    const { categoryBId, categoryAId, comment } = taskBlock.dataset;
 
     if (!categoryBId || !categoryAId) return;
 
     const catBSelect = document.getElementById('task-category-b-select');
     const catASelect = document.getElementById('task-category-a-select');
+    const commentInput = document.getElementById('task-comment');
 
     // 集計項目を選択
     catBSelect.value = categoryBId;
@@ -5704,6 +5706,12 @@ function handlePastTaskClick(event) {
     catBSelect.dispatchEvent(new Event('change'));
     // 業務種別を選択
     catASelect.value = categoryAId;
+
+    // コメントを追記する
+    if (comment && commentInput) {
+        const current = commentInput.value || '';
+        commentInput.value = current ? current + '\n' + comment : comment;
+    }
 
     // モーダルを閉じる
     document.getElementById('past-reports-modal').classList.remove('is-active');
