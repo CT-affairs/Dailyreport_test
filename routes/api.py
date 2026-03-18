@@ -1759,7 +1759,18 @@ def get_past_reports():
             if isinstance(report_date, datetime):
                 date_key = report_date.strftime('%Y-%m-%d')
                 # フロントエンドが期待するタスクの形式で返す
-                reports_by_date[date_key] = data.get('tasks', [])
+                raw_tasks = data.get('tasks', []) or []
+                normalized_tasks = []
+                for task in raw_tasks:
+                    if not isinstance(task, dict):
+                        continue
+                    # 既存タスクをコピーしつつ comment フィールドを必ず持たせる
+                    task_copy = dict(task)
+                    if 'comment' not in task_copy:
+                        task_copy['comment'] = ""
+                    normalized_tasks.append(task_copy)
+
+                reports_by_date[date_key] = normalized_tasks
         
         # データが存在しない場合でも200 OKと空のオブジェクトを返す
         return jsonify(reports_by_date), 200
