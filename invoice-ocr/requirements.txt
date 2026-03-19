@@ -4,4 +4,5 @@ google-auth
 google-cloud-vision
 google-cloud-storage
 pdfminer.six
+openai
 gunicorn

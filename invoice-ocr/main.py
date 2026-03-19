@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
@@ -10,8 +10,15 @@ import google.auth
 import io
 import json
 import os
+import time
+import traceback
 import urllib.request
 import urllib.error
+
+# LLM 抽出（OpenAI）
+ENABLE_LLM_EXTRACT = os.environ.get("ENABLE_LLM_EXTRACT", "0") == "1"
+LLM_CONFIDENCE_THRESHOLD = float(os.environ.get("LLM_CONFIDENCE_THRESHOLD", "0.75"))
+APP_DEBUG = os.environ.get("APP_DEBUG", "0") == "1"
 
 app = Flask(__name__)
 
@@ -102,7 +109,9 @@ def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> str:
 
     input_blob_name = f"input/{file_id}.pdf"
     gcs_source_uri = upload_pdf_to_gcs(pdf_bytes, input_blob_name)
-    gcs_output_uri = f"gs://{GCS_BUCKET_NAME}/{GCS_OCR_OUTPUT_PREFIX}/{file_id}/"
+    # 同じ file_id で繰り返し処理すると過去出力が残りやすいので、実行ごとに出力先を分ける
+    run_id = str(int(time.time() * 1000))
+    gcs_output_uri = f"gs://{GCS_BUCKET_NAME}/{GCS_OCR_OUTPUT_PREFIX}/{file_id}/{run_id}/"
 
     client = vision_pdf.ImageAnnotatorClient()
 
@@ -132,7 +141,7 @@ def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> str:
 
     storage_client = storage.Client()
     bucket = storage_client.bucket(GCS_BUCKET_NAME)
-    prefix = f"{GCS_OCR_OUTPUT_PREFIX}/{file_id}/"
+    prefix = f"{GCS_OCR_OUTPUT_PREFIX}/{file_id}/{run_id}/"
 
     texts: list[str] = []
     for blob in bucket.list_blobs(prefix=prefix):
@@ -194,7 +203,8 @@ def get_drive_files():
         results = drive_service.files().list(
             q=query,
             pageSize=10,
-            fields="files(id, name, mimeType, parents)",
+            fields="files(id, name, mimeType, parents, modifiedTime)",
+            orderBy="modifiedTime desc",
             supportsAllDrives=True,
             includeItemsFromAllDrives=True,
         ).execute()
@@ -204,13 +214,28 @@ def get_drive_files():
         return [{"error": "drive_list_failed", "details": str(e)}]
 
 
+@app.errorhandler(Exception)
+def handle_unexpected_error(e):
+    """
+    Cloud Run で HTML の 500 ページが返るとブラウザ側が Quirks Mode 警告を出しがちなので、
+    例外時も JSON で返す。スタックトレースは APP_DEBUG=1 のときのみレスポンスに含める。
+    """
+    app.logger.exception("Unhandled exception: %s", e)
+    payload = {"error": "internal_server_error", "message": str(e)}
+    if APP_DEBUG:
+        payload["traceback"] = traceback.format_exc()
+    return jsonify(payload), 500
+
+
 # ----------------------------
 # APIエンドポイント
 # ----------------------------
 @app.route("/")
 def index():
 
+    t0 = time.time()
     files = get_drive_files()
+    t_files = time.time()
 
     if not files:
         return jsonify({"message": "No PDF found"})
@@ -219,15 +244,61 @@ def index():
         # Drive API 自体が失敗している
         return jsonify({"message": "Drive API error", "debug": files[0]}), 500
 
-    file_id = files[0]["id"]
+    # 明示指定があればそれを優先（デバッグ/検証用）
+    requested_file_id = request.args.get("file_id")
+    chosen = None
+    if requested_file_id:
+        chosen = next((f for f in files if f.get("id") == requested_file_id), None)
+        if not chosen:
+            return jsonify(
+                {
+                    "message": "Requested file_id not found in folder listing",
+                    "requested_file_id": requested_file_id,
+                    "available_files": files,
+                }
+            ), 404
+    else:
+        chosen = files[0]
+
+    file_id = chosen["id"]
 
     ocr_result = ocr_pdf(file_id)
+    t_ocr = time.time()
 
-    return jsonify({
+    resp = {
         "file_id": file_id,
+        "file_name": chosen.get("name"),
+        "file_modifiedTime": chosen.get("modifiedTime"),
         "method_used": ocr_result["method"],
-        "ocr_text": ocr_result["text"]
-    })
+        "ocr_text": ocr_result["text"],
+        "timing_ms": {
+            "drive_list": int((t_files - t0) * 1000),
+            "ocr_total": int((t_ocr - t_files) * 1000),
+            "total": int((time.time() - t0) * 1000),
+        },
+    }
+
+    # オプション: LLMで項目抽出（コスト検証用に環境変数で制御）
+    if ENABLE_LLM_EXTRACT and isinstance(ocr_result.get("text"), str) and ocr_result["text"].strip():
+        try:
+            from open_ai import extract_invoice_data
+
+            t_llm0 = time.time()
+            extracted = extract_invoice_data(ocr_result["text"])
+            resp["timing_ms"]["llm_total"] = int((time.time() - t_llm0) * 1000)
+            confidence = extracted.get("confidence")
+            resp["llm_extraction"] = extracted
+            resp["llm_extraction_accepted"] = (
+                isinstance(confidence, (int, float)) and float(confidence) >= LLM_CONFIDENCE_THRESHOLD
+            )
+            resp["llm_confidence_threshold"] = LLM_CONFIDENCE_THRESHOLD
+        except Exception as e:
+            app.logger.exception("LLM extraction failed: %s", e)
+            resp["llm_extraction_error"] = str(e)
+            if APP_DEBUG:
+                resp["llm_extraction_traceback"] = traceback.format_exc()
+
+    return jsonify(resp)
 
 
 @app.route("/debug")

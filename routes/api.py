@@ -2889,13 +2889,15 @@ def sync_paid_holidays():
                         
                         if holiday_type:
                             # 登録処理 (既存関数を利用)
-                            register_paid_holiday_work_report(
+                            # 戻り値: 実際に作成/更新した場合のみ True
+                            applied = register_paid_holiday_work_report(
                                 target_employee_id=target_company_id,
                                 target_date=use_date,
                                 holiday_type=holiday_type,
                                 inputter_info=user_info
                             )
-                            processed_count += 1
+                            if applied:
+                                processed_count += 1
 
     # --- B. 選択備考（宿泊など）の取得と反映 ---
     try:
@@ -3005,7 +3007,8 @@ def sync_paid_holidays():
 # --- 内部関数: 有休自動入力用 ---
 def register_paid_holiday_work_report(target_employee_id, target_date, holiday_type, inputter_info):
     """
-    有休情報を元に日報データを生成・更新する関数
+    有休情報を元に日報データを生成・更新する関数。
+    戻り値: 実際に作成/更新した場合は True、既存有休タスクがありスキップした場合は False。
     
     Args:
         target_employee_id (str): 対象従業員の社内ID
@@ -3040,14 +3043,24 @@ def register_paid_holiday_work_report(target_employee_id, target_date, holiday_t
         doc = doc_ref.get()
         
         if doc.exists:
-            # 既存データがある場合: タスクを追加
+            # 既存データがある場合
             data = doc.to_dict()
             tasks = data.get('tasks', [])
-            
-            # 既存の有休タスクを除外 (上書きのため、同じIDのタスクがあれば削除する)
-            tasks = [t for t in tasks if not (t.get('categoryA_id') == CATEGORY_A_ID and t.get('categoryB_id') == CATEGORY_B_ID)]
-            
-            # 新しいタスクを追加
+
+            # 既に有休タスクが存在する場合は上書きしない
+            # （手動で調整した時間を再同期で潰さないため）
+            has_existing_paid_task = any(
+                t.get('categoryA_id') == CATEGORY_A_ID and t.get('categoryB_id') == CATEGORY_B_ID
+                for t in tasks
+            )
+            if has_existing_paid_task:
+                current_app.logger.info(
+                    f"Skipped paid holiday overwrite for {target_employee_id} on {target_date.strftime('%Y-%m-%d')} "
+                    f"because a paid holiday task already exists."
+                )
+                return False
+
+            # 有休タスクが未登録の場合のみ追加
             tasks.append(new_task)
             
             # 合計時間の再計算
@@ -3064,6 +3077,7 @@ def register_paid_holiday_work_report(target_employee_id, target_date, holiday_t
                 "report_updated_at": firestore.SERVER_TIMESTAMP
             })
             current_app.logger.info(f"Updated paid holiday task for {target_employee_id} on {target_date.strftime('%Y-%m-%d')}")
+            return True
 
         else:
             # 新規作成
@@ -3112,6 +3126,7 @@ def register_paid_holiday_work_report(target_employee_id, target_date, holiday_t
             
             doc_ref.set(new_report_data)
             current_app.logger.info(f"Created new paid holiday report for {target_employee_id} on {target_date.strftime('%Y-%m-%d')}")
+            return True
 
     except Exception as e:
         current_app.logger.error(f"Failed to register paid holiday report: {e}")
