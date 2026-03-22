@@ -445,6 +445,16 @@ class JobcanService:
 
         return self._request("POST", url, scope, json_body=body)
 
+    def get_holiday_types(self) -> Optional[Dict[str, Any]]:
+        """
+        休暇タイプ（マスタ）一覧を取得する。
+        GET /holiday/v1/holiday-types （scope: holidayTypes.read）
+        scripts/test_jobcan_holiday_types.py と同等。
+        """
+        scope = "holidayTypes.read"
+        url = f"{self.HOLIDAY_API_BASE_URL}/holiday-types"
+        return self._request("GET", url, scope)
+
 def save_jobcan_raw_response(
     db: FirestoreClient,
     collection_name: str,

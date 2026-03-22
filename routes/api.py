@@ -846,6 +846,35 @@ def get_manager_category_b():
         current_app.logger.error(f"Failed to fetch categories: {e}")
         abort(500, f"Failed to fetch categories: {e}")
 
+
+@api_bp.route("/manager/jobcan/holiday-types", methods=["GET"])
+@token_required
+@manager_required
+def get_manager_jobcan_holiday_types():
+    """
+    管理画面「休暇設定」用: Jobcan API から休暇タイプ一覧を取得する。
+    scripts/test_jobcan_holiday_types.py と同様（APP_ENV に応じて sandbox / production）。
+    """
+    try:
+        from services.jobcan_service import JobcanService
+
+        app_env = os.environ.get("APP_ENV", "development")
+        is_sandbox = app_env != "production"
+
+        jobcan_service = JobcanService(
+            db=db,
+            sandbox=is_sandbox,
+            raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES,
+        )
+        result = jobcan_service.get_holiday_types()
+        if result is None:
+            abort(502, "Jobcan API から休暇タイプの取得に失敗しました。")
+        return jsonify(result), 200
+    except Exception as e:
+        current_app.logger.error(f"get_manager_jobcan_holiday_types: {e}")
+        abort(500, str(e))
+
+
 @api_bp.route("/manager/categories/net/mapping", methods=["POST"])
 @token_required
 @manager_required

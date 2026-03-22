@@ -852,6 +852,113 @@ async function renderCategoriesNetUI(container) {
 }
 
 /**
+ * 休暇設定（Jobcan 休暇タイプ参照）画面。
+ * client_id / before_expiration / after_expiration は一覧に含めない。
+ */
+async function renderHolidaySettingsUI(container) {
+    container.innerHTML = `
+        <div class="holiday-settings-panel">
+            <p style="color:#666; margin-bottom: 12px;">
+                Jobcan の休暇タイプ（マスタ）を最新取得し、一覧表示します（参照のみ・保存はしません）。
+            </p>
+            <div style="margin-bottom: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <button type="button" id="holiday-types-refresh-btn" class="btn-primary">最新情報を取得</button>
+                <span id="holiday-types-status" style="color:#666; font-size:0.9em;"></span>
+            </div>
+            <div class="table-container">
+                <table class="data-table" id="holiday-types-table" style="display:none;">
+                    <thead>
+                        <tr>
+                            <th>holiday_type_id</th>
+                            <th>group_id</th>
+                            <th>work_kind_id</th>
+                            <th>name</th>
+                            <th>vacation_type</th>
+                            <th>amount_use</th>
+                            <th>holiday (start–end)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="holiday-types-tbody"></tbody>
+                </table>
+            </div>
+            <div id="holiday-types-empty" style="text-align:center; color:#888; padding: 24px;">
+                「最新情報を取得」を押すとここに一覧が表示されます。
+            </div>
+        </div>
+    `;
+
+    const btn = document.getElementById('holiday-types-refresh-btn');
+    const statusEl = document.getElementById('holiday-types-status');
+    const tbody = document.getElementById('holiday-types-tbody');
+    const table = document.getElementById('holiday-types-table');
+    const emptyEl = document.getElementById('holiday-types-empty');
+
+    const extractList = (data) => {
+        if (Array.isArray(data)) return data;
+        if (data && Array.isArray(data.holiday_types)) return data.holiday_types;
+        if (data && Array.isArray(data.items)) return data.items;
+        return [];
+    };
+
+    const fmtHoliday = (h) => {
+        if (!h || typeof h !== 'object') return '';
+        const s = h.start != null ? String(h.start) : '';
+        const e = h.end != null ? String(h.end) : '';
+        if (s && e) return `${s} – ${e}`;
+        return s || e || '';
+    };
+
+    const fetchTypes = async () => {
+        statusEl.textContent = '取得中...';
+        btn.disabled = true;
+        try {
+            const res = await fetchWithAuth(`${API_BASE_URL}/api/manager/jobcan/holiday-types`);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || `取得に失敗しました (${res.status})`);
+            }
+            const data = await res.json();
+            const rows = extractList(data);
+
+            tbody.innerHTML = '';
+            if (!rows.length) {
+                table.style.display = 'none';
+                emptyEl.style.display = 'block';
+                emptyEl.textContent = '休暇タイプが0件でした。';
+                statusEl.textContent = '完了（0件）';
+                return;
+            }
+
+            emptyEl.style.display = 'none';
+            table.style.display = '';
+            rows.forEach((row) => {
+                const tr = document.createElement('tr');
+                const holidayStr = fmtHoliday(row.holiday);
+                tr.innerHTML = `
+                    <td>${escapeHTML(String(row.holiday_type_id ?? ''))}</td>
+                    <td>${escapeHTML(String(row.group_id ?? ''))}</td>
+                    <td>${escapeHTML(String(row.work_kind_id ?? ''))}</td>
+                    <td>${escapeHTML(String(row.name ?? ''))}</td>
+                    <td>${escapeHTML(String(row.vacation_type ?? ''))}</td>
+                    <td>${escapeHTML(row.amount_use != null ? String(row.amount_use) : '')}</td>
+                    <td>${escapeHTML(holidayStr)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+            statusEl.textContent = `完了（${rows.length}件）`;
+        } catch (e) {
+            console.error(e);
+            statusEl.textContent = '';
+            showToast(e.message || String(e), 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    };
+
+    btn.addEventListener('click', fetchTypes);
+}
+
+/**
  * 画面の切り替え処理
  */
 function handleNavigation(target, params = {}, options = { push: true }) {
@@ -882,6 +989,11 @@ function handleNavigation(target, params = {}, options = { push: true }) {
         case 'home':
             pageTitle.textContent = 'ダッシュボード';
             renderDashboardHome(contentArea);
+            break;
+
+        case 'holiday_settings':
+            pageTitle.textContent = '休暇設定';
+            renderHolidaySettingsUI(contentArea);
             break;
 
         case 'dashboard':
