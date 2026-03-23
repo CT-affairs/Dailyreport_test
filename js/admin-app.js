@@ -1198,6 +1198,7 @@ function handleNavigation(target, params = {}, options = { push: true }) {
             
         case 'staff_calendar':
             pageTitle.textContent = '日報_スタッフ個別';
+            dashboardListMode = 'koumu';
             renderStaffCalendarUI(contentArea, params);
             break;
 
@@ -3014,7 +3015,10 @@ function calculateVisibleRange(currentDate) {
  * スタッフ別カレンダー画面のUIを描画する
  */
 function renderStaffCalendarUI(container, params = {}) {
-     container.innerHTML = `
+    const netFiscalListBtnHtml = dashboardListMode === 'net'
+        ? '<button type="button" id="staff-calendar-net-fiscal-list-btn" class="btn-secondary" style="margin-right: 5px;" title="当月度（21日〜翌月20日）の過去日報を一覧表示">一覧</button>'
+        : '';
+    container.innerHTML = `
          <div class="staff-calendar-controls" style="padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #e9ecef; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
              <div>
                  <label for="staff-id-input" style="font-weight: bold; margin-right: 5px;">社員ID:</label>
@@ -3026,6 +3030,7 @@ function renderStaffCalendarUI(container, params = {}) {
                  <button id="staff-cal-prev-month" class="btn-secondary">&lt; 前月度</button>
                  <h3 id="staff-cal-title" style="margin: 0; font-size: 1.2em; min-width: 120px; text-align: center;"></h3>
                 <button id="staff-cal-sync-holidays" class="btn-secondary" style="background-color: #006400; color: white; margin-right: 5px;">更新</button>
+                ${netFiscalListBtnHtml}
                  <button id="staff-cal-next-month" class="btn-secondary">次月度 &gt;</button>
              </div>
          </div>
@@ -3058,7 +3063,15 @@ function renderStaffCalendarUI(container, params = {}) {
      });
 
      document.getElementById('staff-cal-sync-holidays').addEventListener('click', handleSyncPaidHolidaysForStaff);
- 
+
+    if (dashboardListMode === 'net') {
+        ensureNetFiscalPastReportsModalInitialized();
+        const netListBtn = document.getElementById('staff-calendar-net-fiscal-list-btn');
+        if (netListBtn) {
+            netListBtn.addEventListener('click', openNetFiscalPastReportsModal);
+        }
+    }
+
      // パラメータがあれば自動検索
      if (params.employeeId) {
          document.getElementById('staff-id-input').value = params.employeeId;
@@ -3719,10 +3732,6 @@ async function initializeProxyReportScreen(isNetTemplate) {
     const syncAnchor = document.getElementById('proxy-sync-anchor');
     if (syncAnchor) {
         syncAnchor.appendChild(syncBtn);
-        const netFiscalListBtn = document.getElementById('proxy-net-fiscal-list-btn');
-        if (netFiscalListBtn) {
-            syncAnchor.appendChild(netFiscalListBtn);
-        }
     } else {
         const dateInput = document.getElementById('proxy-report-date');
         if (dateInput && dateInput.parentElement) {
@@ -4921,21 +4930,6 @@ async function initializeProxyTimetable() {
         });
     }
 
-    // ★月度・過去日報一覧モーダル（「一覧」ボタン）
-    const netFiscalPastModal = document.getElementById('net-fiscal-past-reports-modal');
-    const netFiscalPastModalClose = document.getElementById('net-fiscal-past-reports-modal-close');
-    if (netFiscalPastModal && netFiscalPastModalClose) {
-        const closeNetFiscal = () => { netFiscalPastModal.classList.remove('is-active'); };
-        netFiscalPastModalClose.addEventListener('click', closeNetFiscal);
-        netFiscalPastModal.addEventListener('click', (e) => {
-            if (e.target.classList.contains('dr-modal')) closeNetFiscal();
-        });
-    }
-    const netFiscalListBtn = document.getElementById('proxy-net-fiscal-list-btn');
-    if (netFiscalListBtn) {
-        netFiscalListBtn.addEventListener('click', openNetFiscalPastReportsModal);
-    }
-
     if (zoomInTop) {
         zoomInTop.addEventListener('click', () => {
             if (timetableStartHour > TIMETABLE_MIN_START) {
@@ -6116,16 +6110,38 @@ function openPastReportsModal() {
 }
 
 /**
+ * admin.html に配置した月度モーダルの閉じる操作を一度だけバインド
+ */
+function ensureNetFiscalPastReportsModalInitialized() {
+    if (window.__netFiscalPastReportsModalListenersBound) return;
+    const netFiscalPastModal = document.getElementById('net-fiscal-past-reports-modal');
+    const netFiscalPastModalClose = document.getElementById('net-fiscal-past-reports-modal-close');
+    if (!netFiscalPastModal || !netFiscalPastModalClose) return;
+    window.__netFiscalPastReportsModalListenersBound = true;
+    const closeNetFiscal = () => { netFiscalPastModal.classList.remove('is-active'); };
+    netFiscalPastModalClose.addEventListener('click', closeNetFiscal);
+    netFiscalPastModal.addEventListener('click', (e) => {
+        if (e.target.classList.contains('dr-modal')) closeNetFiscal();
+    });
+}
+
+/**
  * 月度（21日〜翌月20日）の過去日報一覧モーダルを開く（「一覧」ボタン）
  * 左ペイン・ナビは7日分の過去日報モーダルと同じ方式
  */
 function openNetFiscalPastReportsModal() {
+    ensureNetFiscalPastReportsModalInitialized();
+    const ctx = getNetFiscalPastReportsTargetContext();
+    if (!ctx) {
+        alert('対象者が取得できません。社員IDを検索してからお試しください。');
+        return;
+    }
+
     const modal = document.getElementById('net-fiscal-past-reports-modal');
     if (!modal) {
         console.error('Net fiscal past reports modal not found.');
         return;
     }
-    if (!currentProxyTarget) return;
 
     pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
     pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
@@ -6290,6 +6306,9 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
     daysWrap.className = 'past-reports-days-wrap';
     const gridInner = document.createElement('div');
     gridInner.className = 'past-reports-grid-inner';
+    if (container && container.id === 'net-fiscal-past-reports-container') {
+        gridInner.classList.add('past-reports-grid-inner--fiscal');
+    }
 
     let dayCount = 0;
     for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
@@ -6400,6 +6419,7 @@ function applyPastTaskSelectionToProxyForm(taskBlock) {
     const catBSelect = document.getElementById('task-category-b-select');
     const catASelect = document.getElementById('task-category-a-select');
     const commentInput = document.getElementById('task-comment');
+    if (!catBSelect || !catASelect) return;
 
     // 集計項目を選択
     catBSelect.value = categoryBId;
@@ -6498,14 +6518,40 @@ function shiftNetFiscalPastReportsClosingEnd(closingEndDate, deltaMonths) {
 }
 
 /**
- * currentProxyTarget の日付を基準に、当月度（21〜20）の締め日へ状態をリセット
+ * 月度過去日報APIに用いる対象者・基準日（代理入力中は currentProxy 優先、日報_個別（ネット）カレンダーでは検索済み社員）
+ * @returns {{ employeeId: string, name: string, date: string, groupId?: string, returnTarget?: string }|null}
+ */
+function getNetFiscalPastReportsTargetContext() {
+    if (currentProxyTarget && currentProxyTarget.employeeId && currentProxyTarget.date) {
+        return currentProxyTarget;
+    }
+    if (dashboardListMode === 'net' && currentCalendarEmployeeId) {
+        const selectedStaff = staffList.find((s) => String(s.employeeId) === String(currentCalendarEmployeeId));
+        const cm = currentCalendarReportMonth || new Date();
+        const y = cm.getUTCFullYear();
+        const m = cm.getUTCMonth();
+        const refDateStr = `${y}-${String(m + 1).padStart(2, '0')}-15`;
+        return {
+            employeeId: currentCalendarEmployeeId,
+            name: selectedStaff ? selectedStaff.name : '',
+            date: refDateStr,
+            groupId: selectedStaff != null && selectedStaff.groupId != null ? String(selectedStaff.groupId) : '3',
+            returnTarget: 'staff_calendar_net',
+        };
+    }
+    return null;
+}
+
+/**
+ * 基準日を元に、当月度（21〜20）の締め日へ状態をリセット
  */
 function resetNetFiscalPastReportsPeriodToCurrent() {
-    if (!currentProxyTarget || !currentProxyTarget.date) {
+    const ctx = getNetFiscalPastReportsTargetContext();
+    if (!ctx || !ctx.date) {
         netFiscalPastReportsClosingEndDate = getNetFiscalPastReportsClosingEndForDate(new Date());
         return;
     }
-    const ref = parseProxyYmdToLocalDate(currentProxyTarget.date);
+    const ref = parseProxyYmdToLocalDate(ctx.date);
     netFiscalPastReportsClosingEndDate = getNetFiscalPastReportsClosingEndForDate(ref);
 }
 
@@ -6550,8 +6596,9 @@ function getNetFiscalPastReportsCurrentRange() {
  * 基準日の月度ブロックが「現在の作業日（プロキシ日付）」と同じか（次月ボタン無効化などに利用可）
  */
 function isNetFiscalPastReportsAtCurrentTargetPeriod() {
-    if (!currentProxyTarget || !currentProxyTarget.date || !netFiscalPastReportsClosingEndDate) return false;
-    const ref = parseProxyYmdToLocalDate(currentProxyTarget.date);
+    const ctx = getNetFiscalPastReportsTargetContext();
+    if (!ctx || !ctx.date || !netFiscalPastReportsClosingEndDate) return false;
+    const ref = parseProxyYmdToLocalDate(ctx.date);
     const currentClosing = getNetFiscalPastReportsClosingEndForDate(ref);
     return (
         currentClosing.getFullYear() === netFiscalPastReportsClosingEndDate.getFullYear()
@@ -6570,7 +6617,8 @@ function isNetFiscalPastReportsAtCurrentTargetPeriod() {
  */
 async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, options) {
     const container = typeof containerEl === 'string' ? document.getElementById(containerEl) : containerEl;
-    if (!container || !currentProxyTarget) return;
+    const ctx = getNetFiscalPastReportsTargetContext();
+    if (!container || !ctx) return;
 
     const periodEl = periodDisplayEl
         ? (typeof periodDisplayEl === 'string' ? document.getElementById(periodDisplayEl) : periodDisplayEl)
@@ -6595,7 +6643,7 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
 
     try {
         const response = await fetchWithAuth(
-            `${API_BASE_URL}/api/manager/past-reports?employee_id=${currentProxyTarget.employeeId}&start_date=${range.startDateStr}&end_date=${range.endDateStr}`,
+            `${API_BASE_URL}/api/manager/past-reports?employee_id=${ctx.employeeId}&start_date=${range.startDateStr}&end_date=${range.endDateStr}`,
         );
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
@@ -6626,8 +6674,9 @@ function goNetFiscalPastReportsToNextPeriod() {
         resetNetFiscalPastReportsPeriodToCurrent();
         return;
     }
-    const ref = currentProxyTarget && currentProxyTarget.date
-        ? parseProxyYmdToLocalDate(currentProxyTarget.date)
+    const ctx = getNetFiscalPastReportsTargetContext();
+    const ref = ctx && ctx.date
+        ? parseProxyYmdToLocalDate(ctx.date)
         : new Date();
     const maxClosing = getNetFiscalPastReportsClosingEndForDate(ref);
     const candidate = shiftNetFiscalPastReportsClosingEnd(netFiscalPastReportsClosingEndDate, 1);
