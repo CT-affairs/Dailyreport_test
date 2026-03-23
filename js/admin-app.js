@@ -969,7 +969,8 @@ async function renderStaffListUI(container) {
     container.innerHTML = `
         <div class="staff-list-panel">
             <p style="color:#666; margin-bottom: 12px;">
-                Jobcan の従業員マスタ（<code>master/v1/employees</code>）を取得し、一覧用の項目のみ表示します（参照のみ）。
+                Jobcan の従業員マスタ（<code>master/v1/employees</code>）を取得し、一覧用の項目のみ表示します。
+                併せて <code>users</code> のうち <code>jobcan_employee_id</code> が一致するドキュメントに <code>work_kind_id</code>（Jobcan の <code>work_kind</code>）を書き込みます。
             </p>
             <div style="margin-bottom: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
                 <button type="button" id="staff-list-refresh-btn" class="btn-primary">最新情報を取得</button>
@@ -1024,11 +1025,16 @@ async function renderStaffListUI(container) {
             const rows = Array.isArray(data.employees) ? data.employees : [];
 
             tbody.innerHTML = '';
+            const uuEmpty =
+                data && typeof data.users_work_kind_updated === 'number'
+                    ? data.users_work_kind_updated
+                    : null;
+            const uuLabelEmpty = uuEmpty !== null ? `・users更新 ${uuEmpty}件` : '';
             if (!rows.length) {
                 table.style.display = 'none';
                 emptyEl.style.display = 'block';
                 emptyEl.textContent = 'スタッフが0件でした。';
-                statusEl.textContent = '完了（0件）';
+                statusEl.textContent = `完了（表示0件${uuLabelEmpty}）`;
                 return;
             }
 
@@ -1048,7 +1054,12 @@ async function renderStaffListUI(container) {
                 tbody.appendChild(tr);
             });
             const cnt = typeof data.count === 'number' ? data.count : rows.length;
-            statusEl.textContent = `完了（${cnt}件）`;
+            const uu =
+                data && typeof data.users_work_kind_updated === 'number'
+                    ? data.users_work_kind_updated
+                    : null;
+            const uuLabel = uu !== null ? `・users更新 ${uu}件` : '';
+            statusEl.textContent = `完了（表示 ${cnt}件${uuLabel}）`;
         } catch (e) {
             console.error(e);
             statusEl.textContent = '';

@@ -890,6 +890,22 @@ def get_manager_jobcan_holiday_types():
         abort(500, str(e))
 
 
+def _normalize_jobcan_employee_id_for_match(value):
+    """
+    Jobcan master employees の id と users.jobcan_employee_id を突き合わせるための正規化。
+    数値なら int 相当の文字列にそろえる（"102", 102, 102.0 を同一視）。
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return str(int(float(s)))
+    except (TypeError, ValueError):
+        return s
+
+
 @api_bp.route("/manager/jobcan/employees", methods=["GET"])
 @token_required
 @manager_required
@@ -898,6 +914,10 @@ def get_manager_jobcan_employees_summary():
     管理画面「スタッフ一覧」用: Jobcan GET /master/v1/employees を全件取得し、
     一覧表示用に id, last_name, first_name, main_group, sub_group, work_kind のみ返す。
     work_kind=4（非常勤役員）はレスポンスから除外する。
+
+    併せて users コレクションを更新する:
+    users.jobcan_employee_id が Jobcan の id と一致するドキュメントに、
+    Jobcan の work_kind を work_kind_id として書き込む（数値にできる場合は int）。
     """
     try:
         from services.jobcan_service import JobcanService
@@ -915,6 +935,59 @@ def get_manager_jobcan_employees_summary():
             abort(502, "Jobcan API から従業員一覧の取得に失敗しました。")
 
         raw_list = result.get("employees") or []
+
+        # --- users: jobcan_employee_id 一致ドキュメントへ work_kind_id を反映 ---
+        users_work_kind_updated = 0
+        try:
+            jc_key_to_user_ref = {}
+            for udoc in db.collection("users").stream():
+                udata = udoc.to_dict() or {}
+                jkey = _normalize_jobcan_employee_id_for_match(udata.get("jobcan_employee_id"))
+                if jkey:
+                    jc_key_to_user_ref[jkey] = udoc.reference
+
+            batch = db.batch()
+            batch_ops = 0
+            max_batch = 450
+
+            for e in raw_list:
+                if not isinstance(e, dict):
+                    continue
+                ekey = _normalize_jobcan_employee_id_for_match(e.get("id"))
+                if not ekey:
+                    continue
+                ref = jc_key_to_user_ref.get(ekey)
+                if not ref:
+                    continue
+
+                wk_raw = e.get("work_kind")
+                wk_val = None
+                if wk_raw is not None:
+                    try:
+                        wk_val = int(wk_raw)
+                    except (TypeError, ValueError):
+                        wk_val = wk_raw
+
+                batch.update(
+                    ref,
+                    {
+                        "work_kind_id": wk_val,
+                        "updated_at": firestore.SERVER_TIMESTAMP,
+                    },
+                )
+                users_work_kind_updated += 1
+                batch_ops += 1
+                if batch_ops >= max_batch:
+                    batch.commit()
+                    batch = db.batch()
+                    batch_ops = 0
+
+            if batch_ops > 0:
+                batch.commit()
+        except Exception as sync_err:
+            current_app.logger.error(f"sync work_kind_id to users failed: {sync_err}")
+            abort(500, f"users の work_kind_id 更新に失敗しました: {sync_err}")
+
         slim = []
         for e in raw_list:
             if not isinstance(e, dict):
@@ -941,7 +1014,13 @@ def get_manager_jobcan_employees_summary():
                 }
             )
 
-        return jsonify({"employees": slim, "count": len(slim)}), 200
+        return jsonify(
+            {
+                "employees": slim,
+                "count": len(slim),
+                "users_work_kind_updated": users_work_kind_updated,
+            }
+        ), 200
     except Exception as e:
         current_app.logger.error(f"get_manager_jobcan_employees_summary: {e}")
         abort(500, str(e))
