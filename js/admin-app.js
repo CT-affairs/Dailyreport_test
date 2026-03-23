@@ -876,6 +876,7 @@ async function renderHolidaySettingsUI(container) {
                             <th>vacation_type</th>
                             <th>amount_use</th>
                             <th>holiday (start–end)</th>
+                            <th>minutes</th>
                         </tr>
                     </thead>
                     <tbody id="holiday-types-tbody"></tbody>
@@ -946,6 +947,7 @@ async function renderHolidaySettingsUI(container) {
                     <td>${escapeHTML(String(row.vacation_type ?? ''))}</td>
                     <td>${escapeHTML(row.amount_use != null ? String(row.amount_use) : '')}</td>
                     <td>${escapeHTML(holidayStr)}</td>
+                    <td>${row.minutes != null && row.minutes !== '' ? escapeHTML(String(row.minutes)) : ''}</td>
                 `;
                 tbody.appendChild(tr);
             });

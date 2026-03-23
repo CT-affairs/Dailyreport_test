@@ -17,7 +17,7 @@ import time
 import requests
 
 from datetime import datetime, timezone, timedelta
-from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore
+from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes
 from app_core.utils import send_push_message, activate_download_link
 # from app_core.utils import send_quick_report_email # 【実装保留】のためコメントアウト
 from app_core.config import COLLECTION_DAILY_REPORTS, COLLECTION_JOBCAN_RAW_RESPONSES
@@ -883,6 +883,8 @@ def get_manager_jobcan_holiday_types():
             response_body = {"holiday_types": result}
         else:
             response_body = {"data": result}
+        # holiday.start/end から算出した minutes を各要素に付与（API 応答・Firestore と整合）
+        enrich_holiday_types_payload_with_minutes(response_body)
         response_body["saved_to_firestore"] = saved_count
         return jsonify(response_body), 200
     except Exception as e:

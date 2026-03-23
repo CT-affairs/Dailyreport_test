@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud import firestore
 from flask import abort, current_app, request
@@ -1008,6 +1009,73 @@ def extract_jobcan_holiday_types_list(jobcan_result) -> list:
     return []
 
 
+def compute_holiday_minutes_from_holiday_map(holiday) -> Optional[int]:
+    """
+    holiday が map で start / end に有効な "HH:MM" 形式の文字列があるとき、
+    終了−開始の差分を分で返す。解釈できない場合は None。
+    終了が開始より小さい場合は翌日まで跨ぐとみなし 24h を加算する。
+    """
+    if not isinstance(holiday, dict):
+        return None
+    start_raw = holiday.get("start")
+    end_raw = holiday.get("end")
+    if start_raw is None or end_raw is None:
+        return None
+    if not isinstance(start_raw, str) or not isinstance(end_raw, str):
+        return None
+    start_s = start_raw.strip()
+    end_s = end_raw.strip()
+    if not start_s or not end_s:
+        return None
+
+    def _minutes_from_midnight(t: str) -> Optional[int]:
+        parts = t.split(":", 1)
+        if len(parts) != 2:
+            return None
+        try:
+            h = int(parts[0].strip())
+            mi = int(parts[1].strip())
+        except ValueError:
+            return None
+        if mi < 0 or mi > 59:
+            return None
+        if h < 0 or h > 24:
+            return None
+        if h == 24 and mi != 0:
+            return None
+        if h == 24:
+            return 24 * 60
+        return h * 60 + mi
+
+    start_m = _minutes_from_midnight(start_s)
+    end_m = _minutes_from_midnight(end_s)
+    if start_m is None or end_m is None:
+        return None
+
+    delta = end_m - start_m
+    if delta < 0:
+        delta += 24 * 60
+    if delta <= 0:
+        return None
+    return int(delta)
+
+
+def enrich_holiday_types_payload_with_minutes(payload) -> None:
+    """
+    Jobcan 休暇タイプの配列（辞書内または直下）を走査し、
+    holiday.start / holiday.end から計算した minutes を各要素に付与する（参照をそのまま更新）。
+    """
+    items = extract_jobcan_holiday_types_list(payload)
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        m = compute_holiday_minutes_from_holiday_map(item.get("holiday"))
+        if m is not None:
+            item["minutes"] = m
+        else:
+            item.pop("minutes", None)
+
+
 def save_jobcan_holiday_types_to_firestore(db_client, jobcan_result) -> int:
     """
     休暇タイプ一覧を Firestore の holiday_types コレクションに保存する。
@@ -1038,6 +1106,12 @@ def save_jobcan_holiday_types_to_firestore(db_client, jobcan_result) -> int:
             doc_data = json.loads(json.dumps(item, default=str))
         except (TypeError, ValueError):
             doc_data = {k: v for k, v in item.items() if v is not None}
+
+        mins = compute_holiday_minutes_from_holiday_map(doc_data.get("holiday"))
+        if mins is not None:
+            doc_data["minutes"] = mins
+        else:
+            doc_data.pop("minutes", None)
 
         doc_data["synced_at"] = now
 
