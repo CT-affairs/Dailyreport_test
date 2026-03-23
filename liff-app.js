@@ -296,7 +296,10 @@ function addTaskEntry(task = null) {
         if (task.comment) entryDiv.dataset.comment = task.comment;
     }
 
-    // ネット画面: ネイティブ時刻ピッカー使用。15分刻みに丸め＋開始/終了から分数を自動計算して .task-time にセット
+    // ネット画面: ネイティブ時刻ピッカー使用。15分刻みに丸める。
+    // NOTE:
+    // 既存 tasks の time はバックエンド保存値を正とし、開始/終了から自動再計算しない。
+    // （有休などで start/end の拘束時間と time の実働分が一致しないケースを壊さないため）
     if (isReportNetPage && (startTimeInput || endTimeInput)) {
         const roundTimeTo15 = (value) => {
             if (!value || typeof value !== 'string') return '';
@@ -308,24 +311,6 @@ function addTaskEntry(task = null) {
             const rm = rounded % 60;
             return String(rh).padStart(2, '0') + ':' + String(rm).padStart(2, '0');
         };
-        const timeToMinutes = (value) => {
-            if (!value || typeof value !== 'string') return null;
-            const [h, m] = value.split(':').map(v => parseInt(v, 10));
-            if (isNaN(h) || isNaN(m)) return null;
-            return h * 60 + m;
-        };
-        const updateMinutesFromRange = () => {
-            const startVal = startTimeInput ? startTimeInput.value : '';
-            const endVal = endTimeInput ? endTimeInput.value : '';
-            const startMin = timeToMinutes(startVal);
-            const endMin = timeToMinutes(endVal);
-            if (startMin !== null && endMin !== null) {
-                let diff = endMin - startMin;
-                if (diff < 0) diff += 24 * 60; // 翌日跨ぎ
-                timeInput.value = Math.max(0, diff);
-            }
-            updateWorkTimeSummary();
-        };
         const applyRoundAndMinutes = (input) => {
             if (!input) return;
             input.addEventListener('change', () => {
@@ -333,7 +318,8 @@ function addTaskEntry(task = null) {
                     input.value = roundTimeTo15(input.value);
                     if (input.classList.contains('task-start-time')) entryDiv.dataset.startTime = input.value;
                     if (input.classList.contains('task-end-time')) entryDiv.dataset.endTime = input.value;
-                    updateMinutesFromRange();
+                    // 分数は自動再計算せず、保存済み / 手入力の値を維持する
+                    updateWorkTimeSummary();
                 }
             });
         };
