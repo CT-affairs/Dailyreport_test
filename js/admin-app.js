@@ -852,14 +852,14 @@ async function renderCategoriesNetUI(container) {
 }
 
 /**
- * 休暇設定（Jobcan 休暇タイプ参照）画面。
+ * 休暇タイプ一覧（Jobcan 休暇タイプマスタ参照）画面。
  * client_id / before_expiration / after_expiration は一覧に含めない。
  */
 async function renderHolidaySettingsUI(container) {
     container.innerHTML = `
         <div class="holiday-settings-panel">
             <p style="color:#666; margin-bottom: 12px;">
-                Jobcan の休暇タイプ（マスタ）を最新取得し、一覧表示します（参照のみ・保存はしません）。
+                Jobcan の休暇タイプ（マスタ）を最新取得し、一覧表示すると同時に Firestore の <code>holiday_types</code> コレクションへ保存します（ドキュメントID = holiday_type_id、上書き）。
             </p>
             <div style="margin-bottom: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
                 <button type="button" id="holiday-types-refresh-btn" class="btn-primary">最新情報を取得</button>
@@ -919,13 +919,17 @@ async function renderHolidaySettingsUI(container) {
             }
             const data = await res.json();
             const rows = extractList(data);
+            const saved =
+                data && typeof data.saved_to_firestore === 'number' ? data.saved_to_firestore : null;
+            const savedLabel =
+                saved !== null ? `・Firestore保存 ${saved}件` : '';
 
             tbody.innerHTML = '';
             if (!rows.length) {
                 table.style.display = 'none';
                 emptyEl.style.display = 'block';
                 emptyEl.textContent = '休暇タイプが0件でした。';
-                statusEl.textContent = '完了（0件）';
+                statusEl.textContent = `完了（表示0件${savedLabel}）`;
                 return;
             }
 
@@ -945,7 +949,7 @@ async function renderHolidaySettingsUI(container) {
                 `;
                 tbody.appendChild(tr);
             });
-            statusEl.textContent = `完了（${rows.length}件）`;
+            statusEl.textContent = `完了（表示 ${rows.length}件${savedLabel}）`;
         } catch (e) {
             console.error(e);
             statusEl.textContent = '';
@@ -956,6 +960,105 @@ async function renderHolidaySettingsUI(container) {
     };
 
     btn.addEventListener('click', fetchTypes);
+}
+
+/**
+ * スタッフ一覧（Jobcan 従業員マスタ抜粋）画面。
+ */
+async function renderStaffListUI(container) {
+    container.innerHTML = `
+        <div class="staff-list-panel">
+            <p style="color:#666; margin-bottom: 12px;">
+                Jobcan の従業員マスタ（<code>master/v1/employees</code>）を取得し、一覧用の項目のみ表示します（参照のみ）。
+            </p>
+            <div style="margin-bottom: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <button type="button" id="staff-list-refresh-btn" class="btn-primary">最新情報を取得</button>
+                <span id="staff-list-status" style="color:#666; font-size:0.9em;"></span>
+            </div>
+            <div class="table-container" style="overflow-x: auto;">
+                <table class="data-table" id="staff-list-table" style="display:none;">
+                    <thead>
+                        <tr>
+                            <th>id</th>
+                            <th>last_name</th>
+                            <th>first_name</th>
+                            <th>main_group</th>
+                            <th>sub_group</th>
+                            <th>work_kind</th>
+                        </tr>
+                    </thead>
+                    <tbody id="staff-list-tbody"></tbody>
+                </table>
+            </div>
+            <div id="staff-list-empty" style="text-align:center; color:#888; padding: 24px;">
+                「最新情報を取得」を押すとここに一覧が表示されます。
+            </div>
+        </div>
+    `;
+
+    const btn = document.getElementById('staff-list-refresh-btn');
+    const statusEl = document.getElementById('staff-list-status');
+    const tbody = document.getElementById('staff-list-tbody');
+    const table = document.getElementById('staff-list-table');
+    const emptyEl = document.getElementById('staff-list-empty');
+
+    const fmtSubGroup = (sg) => {
+        if (!Array.isArray(sg)) return '';
+        try {
+            return JSON.stringify(sg);
+        } catch {
+            return String(sg);
+        }
+    };
+
+    const fetchStaff = async () => {
+        statusEl.textContent = '取得中...';
+        btn.disabled = true;
+        try {
+            const res = await fetchWithAuth(`${API_BASE_URL}/api/manager/jobcan/employees`);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || `取得に失敗しました (${res.status})`);
+            }
+            const data = await res.json();
+            const rows = Array.isArray(data.employees) ? data.employees : [];
+
+            tbody.innerHTML = '';
+            if (!rows.length) {
+                table.style.display = 'none';
+                emptyEl.style.display = 'block';
+                emptyEl.textContent = 'スタッフが0件でした。';
+                statusEl.textContent = '完了（0件）';
+                return;
+            }
+
+            emptyEl.style.display = 'none';
+            table.style.display = '';
+            rows.forEach((row) => {
+                const tr = document.createElement('tr');
+                const subStr = fmtSubGroup(row.sub_group);
+                tr.innerHTML = `
+                    <td>${escapeHTML(row.id != null ? String(row.id) : '')}</td>
+                    <td>${escapeHTML(String(row.last_name ?? ''))}</td>
+                    <td>${escapeHTML(String(row.first_name ?? ''))}</td>
+                    <td>${escapeHTML(row.main_group != null ? String(row.main_group) : '')}</td>
+                    <td style="font-family: monospace; font-size: 0.85em;">${escapeHTML(subStr)}</td>
+                    <td>${escapeHTML(row.work_kind != null ? String(row.work_kind) : '')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+            const cnt = typeof data.count === 'number' ? data.count : rows.length;
+            statusEl.textContent = `完了（${cnt}件）`;
+        } catch (e) {
+            console.error(e);
+            statusEl.textContent = '';
+            showToast(e.message || String(e), 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    };
+
+    btn.addEventListener('click', fetchStaff);
 }
 
 /**
@@ -992,8 +1095,13 @@ function handleNavigation(target, params = {}, options = { push: true }) {
             break;
 
         case 'holiday_settings':
-            pageTitle.textContent = '休暇設定';
+            pageTitle.textContent = '休暇タイプ一覧';
             renderHolidaySettingsUI(contentArea);
+            break;
+
+        case 'staff_list':
+            pageTitle.textContent = 'スタッフ一覧';
+            renderStaffListUI(contentArea);
             break;
 
         case 'dashboard':

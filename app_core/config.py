@@ -10,6 +10,7 @@ COLLECTION_SHIFT_REQUESTS = "shift_requests"
 COLLECTION_ADITS_SUMMARY = "adits_summary"
 COLLECTION_CONFIRMED_SHIFTS = "confirmed_shifts"
 COLLECTION_ATTENDANCE_REPORTS = "attendance_reports"
+COLLECTION_HOLIDAY_TYPES = "holiday_types"  # Jobcan 休暇タイプマスタ（管理画面の「最新情報を取得」で同期）
 
 # --- Project ID ---
 PROJECT_ID = "dailyreport-480700"

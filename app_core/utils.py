@@ -2,6 +2,7 @@
 アプリケーション全体で共有されるビジネスロジックやヘルパー関数を定義するモジュール。
 """
 import io
+import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
@@ -13,7 +14,11 @@ import requests
 from linebot import LineBotApi
 from linebot.exceptions import LineBotApiError
 from linebot.models import TextSendMessage
-from app_core.config import COLLECTION_JOBCAN_RAW_RESPONSES, COLLECTION_DAILY_REPORTS
+from app_core.config import (
+    COLLECTION_JOBCAN_RAW_RESPONSES,
+    COLLECTION_DAILY_REPORTS,
+    COLLECTION_HOLIDAY_TYPES,
+)
 
 # --- メール送信用ライブラリ ---
 import base64
@@ -982,3 +987,70 @@ def get_on_site_status_for_employees(employee_ids: list[str], start_date: dateti
             results[emp_id][date_str] = status_value
 
     return results
+
+
+def extract_jobcan_holiday_types_list(jobcan_result) -> list:
+    """
+    Jobcan GET /holiday/v1/holiday-types のレスポンスから、休暇タイプの配列を取り出す。
+    レスポンス形式の揺れ（直下配列 / holiday_types / items）に対応。
+    """
+    if jobcan_result is None:
+        return []
+    if isinstance(jobcan_result, list):
+        return jobcan_result
+    if isinstance(jobcan_result, dict):
+        ht = jobcan_result.get("holiday_types")
+        if isinstance(ht, list):
+            return ht
+        items = jobcan_result.get("items")
+        if isinstance(items, list):
+            return items
+    return []
+
+
+def save_jobcan_holiday_types_to_firestore(db_client, jobcan_result) -> int:
+    """
+    休暇タイプ一覧を Firestore の holiday_types コレクションに保存する。
+    ドキュメントIDは holiday_type_id（文字列化）。各ドキュメントは set で上書き。
+    同期日時は synced_at（UTC）を付与する。
+    """
+    items = extract_jobcan_holiday_types_list(jobcan_result)
+    if not items:
+        return 0
+
+    col = db_client.collection(COLLECTION_HOLIDAY_TYPES)
+    now = datetime.now(timezone.utc)
+    batch = db_client.batch()
+    batch_count = 0
+    saved = 0
+    max_batch = 450  # Firestore バッチ上限 500 の余裕
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        hid = item.get("holiday_type_id")
+        if hid is None:
+            continue
+        doc_id = str(hid)
+
+        # JSON 往復で Firestore 向けにシリアライズ可能な型だけにする
+        try:
+            doc_data = json.loads(json.dumps(item, default=str))
+        except (TypeError, ValueError):
+            doc_data = {k: v for k, v in item.items() if v is not None}
+
+        doc_data["synced_at"] = now
+
+        batch.set(col.document(doc_id), doc_data)
+        batch_count += 1
+        saved += 1
+
+        if batch_count >= max_batch:
+            batch.commit()
+            batch = db_client.batch()
+            batch_count = 0
+
+    if batch_count > 0:
+        batch.commit()
+
+    return saved

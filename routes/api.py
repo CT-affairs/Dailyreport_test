@@ -17,7 +17,7 @@ import time
 import requests
 
 from datetime import datetime, timezone, timedelta
-from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees
+from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore
 from app_core.utils import send_push_message, activate_download_link
 # from app_core.utils import send_quick_report_email # 【実装保留】のためコメントアウト
 from app_core.config import COLLECTION_DAILY_REPORTS, COLLECTION_JOBCAN_RAW_RESPONSES
@@ -852,7 +852,7 @@ def get_manager_category_b():
 @manager_required
 def get_manager_jobcan_holiday_types():
     """
-    管理画面「休暇設定」用: Jobcan API から休暇タイプ一覧を取得する。
+    管理画面「休暇タイプ一覧」用: Jobcan API から休暇タイプ一覧を取得する。
     scripts/test_jobcan_holiday_types.py と同様（APP_ENV に応じて sandbox / production）。
     """
     try:
@@ -869,9 +869,72 @@ def get_manager_jobcan_holiday_types():
         result = jobcan_service.get_holiday_types()
         if result is None:
             abort(502, "Jobcan API から休暇タイプの取得に失敗しました。")
-        return jsonify(result), 200
+
+        # Firestore holiday_types コレクションへ上書き保存（doc ID = holiday_type_id）
+        try:
+            saved_count = save_jobcan_holiday_types_to_firestore(db, result)
+        except Exception as save_err:
+            current_app.logger.error(f"save_jobcan_holiday_types_to_firestore: {save_err}")
+            abort(500, f"Firestore への保存に失敗しました: {save_err}")
+
+        if isinstance(result, dict):
+            response_body = dict(result)
+        elif isinstance(result, list):
+            response_body = {"holiday_types": result}
+        else:
+            response_body = {"data": result}
+        response_body["saved_to_firestore"] = saved_count
+        return jsonify(response_body), 200
     except Exception as e:
         current_app.logger.error(f"get_manager_jobcan_holiday_types: {e}")
+        abort(500, str(e))
+
+
+@api_bp.route("/manager/jobcan/employees", methods=["GET"])
+@token_required
+@manager_required
+def get_manager_jobcan_employees_summary():
+    """
+    管理画面「スタッフ一覧」用: Jobcan GET /master/v1/employees を全件取得し、
+    一覧表示用に id, last_name, first_name, main_group, sub_group, work_kind のみ返す。
+    """
+    try:
+        from services.jobcan_service import JobcanService
+
+        app_env = os.environ.get("APP_ENV", "development")
+        is_sandbox = app_env != "production"
+
+        jobcan_service = JobcanService(
+            db=db,
+            sandbox=is_sandbox,
+            raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES,
+        )
+        result = jobcan_service.get_all_employees()
+        if result is None:
+            abort(502, "Jobcan API から従業員一覧の取得に失敗しました。")
+
+        raw_list = result.get("employees") or []
+        slim = []
+        for e in raw_list:
+            if not isinstance(e, dict):
+                continue
+            sub = e.get("sub_group")
+            if not isinstance(sub, list):
+                sub = []
+            slim.append(
+                {
+                    "id": e.get("id"),
+                    "last_name": e.get("last_name"),
+                    "first_name": e.get("first_name"),
+                    "main_group": e.get("main_group"),
+                    "sub_group": sub,
+                    "work_kind": e.get("work_kind"),
+                }
+            )
+
+        return jsonify({"employees": slim, "count": len(slim)}), 200
+    except Exception as e:
+        current_app.logger.error(f"get_manager_jobcan_employees_summary: {e}")
         abort(500, str(e))
 
 
