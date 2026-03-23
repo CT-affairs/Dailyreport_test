@@ -3049,6 +3049,84 @@ def _temp_log_jobcan_paid_use_days_response(
     )
 
 
+def _extract_paid_use_log_start_end(log: dict) -> tuple[object, object]:
+    """
+    Jobcan use-days の use_log から開始/終了時刻らしき値を抽出する。
+    キー名揺れに備えて候補を順に見る。見つからなければ (None, None)。
+    """
+    if not isinstance(log, dict):
+        return None, None
+
+    containers = [
+        log,
+        log.get("use_days"),
+        log.get("detail"),
+    ]
+    key_pairs = [
+        ("start", "end"),
+        ("start_time", "end_time"),
+        ("from", "to"),
+    ]
+
+    for c in containers:
+        if not isinstance(c, dict):
+            continue
+        for k1, k2 in key_pairs:
+            st = c.get(k1)
+            et = c.get(k2)
+            if st and et:
+                return st, et
+    return None, None
+
+
+def _normalize_hhmm_pair(start_raw, end_raw) -> tuple[object, object]:
+    """
+    開始/終了時刻候補を HH:MM 文字列に正規化する。
+    不正な場合は (None, None)。
+    """
+    if not isinstance(start_raw, str) or not isinstance(end_raw, str):
+        return None, None
+    start_s = start_raw.strip()
+    end_s = end_raw.strip()
+    if not start_s or not end_s:
+        return None, None
+    try:
+        datetime.strptime(start_s, "%H:%M")
+        datetime.strptime(end_s, "%H:%M")
+    except ValueError:
+        return None, None
+    return start_s, end_s
+
+
+def _load_work_kind_profile(work_kind_id):
+    """
+    users.work_kind_id をキーに work_kind ドキュメントを読み、minutes/start/end を返す。
+    不正・未取得は各値 None。
+    """
+    profile = {"work_kind_id": work_kind_id, "minutes": None, "start": None, "end": None}
+    if work_kind_id is None:
+        return profile
+
+    try:
+        wk_doc = db.collection("work_kind").document(str(work_kind_id).strip()).get()
+        if not wk_doc.exists:
+            return profile
+        d = wk_doc.to_dict() or {}
+        try:
+            m = d.get("minutes")
+            if m is not None:
+                mv = int(float(m))
+                if mv >= 0:
+                    profile["minutes"] = mv
+        except (TypeError, ValueError):
+            pass
+        st, et = _normalize_hhmm_pair(d.get("start"), d.get("end"))
+        profile["start"], profile["end"] = st, et
+    except Exception as e:
+        current_app.logger.warning(f"Failed to load work_kind profile for work_kind_id={work_kind_id}: {e}")
+    return profile
+
+
 @api_bp.route("/sync-paid-holidays", methods=["POST"])
 @token_required
 def sync_paid_holidays():
@@ -3138,12 +3216,18 @@ def sync_paid_holidays():
     
     processed_count = 0
 
-    # 同期対象ユーザーの main_group（ネット事業部 = 3 は有休タスクに startTime/endTime を付与）
+    # 同期対象ユーザーの main_group / work_kind_id
+    # - main_group: ネット事業部判定
+    # - work_kind_id: use_id=1（全日有休）での minutes / 時刻補完
     target_user_snap = db.collection("users").document(target_company_id).get()
     target_main_group = None
+    target_work_kind_id = None
     if target_user_snap.exists:
-        target_main_group = target_user_snap.to_dict().get("main_group")
+        target_user_data = target_user_snap.to_dict() or {}
+        target_main_group = target_user_data.get("main_group")
+        target_work_kind_id = target_user_data.get("work_kind_id")
     is_net_sync_target = is_net_main_group(target_main_group)
+    work_kind_profile = _load_work_kind_profile(target_work_kind_id)
 
     # --- A. 有休情報の取得と反映 ---
     holidays_data = jobcan_service.get_paid_holidays(target_jobcan_id, from_str, to_str, "paid")
@@ -3188,9 +3272,33 @@ def sync_paid_holidays():
                             if is_net_sync_target:
                                 pl = resolve_paid_leave_for_sync(use_id, holiday_type)
                                 minutes = pl["minutes"]
-                                st = pl.get("startTime")
-                                et = pl.get("endTime")
-                                time_src = "firestore_holiday"
+                                minutes_src = "holiday_types_or_fallback"
+                                # use_id=1（全日有休）は work_kind.minutes を優先
+                                if str(use_id).strip() == "1" and work_kind_profile.get("minutes") is not None:
+                                    minutes = int(work_kind_profile.get("minutes"))
+                                    minutes_src = "work_kind.minutes"
+
+                                # ネットの時刻は use-days レスポンスを最優先
+                                st_raw, et_raw = _extract_paid_use_log_start_end(log)
+                                st, et = _normalize_hhmm_pair(st_raw, et_raw)
+                                time_src = "use_days_log"
+
+                                # use-days に時刻が無い場合:
+                                # use_id=1 は work_kind.start/end で補完
+                                if not st or not et:
+                                    if str(use_id).strip() == "1":
+                                        st, et = _normalize_hhmm_pair(
+                                            work_kind_profile.get("start"),
+                                            work_kind_profile.get("end"),
+                                        )
+                                        if st and et:
+                                            time_src = "work_kind.start_end"
+
+                                # 既存挙動の保険: さらに取れない場合は従来のソース→固定時刻
+                                if not st or not et:
+                                    st, et = _normalize_hhmm_pair(pl.get("startTime"), pl.get("endTime"))
+                                    if st and et:
+                                        time_src = "holiday_types.holiday"
                                 if not st or not et:
                                     st, et = default_net_paid_leave_time_slot(minutes)
                                     time_src = "synthetic_09h00_plus_minutes"
@@ -3207,10 +3315,16 @@ def sync_paid_holidays():
                                     f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} resolve: company_emp={target_company_id} "
                                     f"date={use_date_str} use_id={use_id!r} holiday_bucket={holiday_type} "
                                     f"minutes={minutes} net=True startTime={st!r} endTime={et!r} "
-                                    f"time_source={time_src} applied={applied}"
+                                    f"minutes_source={minutes_src} time_source={time_src} "
+                                    f"work_kind_id={target_work_kind_id!r} applied={applied}"
                                 )
                             else:
                                 minutes = resolve_paid_leave_minutes_engineering(use_id, holiday_type)
+                                minutes_src = "holiday_types_or_fallback"
+                                # use_id=1（全日有休）は work_kind.minutes を優先
+                                if str(use_id).strip() == "1" and work_kind_profile.get("minutes") is not None:
+                                    minutes = int(work_kind_profile.get("minutes"))
+                                    minutes_src = "work_kind.minutes"
                                 applied = register_paid_holiday_work_report(
                                     target_employee_id=target_company_id,
                                     target_date=use_date,
@@ -3220,7 +3334,8 @@ def sync_paid_holidays():
                                 current_app.logger.info(
                                     f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} resolve: company_emp={target_company_id} "
                                     f"date={use_date_str} use_id={use_id!r} holiday_bucket={holiday_type} "
-                                    f"minutes={minutes} net=False applied={applied}"
+                                    f"minutes={minutes} net=False minutes_source={minutes_src} "
+                                    f"work_kind_id={target_work_kind_id!r} applied={applied}"
                                 )
                             if applied:
                                 processed_count += 1
