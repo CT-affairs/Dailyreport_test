@@ -15,6 +15,7 @@ from openpyxl.styles import Alignment, PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
 import time
 import requests
+import json
 
 from datetime import datetime, timezone, timedelta
 from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes, resolve_paid_leave_minutes_engineering, resolve_paid_leave_for_sync, is_net_main_group, default_net_paid_leave_time_slot
@@ -2955,6 +2956,76 @@ def _is_effectively_no_jobcan_id(value):
     return False
 
 
+# --- TEMP: Cloud Run ログで Jobcan 有休API・use_id→minutes を確認する用（不要になったら削除） ---
+_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG = "[TEMP paid-holiday-sync]"
+
+
+def _temp_log_jobcan_paid_use_days_response(
+    logger,
+    holidays_data,
+    target_company_id: str,
+    target_jobcan_id,
+    from_str: str,
+    to_str: str,
+) -> None:
+    """
+    GET /holiday/v1/employees/{id}/use-days の戻り値が想定構造かをログに残す。
+    """
+    if holidays_data is None:
+        logger.info(
+            f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} Jobcan use-days: response is None "
+            f"(company_emp={target_company_id} jobcan_emp={target_jobcan_id} range={from_str}..{to_str})"
+        )
+        return
+    if not isinstance(holidays_data, dict):
+        logger.info(
+            f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} Jobcan use-days: unexpected type={type(holidays_data).__name__} "
+            f"company_emp={target_company_id} jobcan_emp={target_jobcan_id}"
+        )
+        return
+
+    top_keys = sorted(holidays_data.keys())
+    use_days = holidays_data.get("use_days")
+    n_blocks = len(use_days) if isinstance(use_days, list) else 0
+
+    paid_snapshots = []
+    if isinstance(use_days, list):
+        for block in use_days:
+            if not isinstance(block, dict):
+                continue
+            for log in block.get("use_logs") or []:
+                if not isinstance(log, dict):
+                    continue
+                if log.get("detail", {}).get("type") != "paid":
+                    continue
+                ud = log.get("use_days") or {}
+                days_val = 0.0
+                if isinstance(ud, dict):
+                    try:
+                        days_val = float(ud.get("days", 0) or 0)
+                    except (TypeError, ValueError):
+                        days_val = 0.0
+                paid_snapshots.append(
+                    {
+                        "use_date": log.get("use_date"),
+                        "use_id": log.get("use_id"),
+                        "use_days_days": days_val,
+                        "detail_type": (log.get("detail") or {}).get("type"),
+                    }
+                )
+
+    try:
+        payload = json.dumps(paid_snapshots, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        payload = str(paid_snapshots)
+
+    logger.info(
+        f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} Jobcan use-days: company_emp={target_company_id} "
+        f"jobcan_emp={target_jobcan_id} range={from_str}..{to_str} top_keys={top_keys} "
+        f"use_days_blocks={n_blocks} paid_log_count={len(paid_snapshots)} paid_logs={payload}"
+    )
+
+
 @api_bp.route("/sync-paid-holidays", methods=["POST"])
 @token_required
 def sync_paid_holidays():
@@ -3053,9 +3124,17 @@ def sync_paid_holidays():
 
     # --- A. 有休情報の取得と反映 ---
     holidays_data = jobcan_service.get_paid_holidays(target_jobcan_id, from_str, to_str, "paid")
-    
-    # ... (有休処理は既存のまま) ...
-    
+
+    # TEMP: Jobcan レスポンス構造の確認（Cloud Run ログ）
+    _temp_log_jobcan_paid_use_days_response(
+        current_app.logger,
+        holidays_data,
+        str(target_company_id),
+        target_jobcan_id,
+        from_str,
+        to_str,
+    )
+
     if holidays_data and holidays_data.get("use_days"):
         for employee_data in holidays_data["use_days"]:
              if employee_data.get("use_logs"):
@@ -3088,8 +3167,10 @@ def sync_paid_holidays():
                                 minutes = pl["minutes"]
                                 st = pl.get("startTime")
                                 et = pl.get("endTime")
+                                time_src = "firestore_holiday"
                                 if not st or not et:
                                     st, et = default_net_paid_leave_time_slot(minutes)
+                                    time_src = "synthetic_09h00_plus_minutes"
                                 applied = register_paid_holiday_work_report(
                                     target_employee_id=target_company_id,
                                     target_date=use_date,
@@ -3098,6 +3179,13 @@ def sync_paid_holidays():
                                     start_time=st,
                                     end_time=et,
                                 )
+                                # TEMP: use_id → 採用した minutes / 時刻（Cloud Run ログ）
+                                current_app.logger.info(
+                                    f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} resolve: company_emp={target_company_id} "
+                                    f"date={use_date_str} use_id={use_id!r} holiday_bucket={holiday_type} "
+                                    f"minutes={minutes} net=True startTime={st!r} endTime={et!r} "
+                                    f"time_source={time_src} applied={applied}"
+                                )
                             else:
                                 minutes = resolve_paid_leave_minutes_engineering(use_id, holiday_type)
                                 applied = register_paid_holiday_work_report(
@@ -3105,6 +3193,11 @@ def sync_paid_holidays():
                                     target_date=use_date,
                                     minutes=minutes,
                                     inputter_info=user_info,
+                                )
+                                current_app.logger.info(
+                                    f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} resolve: company_emp={target_company_id} "
+                                    f"date={use_date_str} use_id={use_id!r} holiday_bucket={holiday_type} "
+                                    f"minutes={minutes} net=False applied={applied}"
                                 )
                             if applied:
                                 processed_count += 1
