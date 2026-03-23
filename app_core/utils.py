@@ -6,7 +6,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud import firestore
 from flask import abort, current_app, request
@@ -1094,6 +1094,71 @@ def _minutes_from_holiday_types_doc(data: dict) -> Optional[int]:
     return v
 
 
+def _iter_holiday_types_doc_candidates_for_use_id(use_id):
+    """
+    Jobcan use_logs.use_id と照合する holiday_types ドキュメントを、
+    resolve_paid_leave_minutes_engineering と同じ優先順で yield する。
+
+    順序:
+      1) work_kind_id が use_id と一致するドキュメント（先頭1件）
+      2) ドキュメントIDが str(use_id)（holiday_type_id）
+    """
+    if use_id is None:
+        return
+    try:
+        uid_int = int(use_id)
+    except (TypeError, ValueError):
+        uid_int = None
+
+    col = db.collection(COLLECTION_HOLIDAY_TYPES)
+
+    if uid_int is not None:
+        try:
+            q = col.where(filter=FieldFilter("work_kind_id", "==", uid_int)).limit(1)
+            for snap in q.stream():
+                d = snap.to_dict()
+                if isinstance(d, dict):
+                    yield d
+                break
+        except Exception as e:
+            try:
+                current_app.logger.warning(
+                    f"_iter_holiday_types_doc_candidates_for_use_id: query work_kind_id={uid_int} failed: {e}"
+                )
+            except Exception:
+                pass
+
+    try:
+        doc = col.document(str(use_id).strip()).get()
+        if doc.exists:
+            d = doc.to_dict()
+            if isinstance(d, dict):
+                yield d
+    except Exception as e:
+        try:
+            current_app.logger.warning(
+                f"_iter_holiday_types_doc_candidates_for_use_id: doc get id={use_id} failed: {e}"
+            )
+        except Exception:
+            pass
+
+
+def _normalized_holiday_start_end_strings(holiday) -> Tuple[Optional[str], Optional[str]]:
+    """holiday.start / holiday.end が有効ならトリム済み文字列のタプルを返す。無効なら (None, None)。"""
+    if compute_holiday_minutes_from_holiday_map(holiday) is None:
+        return None, None
+    if not isinstance(holiday, dict):
+        return None, None
+    start_raw = holiday.get("start")
+    end_raw = holiday.get("end")
+    if not isinstance(start_raw, str) or not isinstance(end_raw, str):
+        return None, None
+    a, b = start_raw.strip(), end_raw.strip()
+    if not a or not b:
+        return None, None
+    return a, b
+
+
 def resolve_paid_leave_minutes_engineering(use_id, holiday_bucket: str) -> int:
     """
     工務前提: Jobcan use-days の use_logs.use_id と Firestore holiday_types を照合し、
@@ -1106,50 +1171,94 @@ def resolve_paid_leave_minutes_engineering(use_id, holiday_bucket: str) -> int:
     minutes が取得できない場合は full=480 / half=240 にフォールバック。
     """
     fallback = 480 if holiday_bucket == "full" else 240
-
-    if use_id is None:
-        return fallback
-
-    try:
-        uid_int = int(use_id)
-    except (TypeError, ValueError):
-        uid_int = None
-
-    col = db.collection(COLLECTION_HOLIDAY_TYPES)
-
-    # 1) work_kind_id 一致（use_id ↔ holiday_types.work_kind_id）
-    if uid_int is not None:
-        try:
-            q = col.where(filter=FieldFilter("work_kind_id", "==", uid_int)).limit(1)
-            for snap in q.stream():
-                m = _minutes_from_holiday_types_doc(snap.to_dict())
-                if m is not None:
-                    return m
-                break
-        except Exception as e:
-            try:
-                current_app.logger.warning(
-                    f"resolve_paid_leave_minutes_engineering: query work_kind_id={uid_int} failed: {e}"
-                )
-            except Exception:
-                pass
-
-    # 2) ドキュメントID = use_id（holiday_type_id）
-    try:
-        doc = col.document(str(use_id).strip()).get()
-        if doc.exists:
-            m = _minutes_from_holiday_types_doc(doc.to_dict())
-            if m is not None:
-                return m
-    except Exception as e:
-        try:
-            current_app.logger.warning(
-                f"resolve_paid_leave_minutes_engineering: doc get id={use_id} failed: {e}"
-            )
-        except Exception:
-            pass
-
+    for d in _iter_holiday_types_doc_candidates_for_use_id(use_id):
+        m = _minutes_from_holiday_types_doc(d)
+        if m is not None:
+            return m
     return fallback
+
+
+def resolve_paid_leave_for_sync(use_id, holiday_bucket: str) -> dict:
+    """
+    有休同期用: minutes と、あれば holiday_types.holiday の開始・終了時刻を返す。
+
+    - minutes: 候補ドキュメントを上から見て、最初に有効な holiday_types.minutes を採用。
+      どれも無ければ、最初に有効な holiday.start/end から算出。それも無ければ 480/240。
+    - startTime / endTime: 候補のうち最初に解釈可能な holiday.start/end（工務の候補順と同じ）。
+
+    Returns:
+        dict: {"minutes": int, "startTime": Optional[str], "endTime": Optional[str]}
+    """
+    fallback = 480 if holiday_bucket == "full" else 240
+    minutes = fallback
+    start_s: Optional[str] = None
+    end_s: Optional[str] = None
+
+    candidates = list(_iter_holiday_types_doc_candidates_for_use_id(use_id))
+
+    for d in candidates:
+        st, et = _normalized_holiday_start_end_strings(d.get("holiday"))
+        if st and et:
+            start_s, end_s = st, et
+            break
+
+    for d in candidates:
+        m_doc = _minutes_from_holiday_types_doc(d)
+        if m_doc is not None:
+            minutes = m_doc
+            break
+
+    if minutes == fallback and start_s and end_s:
+        cm = compute_holiday_minutes_from_holiday_map({"start": start_s, "end": end_s})
+        if cm is not None:
+            minutes = cm
+
+    return {"minutes": minutes, "startTime": start_s, "endTime": end_s}
+
+
+def is_net_main_group(main_group) -> bool:
+    """ネット事業部: users.main_group が 3 または '3'（LIFF / 管理画面と同一判定）。"""
+    if main_group is None:
+        return False
+    if main_group == 3:
+        return True
+    try:
+        return str(main_group).strip() == "3"
+    except Exception:
+        return False
+
+
+def default_net_paid_leave_time_slot(minutes: int, anchor_start: str = "09:00") -> Tuple[str, str]:
+    """
+    Firestore に開始・終了が無い場合のネット用フォールバック。
+    anchor_start から minutes 分進めた終了時刻を同一日内で返す（24:00 で打ち切り）。
+    """
+    try:
+        m = int(minutes)
+    except (TypeError, ValueError):
+        m = 0
+    if m < 0:
+        m = 0
+
+    parts = str(anchor_start or "09:00").strip().split(":", 1)
+    try:
+        h = int(parts[0].strip())
+        mi = int(parts[1].strip()) if len(parts) > 1 else 0
+    except (ValueError, IndexError):
+        h, mi = 9, 0
+
+    start_m = max(0, min(h * 60 + mi, 24 * 60))
+    end_m = start_m + m
+    if end_m > 24 * 60:
+        end_m = 24 * 60
+
+    def _fmt(mm: int) -> str:
+        mm = max(0, min(mm, 24 * 60))
+        hh = mm // 60
+        mmm = mm % 60
+        return f"{hh:02d}:{mmm:02d}"
+
+    return _fmt(start_m), _fmt(end_m)
 
 
 def save_jobcan_holiday_types_to_firestore(db_client, jobcan_result) -> int:

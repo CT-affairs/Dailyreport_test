@@ -17,7 +17,7 @@ import time
 import requests
 
 from datetime import datetime, timezone, timedelta
-from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes, resolve_paid_leave_minutes_engineering
+from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes, resolve_paid_leave_minutes_engineering, resolve_paid_leave_for_sync, is_net_main_group, default_net_paid_leave_time_slot
 from app_core.utils import send_push_message, activate_download_link
 # from app_core.utils import send_quick_report_email # 【実装保留】のためコメントアウト
 from app_core.config import COLLECTION_DAILY_REPORTS, COLLECTION_JOBCAN_RAW_RESPONSES
@@ -3044,6 +3044,13 @@ def sync_paid_holidays():
     
     processed_count = 0
 
+    # 同期対象ユーザーの main_group（ネット事業部 = 3 は有休タスクに startTime/endTime を付与）
+    target_user_snap = db.collection("users").document(target_company_id).get()
+    target_main_group = None
+    if target_user_snap.exists:
+        target_main_group = target_user_snap.to_dict().get("main_group")
+    is_net_sync_target = is_net_main_group(target_main_group)
+
     # --- A. 有休情報の取得と反映 ---
     holidays_data = jobcan_service.get_paid_holidays(target_jobcan_id, from_str, to_str, "paid")
     
@@ -3074,14 +3081,31 @@ def sync_paid_holidays():
                         if holiday_type:
                             # 工務: holiday_types.minutes（Firestore）を優先。use_id は work_kind_id または
                             # holiday_type_id（doc id）と照合。無ければ 480/240。
+                            # ネット事業部: 同一照合で start/end を取り、タスクに startTime/endTime を付与（/api/reports_net と整合）。
                             use_id = log.get("use_id")
-                            minutes = resolve_paid_leave_minutes_engineering(use_id, holiday_type)
-                            applied = register_paid_holiday_work_report(
-                                target_employee_id=target_company_id,
-                                target_date=use_date,
-                                minutes=minutes,
-                                inputter_info=user_info
-                            )
+                            if is_net_sync_target:
+                                pl = resolve_paid_leave_for_sync(use_id, holiday_type)
+                                minutes = pl["minutes"]
+                                st = pl.get("startTime")
+                                et = pl.get("endTime")
+                                if not st or not et:
+                                    st, et = default_net_paid_leave_time_slot(minutes)
+                                applied = register_paid_holiday_work_report(
+                                    target_employee_id=target_company_id,
+                                    target_date=use_date,
+                                    minutes=minutes,
+                                    inputter_info=user_info,
+                                    start_time=st,
+                                    end_time=et,
+                                )
+                            else:
+                                minutes = resolve_paid_leave_minutes_engineering(use_id, holiday_type)
+                                applied = register_paid_holiday_work_report(
+                                    target_employee_id=target_company_id,
+                                    target_date=use_date,
+                                    minutes=minutes,
+                                    inputter_info=user_info,
+                                )
                             if applied:
                                 processed_count += 1
 
@@ -3190,8 +3214,44 @@ def sync_paid_holidays():
 
     return jsonify({"status": "success", "count": processed_count}), 200
 
+def _task_time_int_for_report(task: dict) -> int:
+    """タスクの time を報告用に整数化する。"""
+    t = task.get("time", 0)
+    try:
+        return int(float(t))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _format_report_content_line_from_task(task: dict) -> str:
+    """
+    業務内容テキストの1行。startTime/endTime がある場合は reports_net 形式、なければ工務形式。
+    """
+    st = task.get("startTime")
+    et = task.get("endTime")
+    if st and et:
+        tm = _task_time_int_for_report(task)
+        return (
+            f"【{st}~{et}|{tm}分】"
+            f"{task.get('categoryA_label', '')} - {task.get('categoryB_label', '')}"
+        )
+    detail = task.get("detail", "")
+    tm = _task_time_int_for_report(task)
+    return (
+        f"[{task.get('categoryA_label', '')}/{task.get('categoryB_label', '')}] "
+        f"{tm}分: {detail}"
+    )
+
+
 # --- 内部関数: 有休自動入力用 ---
-def register_paid_holiday_work_report(target_employee_id, target_date, minutes, inputter_info):
+def register_paid_holiday_work_report(
+    target_employee_id,
+    target_date,
+    minutes,
+    inputter_info,
+    start_time=None,
+    end_time=None,
+):
     """
     有休情報を元に日報データを生成・更新する関数。
     戻り値: 実際に作成/更新した場合は True、既存有休タスクがありスキップした場合は False。
@@ -3201,6 +3261,8 @@ def register_paid_holiday_work_report(target_employee_id, target_date, minutes, 
         target_date (datetime): 対象日 (datetimeオブジェクト)
         minutes (int): 有休タスクの分数（工務: holiday_types.minutes または 480/240 フォールバック）
         inputter_info (dict): 実行者のユーザー情報 (company_employee_id, nameを含む)
+        start_time (str|None): ネット事業部向け。開始時刻（HH:MM）。end_time とセットで指定。
+        end_time (str|None): ネット事業部向け。終了時刻（HH:MM）。
     """
     try:
         minutes = int(minutes)
@@ -3214,6 +3276,8 @@ def register_paid_holiday_work_report(target_employee_id, target_date, minutes, 
     CATEGORY_B_ID = "e_000000"
     CATEGORY_B_LABEL = "000000"
 
+    use_net_task_shape = bool(start_time and end_time)
+
     # タスクオブジェクト
     new_task = {
         "categoryA_id": CATEGORY_A_ID,
@@ -3221,8 +3285,12 @@ def register_paid_holiday_work_report(target_employee_id, target_date, minutes, 
         "categoryB_id": CATEGORY_B_ID,
         "categoryB_label": CATEGORY_B_LABEL,
         "time": minutes,
-        "detail": "有休自動適用"
+        "detail": "有休自動適用",
     }
+    if use_net_task_shape:
+        new_task["startTime"] = start_time
+        new_task["endTime"] = end_time
+        new_task["comment"] = ""
 
     doc_id = f"{target_employee_id}_{target_date.strftime('%Y-%m-%d')}"
     doc_ref = db.collection(COLLECTION_DAILY_REPORTS).document(doc_id)
@@ -3252,10 +3320,12 @@ def register_paid_holiday_work_report(target_employee_id, target_date, minutes, 
             tasks.append(new_task)
             
             # 合計時間の再計算
-            new_total = sum(t.get('time', 0) for t in tasks)
+            new_total = 0
+            for t in tasks:
+                new_total += _task_time_int_for_report(t)
             
-            # 業務内容テキストの更新
-            task_details = [f"[{t.get('categoryA_label', '')}/{t.get('categoryB_label', '')}] {t.get('time',0)}分: {t.get('detail', '')}" for t in tasks]
+            # 業務内容テキストの更新（ネット形式・工務形式が混在しても行ごとに整形）
+            task_details = [_format_report_content_line_from_task(t) for t in tasks]
             new_report_content = "\n".join(task_details)
 
             doc_ref.update({
@@ -3291,8 +3361,14 @@ def register_paid_holiday_work_report(target_employee_id, target_date, minutes, 
             if mapping_doc.exists:
                 target_employee_name = mapping_doc.to_dict().get("name")
 
-            # レポート内容テキスト
-            report_content = f"[{CATEGORY_A_LABEL}/{CATEGORY_B_LABEL}] {minutes}分: 有休自動適用"
+            # レポート内容テキスト（ネットは reports_net と同じ行形式）
+            if use_net_task_shape:
+                report_content = (
+                    f"【{start_time}~{end_time}|{minutes}分】"
+                    f"{CATEGORY_A_LABEL} - {CATEGORY_B_LABEL}"
+                )
+            else:
+                report_content = f"[{CATEGORY_A_LABEL}/{CATEGORY_B_LABEL}] {minutes}分: 有休自動適用"
 
             new_report_data = {
                 "employee_name": target_employee_name,
