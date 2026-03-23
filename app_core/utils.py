@@ -943,7 +943,7 @@ def get_accommodation_notes_for_employees(employee_ids: list[str], start_date: d
 def get_on_site_status_for_employees(employee_ids: list[str], start_date: datetime, end_date: datetime) -> dict:
     """
     指定された期間と従業員リストについて、現場作業ステータス（終日/半日）を取得する。
-    日報のタスク(categoryA_id='A01')の合計時間から判定する。
+    日報のタスク(categoryA_id='A01' または 'A12')の合計時間から判定する。
 
     Args:
         employee_ids (list[str]): 会社の従業員IDのリスト。
@@ -978,8 +978,13 @@ def get_on_site_status_for_employees(employee_ids: list[str], start_date: dateti
 
             date_str = report_date.strftime('%Y-%m-%d')
 
-            # A01（現場作業）の時間を集計
-            on_site_minutes = sum(int(task.get("time", 0)) for task in tasks if task.get("categoryA_id") == "A01")
+            # A01 / A12（現場対象）の時間を集計
+            on_site_category_ids = {"A01", "A12"}
+            on_site_minutes = sum(
+                int(task.get("time", 0))
+                for task in tasks
+                if task.get("categoryA_id") in on_site_category_ids
+            )
             
             status_value = 0.0
             if on_site_minutes >= 360:

@@ -3408,10 +3408,11 @@ def sync_paid_holidays():
             doc_data = doc.to_dict()
             tasks = doc_data.get("tasks", [])
             
-            # A01の時間を集計 (念のためint変換して加算)
+            # A01 / A12（現場対象）の時間を集計 (念のためint変換して加算)
+            on_site_category_ids = {"A01", "A12"}
             on_site_minutes = 0
             for task in tasks:
-                if task.get("categoryA_id") == "A01":
+                if task.get("categoryA_id") in on_site_category_ids:
                     try:
                         on_site_minutes += int(task.get("time", 0))
                     except (ValueError, TypeError):
