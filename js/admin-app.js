@@ -3719,6 +3719,10 @@ async function initializeProxyReportScreen(isNetTemplate) {
     const syncAnchor = document.getElementById('proxy-sync-anchor');
     if (syncAnchor) {
         syncAnchor.appendChild(syncBtn);
+        const netFiscalListBtn = document.getElementById('proxy-net-fiscal-list-btn');
+        if (netFiscalListBtn) {
+            syncAnchor.appendChild(netFiscalListBtn);
+        }
     } else {
         const dateInput = document.getElementById('proxy-report-date');
         if (dateInput && dateInput.parentElement) {
@@ -4917,6 +4921,21 @@ async function initializeProxyTimetable() {
         });
     }
 
+    // ★月度・過去日報一覧モーダル（「一覧」ボタン）
+    const netFiscalPastModal = document.getElementById('net-fiscal-past-reports-modal');
+    const netFiscalPastModalClose = document.getElementById('net-fiscal-past-reports-modal-close');
+    if (netFiscalPastModal && netFiscalPastModalClose) {
+        const closeNetFiscal = () => { netFiscalPastModal.classList.remove('is-active'); };
+        netFiscalPastModalClose.addEventListener('click', closeNetFiscal);
+        netFiscalPastModal.addEventListener('click', (e) => {
+            if (e.target.classList.contains('dr-modal')) closeNetFiscal();
+        });
+    }
+    const netFiscalListBtn = document.getElementById('proxy-net-fiscal-list-btn');
+    if (netFiscalListBtn) {
+        netFiscalListBtn.addEventListener('click', openNetFiscalPastReportsModal);
+    }
+
     if (zoomInTop) {
         zoomInTop.addEventListener('click', () => {
             if (timetableStartHour > TIMETABLE_MIN_START) {
@@ -6094,6 +6113,59 @@ function openPastReportsModal() {
         pastReportsCurrentEndDate.setDate(pastReportsCurrentEndDate.getDate() + 7);
         fetchAndRenderPastReports();
     });
+}
+
+/**
+ * 月度（21日〜翌月20日）の過去日報一覧モーダルを開く（「一覧」ボタン）
+ * 左ペイン・ナビは7日分の過去日報モーダルと同じ方式
+ */
+function openNetFiscalPastReportsModal() {
+    const modal = document.getElementById('net-fiscal-past-reports-modal');
+    if (!modal) {
+        console.error('Net fiscal past reports modal not found.');
+        return;
+    }
+    if (!currentProxyTarget) return;
+
+    pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
+    pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+    pastReportsLastDataRangeKey = '';
+
+    resetNetFiscalPastReportsPeriodToCurrent();
+
+    modal.classList.add('is-active');
+    void modal.offsetWidth;
+
+    fetchAndRenderNetFiscalPastReports(
+        'net-fiscal-past-reports-container',
+        'net-fiscal-past-reports-period-display',
+        { nextButtonEl: 'net-fiscal-past-reports-next-btn' },
+    );
+
+    const prevBtn = document.getElementById('net-fiscal-past-reports-prev-btn');
+    const nextBtn = document.getElementById('net-fiscal-past-reports-next-btn');
+    if (prevBtn) {
+        prevBtn.replaceWith(prevBtn.cloneNode(true));
+        document.getElementById('net-fiscal-past-reports-prev-btn').addEventListener('click', () => {
+            goNetFiscalPastReportsToPreviousPeriod();
+            fetchAndRenderNetFiscalPastReports(
+                'net-fiscal-past-reports-container',
+                'net-fiscal-past-reports-period-display',
+                { nextButtonEl: 'net-fiscal-past-reports-next-btn' },
+            );
+        });
+    }
+    if (nextBtn) {
+        nextBtn.replaceWith(nextBtn.cloneNode(true));
+        document.getElementById('net-fiscal-past-reports-next-btn').addEventListener('click', () => {
+            goNetFiscalPastReportsToNextPeriod();
+            fetchAndRenderNetFiscalPastReports(
+                'net-fiscal-past-reports-container',
+                'net-fiscal-past-reports-period-display',
+                { nextButtonEl: 'net-fiscal-past-reports-next-btn' },
+            );
+        });
+    }
 }
 
 /**

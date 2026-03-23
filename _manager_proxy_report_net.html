@@ -60,8 +60,9 @@
                         本日の勤務時間 (分)
                     </label>
                     <input type="number" id="proxy-report-work" placeholder="例: 480" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 180px;">
-                    <span id="proxy-sync-anchor" style="display:inline-flex;"></span>
+                    <span id="proxy-sync-anchor" style="display:inline-flex; gap:10px; align-items:center;"></span>
                     <button type="button" id="proxy-get-work-time-button" class="btn-secondary">受信</button>
+                    <button type="button" id="proxy-net-fiscal-list-btn" class="btn-secondary" title="当月度（21日〜翌月20日）の過去日報を一覧表示">一覧</button>
                 </div>
             </div>
 
@@ -184,6 +185,26 @@
                 </div>
                 <div id="past-reports-container" class="past-reports-root" style="flex-grow: 1; overflow: auto;">
                     <!-- JS: 左・時刻軸＋日付列グリッド -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 過去日報一覧（月度・21日〜翌月20日）モーダル -->
+    <div id="net-fiscal-past-reports-modal" class="dr-modal dr-modal-pane-container">
+        <div class="dr-modal-content dr-modal-left-pane">
+            <div class="dr-modal-header">
+                <h4>過去日報一覧（月度）</h4>
+                <span class="dr-close-button" id="net-fiscal-past-reports-modal-close">&times;</span>
+            </div>
+            <div class="dr-modal-body">
+                <div class="past-reports-nav" style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">
+                    <button type="button" id="net-fiscal-past-reports-prev-btn" class="btn-secondary">◀ 前月</button>
+                    <span id="net-fiscal-past-reports-period-display" style="font-weight: bold;"></span>
+                    <button type="button" id="net-fiscal-past-reports-next-btn" class="btn-secondary">次月 ▶</button>
+                </div>
+                <div id="net-fiscal-past-reports-container" class="past-reports-root" style="flex-grow: 1; overflow: auto;">
+                    <!-- JS: 左・時刻軸＋日付列 -->
                 </div>
             </div>
         </div>
