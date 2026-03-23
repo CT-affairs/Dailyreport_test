@@ -287,6 +287,8 @@ function addTaskEntry(task = null) {
         minorInput.value = task.categoryB_label || task.categoryB || '';
         minorInput.dataset.id = task.categoryB_id || '';
         timeInput.value = (task.time !== undefined && task.time !== null) ? String(task.time) : '';
+        // 既存日報由来の行は分数を固定表示（start/end変更で初めて再計算モードへ）
+        entryDiv.dataset.lockedTime = '1';
         if (isReportNetPage) {
             const startEl = entryDiv.querySelector('.task-start-time');
             const endEl = entryDiv.querySelector('.task-end-time');
@@ -296,10 +298,9 @@ function addTaskEntry(task = null) {
         if (task.comment) entryDiv.dataset.comment = task.comment;
     }
 
-    // ネット画面: ネイティブ時刻ピッカー使用。15分刻みに丸める。
-    // NOTE:
-    // 既存 tasks の time はバックエンド保存値を正とし、開始/終了から自動再計算しない。
-    // （有休などで start/end の拘束時間と time の実働分が一致しないケースを壊さないため）
+    // ネット画面: ネイティブ時刻ピッカー使用。
+    // - 既存日報由来(lockedTime=1): DB分数を維持
+    // - 入力中タスク(lockedTime!=1): 開始/終了から分数を再計算
     if (isReportNetPage && (startTimeInput || endTimeInput)) {
         const roundTimeTo15 = (value) => {
             if (!value || typeof value !== 'string') return '';
@@ -311,6 +312,23 @@ function addTaskEntry(task = null) {
             const rm = rounded % 60;
             return String(rh).padStart(2, '0') + ':' + String(rm).padStart(2, '0');
         };
+        const timeToMinutes = (value) => {
+            if (!value || typeof value !== 'string') return null;
+            const [h, m] = value.split(':').map(v => parseInt(v, 10));
+            if (isNaN(h) || isNaN(m)) return null;
+            return h * 60 + m;
+        };
+        const updateMinutesFromRange = () => {
+            const startVal = startTimeInput ? startTimeInput.value : '';
+            const endVal = endTimeInput ? endTimeInput.value : '';
+            const startMin = timeToMinutes(startVal);
+            const endMin = timeToMinutes(endVal);
+            if (startMin !== null && endMin !== null) {
+                let diff = endMin - startMin;
+                if (diff < 0) diff += 24 * 60; // 翌日跨ぎ
+                timeInput.value = Math.max(0, diff);
+            }
+        };
         const applyRoundAndMinutes = (input) => {
             if (!input) return;
             input.addEventListener('change', () => {
@@ -318,7 +336,13 @@ function addTaskEntry(task = null) {
                     input.value = roundTimeTo15(input.value);
                     if (input.classList.contains('task-start-time')) entryDiv.dataset.startTime = input.value;
                     if (input.classList.contains('task-end-time')) entryDiv.dataset.endTime = input.value;
-                    // 分数は自動再計算せず、保存済み / 手入力の値を維持する
+                    // 既存日報由来の行でも、時刻を編集した時点で再計算モードへ移行
+                    if (entryDiv.dataset.lockedTime === '1') {
+                        entryDiv.dataset.lockedTime = '0';
+                    }
+                    if (entryDiv.dataset.lockedTime !== '1') {
+                        updateMinutesFromRange();
+                    }
                     updateWorkTimeSummary();
                 }
             });
