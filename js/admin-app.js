@@ -6284,7 +6284,10 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
         return;
     }
 
-    gridInner.style.gridTemplateColumns = `repeat(${dayCount}, minmax(72px, 1fr))`;
+    /* 日付列の横並びは CSS（.past-reports-grid-inner の flex）で固定。列数は子要素数で決まる */
+    gridInner.style.display = 'flex';
+    gridInner.style.flexDirection = 'row';
+    gridInner.style.flexWrap = 'nowrap';
     daysWrap.appendChild(gridInner);
 
     layout.appendChild(rulerColumn);

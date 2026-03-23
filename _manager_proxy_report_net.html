@@ -255,26 +255,42 @@
             box-sizing: border-box;
         }
         .past-reports-layout {
-            display: flex;
-            flex-direction: row;
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
             align-items: stretch;
             gap: 5px;
             min-height: 420px;
+            width: 100%;
         }
         .past-reports-ruler-column {
-            flex: 0 0 52px;
-            min-width: 48px;
+            flex: 0 0 52px !important;
+            min-width: 48px !important;
+            max-width: 52px;
+            /* .past-day-column の min-width:72px より優先 */
         }
         .past-reports-days-wrap {
             flex: 1;
             min-width: 0;
             overflow-x: auto;
+            overflow-y: hidden;
         }
+        /* 日付列は横一列（従来の7列相当）。Grid は環境によって1列に落ちることがあるため Flex で固定 */
         .past-reports-grid-inner {
-            display: grid;
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: stretch;
             gap: 5px;
             min-height: 100%;
-            /* grid-template-columns は JS で日数分設定 */
+            width: max-content;
+            min-width: 100%;
+            box-sizing: border-box;
+        }
+        .past-reports-grid-inner > .past-day-column {
+            flex: 1 1 0;
+            min-width: 72px;
+            max-width: none;
         }
         .past-day-column {
             border: 1px solid #ddd;
