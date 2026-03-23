@@ -2645,6 +2645,23 @@ def _date_to_allowance_row(day: int) -> int:
     return 0
 
 
+def _calculate_allowance_period_date_only(target_month: str, now_jst: datetime) -> tuple[datetime, datetime]:
+    """
+    宿泊/現場(全社)Excel専用の期間計算。
+    月度の開始・終了日は既存 calculate_monthly_period を流用しつつ、時刻は日付境界に正規化する。
+    - start_date: 00:00:00.000000
+    - end_date:   23:59:59.999999
+    """
+    start_date, end_date = calculate_monthly_period(now_jst)
+    if target_month == "previous":
+        prev_base = start_date - timedelta(days=1)
+        start_date, end_date = calculate_monthly_period(prev_base)
+
+    start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return start_date, end_date
+
+
 @api_bp.route("/manager/allowance/excel", methods=["POST"])
 @token_required
 @login_required
@@ -2662,11 +2679,7 @@ def download_allowance_excel():
 
         jst = timezone(timedelta(hours=9))
         base_date = datetime.now(jst)
-        start_date, end_date = calculate_monthly_period(base_date)
-
-        if target_month == "previous":
-            prev_base = start_date - timedelta(days=1)
-            start_date, end_date = calculate_monthly_period(prev_base)
+        start_date, end_date = _calculate_allowance_period_date_only(target_month, base_date)
 
         # 出力ファイル名: 手当集計_2026年03月度.xlsx
         file_name = f"手当集計_{end_date.strftime('%Y')}年{end_date.strftime('%m')}月度.xlsx"
