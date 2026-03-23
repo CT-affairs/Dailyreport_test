@@ -859,7 +859,7 @@ async function renderHolidaySettingsUI(container) {
     container.innerHTML = `
         <div class="holiday-settings-panel">
             <p style="color:#666; margin-bottom: 12px;">
-                Jobcan の休暇タイプ（マスタ）を最新取得し、一覧表示すると同時に Firestore の <code>holiday_types</code> コレクションへ保存します（ドキュメントID = holiday_type_id、上書き）。
+                Jobcan の休暇タイプ（マスタ）を最新取得し、データベースを更新します。
             </p>
             <div style="margin-bottom: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
                 <button type="button" id="holiday-types-refresh-btn" class="btn-primary">最新情報を取得</button>

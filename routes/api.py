@@ -897,6 +897,7 @@ def get_manager_jobcan_employees_summary():
     """
     管理画面「スタッフ一覧」用: Jobcan GET /master/v1/employees を全件取得し、
     一覧表示用に id, last_name, first_name, main_group, sub_group, work_kind のみ返す。
+    work_kind=4（非常勤役員）はレスポンスから除外する。
     """
     try:
         from services.jobcan_service import JobcanService
@@ -918,6 +919,14 @@ def get_manager_jobcan_employees_summary():
         for e in raw_list:
             if not isinstance(e, dict):
                 continue
+            # 非常勤役員（work_kind=4）は一覧に含めない
+            wk = e.get("work_kind")
+            if wk is not None:
+                try:
+                    if int(wk) == 4:
+                        continue
+                except (TypeError, ValueError):
+                    pass
             sub = e.get("sub_group")
             if not isinstance(sub, list):
                 sub = []
