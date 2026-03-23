@@ -3433,6 +3433,8 @@ function setupSharedBadgeStyles() {
 // --- 代理入力用の自動保存機能 ---
 let proxyAutoSaveTimer = null;
 let isProxySubmitting = false; // 代理報告の二重送信防止フラグ
+// 1スロット保留キュー（latest-wins）
+let proxyPendingSaveRequest = null; // { type: 'auto'|'submit', payload, submitBtn, triggerName }
 
 /**
  * 代理入力中の下書き保存用のキーを生成する
@@ -4599,11 +4601,6 @@ async function handleProxyGetWorkTime() {
 async function handleProxyReportSubmit(e) {
     e.preventDefault();
 
-    if (isProxySubmitting) {
-        console.warn("代理報告の送信処理が重複しています。処理を中断します。");
-        return;
-    }
-
     const { employeeId, date, groupId } = currentProxyTarget;
 
     // ログインユーザー自身の場合は権限チェックをスキップ
@@ -4619,50 +4616,10 @@ async function handleProxyReportSubmit(e) {
     submitBtn.disabled = true;
     submitBtn.textContent = '送信中...';
 
-    const tasks = [];
     const isNetTemplate = (groupId && String(groupId) === '3');
 
     if (isNetTemplate) {
-        // ネット事業部（タイムテーブル形式）のタスク収集
-        document.querySelectorAll('.timetable-task').forEach(taskEl => {
-            const isBreakTask = taskEl.dataset.taskType === 'break';
-
-            // ★休憩タスクも送信データに含めるが、timeは0にする
-            if (isBreakTask) {
-                tasks.push({
-                    categoryA_id: 'N99',
-                    categoryA_label: '昼休憩',
-                    categoryB_id: 'n_break', // 固定ID
-                    categoryB_label: '休憩',
-                    time: 0, // ★工数に含めないため0
-                    startTime: taskEl.dataset.startTime,
-                    endTime: taskEl.dataset.endTime,
-                    comment: '昼休憩'
-                });
-                return; // 次のタスクへ
-            }
-
-            const storedTime = parseInt(taskEl.dataset.time, 10);
-            let taskMinutes = storedTime;
-            if (Number.isNaN(taskMinutes) || taskMinutes < 0) {
-                // 後方互換: time未保持タスクのみ差分で補完
-                const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
-                const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
-                if (end < start) end.setDate(end.getDate() + 1);
-                taskMinutes = Math.round((end - start) / 1000 / 60);
-            }
-
-            tasks.push({
-                categoryA_id: taskEl.dataset.categoryAId,
-                categoryA_label: taskEl.dataset.categoryALabel,
-                categoryB_id: taskEl.dataset.categoryBId,
-                categoryB_label: taskEl.dataset.categoryBLabel,
-                time: taskMinutes,
-                startTime: taskEl.dataset.startTime,
-                endTime: taskEl.dataset.endTime,
-                comment: taskEl.dataset.comment || ""
-            });
-        });
+        const tasks = collectProxyNetTasksFromTimetable();
 
         // 送信前の重複チェック
         // 収集したタスクリスト内で時間的な重複がないかチェック
@@ -4692,7 +4649,29 @@ async function handleProxyReportSubmit(e) {
                 }
             }
         }
+        const payload = {
+            date: date,
+            taskTotalMinutes: parseInt(document.getElementById('proxy-allocated-time-display').textContent, 10),
+            jobcanWorkMinutes: parseInt(document.getElementById('proxy-report-work').value, 10),
+            tasks: tasks,
+            // 代理入力用のパラメータを追加 (API側の対応が必要)
+            target_employee_id: employeeId,
+            is_proxy: true
+        };
+
+        // 実行中なら待機キューへ（送信要求は自動保存より優先）
+        const queued = enqueueProxyNetSaveRequest({
+            type: 'submit',
+            payload,
+            submitBtn,
+            triggerName: 'manual-submit'
+        });
+        if (queued) {
+            submitBtn.textContent = '送信待機中...';
+        }
+        await processQueuedProxyNetSaveRequests();
     } else {
+        const tasks = [];
         // 工務部（リスト形式）のタスク収集
         document.querySelectorAll('#proxy-task-entries-container .task-entry').forEach(entry => {
             const majorIn = entry.querySelector('.task-category-major');
@@ -4709,50 +4688,177 @@ async function handleProxyReportSubmit(e) {
                 });
             }
         });
-    }
+        const payload = {
+            date: date,
+            taskTotalMinutes: parseInt(document.getElementById('proxy-allocated-time-display').textContent, 10),
+            jobcanWorkMinutes: parseInt(document.getElementById('proxy-report-work').value, 10),
+            tasks: tasks,
+            // 代理入力用のパラメータを追加 (API側の対応が必要)
+            target_employee_id: employeeId,
+            is_proxy: true
+        };
 
+        try {
+            isProxySubmitting = true;
+
+            const response = await fetchWithAuth(`${API_BASE_URL}/api/reports`, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => null);
+                throw new Error(errorData?.message || '送信に失敗しました');
+            }
+
+            // ★送信成功時にタイマー停止と下書き削除
+            if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
+            const draftKey = getProxyDraftKey();
+            if (draftKey) localStorage.removeItem(draftKey);
+
+            document.getElementById('proxy-report-form-wrapper').style.display = 'none';
+            document.getElementById('proxy-completion-screen').style.display = 'block';
+
+        } catch (error) {
+            console.error(error);
+            alert(`エラー: ${error.message}`);
+            submitBtn.disabled = false;
+            submitBtn.textContent = '代理報告を送信';
+        } finally {
+            isProxySubmitting = false;
+        }
+    }
+}
+
+/**
+ * ネット代理入力のタイムテーブルから送信用tasksを作成する。
+ * 保存済みtimeを優先し、未保持時のみ開始/終了差分で補完する。
+ */
+function collectProxyNetTasksFromTimetable() {
+    const tasks = [];
+    document.querySelectorAll('.timetable-task').forEach(taskEl => {
+        const isBreakTask = taskEl.dataset.taskType === 'break';
+        if (isBreakTask) {
+            tasks.push({
+                categoryA_id: 'N99',
+                categoryA_label: '昼休憩',
+                categoryB_id: 'n_break',
+                categoryB_label: '休憩',
+                time: 0,
+                startTime: taskEl.dataset.startTime,
+                endTime: taskEl.dataset.endTime,
+                comment: '昼休憩'
+            });
+            return;
+        }
+
+        const storedTime = parseInt(taskEl.dataset.time, 10);
+        let taskMinutes = storedTime;
+        if (Number.isNaN(taskMinutes) || taskMinutes < 0) {
+            const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
+            const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
+            if (end < start) end.setDate(end.getDate() + 1);
+            taskMinutes = Math.round((end - start) / 1000 / 60);
+        }
+
+        tasks.push({
+            categoryA_id: taskEl.dataset.categoryAId,
+            categoryA_label: taskEl.dataset.categoryALabel,
+            categoryB_id: taskEl.dataset.categoryBId,
+            categoryB_label: taskEl.dataset.categoryBLabel,
+            time: taskMinutes,
+            startTime: taskEl.dataset.startTime,
+            endTime: taskEl.dataset.endTime,
+            comment: taskEl.dataset.comment || ""
+        });
+    });
+    return tasks;
+}
+
+/**
+ * ネット代理入力の保存要求を1スロット保留キューへ登録する。
+ * - latest-wins: 同種要求は新しいものに置換
+ * - submit 優先: submit 待機中に auto は上書きしない
+ * 戻り値: true のとき「待機キュー入り」, false のとき「この後すぐ実行される可能性あり」
+ */
+function enqueueProxyNetSaveRequest(request) {
+    if (proxyPendingSaveRequest && proxyPendingSaveRequest.type === 'submit' && request.type === 'auto') {
+        return true; // submit待機中はauto要求を捨てる
+    }
+    proxyPendingSaveRequest = request;
+    return isProxySubmitting;
+}
+
+async function processQueuedProxyNetSaveRequests() {
+    if (isProxySubmitting) return;
+    while (proxyPendingSaveRequest) {
+        const req = proxyPendingSaveRequest;
+        proxyPendingSaveRequest = null;
+        await executeProxyNetSaveRequest(req);
+    }
+}
+
+async function executeProxyNetSaveRequest(req) {
+    try {
+        isProxySubmitting = true;
+        const response = await fetchWithAuth(`${API_BASE_URL}/api/reports_net`, {
+            method: 'POST',
+            body: JSON.stringify(req.payload)
+        });
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => null);
+            throw new Error(errorData?.message || `${req.type === 'submit' ? '送信' : '自動保存'}に失敗しました`);
+        }
+
+        if (req.type === 'submit') {
+            // ★送信成功時にタイマー停止と下書き削除
+            if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
+            const draftKey = getProxyDraftKey();
+            if (draftKey) localStorage.removeItem(draftKey);
+            document.getElementById('proxy-report-form-wrapper').style.display = 'none';
+            document.getElementById('proxy-completion-screen').style.display = 'block';
+        }
+    } catch (error) {
+        console.error(`[${req.triggerName}]`, error);
+        if (req.type === 'submit') {
+            alert(`エラー: ${error.message}`);
+            if (req.submitBtn) {
+                req.submitBtn.disabled = false;
+                req.submitBtn.textContent = '代理報告を送信';
+            }
+        } else {
+            showToast(`保存失敗: ${error.message}`, 'error');
+        }
+    } finally {
+        isProxySubmitting = false;
+        // 実行中に次の要求が積まれた場合は続けて処理する
+        if (proxyPendingSaveRequest) {
+            void processQueuedProxyNetSaveRequests();
+        }
+    }
+}
+
+/**
+ * ネット代理入力の自動保存（追加/変更保存の直後）。
+ * 送信処理と同じ isProxySubmitting フラグで直列化し、1スロット保留キューで順次実行する。
+ */
+async function autoSaveProxyNetReport(triggerName = 'auto-save') {
+    if (!currentProxyTarget || String(currentProxyTarget.groupId) !== '3') return;
+    const { employeeId, date } = currentProxyTarget;
     const payload = {
         date: date,
         taskTotalMinutes: parseInt(document.getElementById('proxy-allocated-time-display').textContent, 10),
         jobcanWorkMinutes: parseInt(document.getElementById('proxy-report-work').value, 10),
-        tasks: tasks,
-        // 代理入力用のパラメータを追加 (API側の対応が必要)
+        tasks: collectProxyNetTasksFromTimetable(),
         target_employee_id: employeeId,
         is_proxy: true
     };
-
-    try {
-        isProxySubmitting = true;
-
-        // ネット事業部は専用エンドポイント、それ以外は通常エンドポイントを使用
-        const endpoint = isNetTemplate ? `${API_BASE_URL}/api/reports_net` : `${API_BASE_URL}/api/reports`;
-
-        const response = await fetchWithAuth(endpoint, {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => null);
-            throw new Error(errorData?.message || '送信に失敗しました');
-        }
-
-        // ★送信成功時にタイマー停止と下書き削除
-        if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
-        const draftKey = getProxyDraftKey();
-        if (draftKey) localStorage.removeItem(draftKey);
-
-        document.getElementById('proxy-report-form-wrapper').style.display = 'none';
-        document.getElementById('proxy-completion-screen').style.display = 'block';
-
-    } catch (error) {
-        console.error(error);
-        alert(`エラー: ${error.message}`);
-        submitBtn.disabled = false;
-        submitBtn.textContent = '代理報告を送信';
-    } finally {
-        isProxySubmitting = false;
-    }
+    enqueueProxyNetSaveRequest({
+        type: 'auto',
+        payload,
+        triggerName
+    });
+    await processQueuedProxyNetSaveRequests();
 }
 
 // --- タイムテーブル用の状態変数 ---
@@ -5355,6 +5461,7 @@ function addProxyTimetableTask() {
     document.querySelectorAll('.timetable-slot').forEach(slot => {
         slot.style.backgroundColor = '';
     });
+    autoSaveProxyNetReport('add-task');
 }
 
 /**
@@ -5647,6 +5754,7 @@ function handleEditTask() {
     // 編集モードを終了
     clearProxyTaskDetailsForm();
     updateProxyWorkTimeSummary();
+    autoSaveProxyNetReport('edit-task');
 }
 
 /**
