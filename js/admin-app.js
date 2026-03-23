@@ -4273,6 +4273,7 @@ function renderBreakTask(startTime, endTime) {
 
     taskElement.dataset.startTime = startTime;
     taskElement.dataset.endTime = endTime;
+    taskElement.dataset.time = '0';
     taskElement.dataset.comment = '昼休憩';
     taskElement.dataset.categoryAId = 'N99';
     taskElement.dataset.categoryALabel = '昼休憩';
@@ -4316,16 +4317,21 @@ function updateProxyWorkTimeSummary() {
     const isNetTemplate = currentProxyTarget && (String(currentProxyTarget.groupId) === '3');
 
     if (isNetTemplate) {
-        // Net: Sum durations from timetable tasks
+        // Net: 基本は保存済みtimeを使用（start/endとの差分再計算はしない）。
+        // timeが無い古いタスクだけ、後方互換として start/end 差分で計算する。
         document.querySelectorAll('.timetable-task').forEach(taskEl => {
             // ★休憩タスクは合計に含めない
             if (taskEl.dataset.taskType === 'break') return;
-
-            const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
-            const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
-            if (end < start) end.setDate(end.getDate() + 1);
-            const diffMinutes = (end - start) / 1000 / 60;
-            allocated += diffMinutes;
+            const storedTime = parseInt(taskEl.dataset.time, 10);
+            if (!Number.isNaN(storedTime) && storedTime >= 0) {
+                allocated += storedTime;
+            } else {
+                const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
+                const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
+                if (end < start) end.setDate(end.getDate() + 1);
+                const diffMinutes = (end - start) / 1000 / 60;
+                allocated += diffMinutes;
+            }
         });
     } else {
         // Koumu: Sum durations from input fields
@@ -4636,18 +4642,22 @@ async function handleProxyReportSubmit(e) {
                 return; // 次のタスクへ
             }
 
-            // 時間計算
-            const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
-            const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
-            if (end < start) end.setDate(end.getDate() + 1);
-            const diffMinutes = (end - start) / 1000 / 60;
+            const storedTime = parseInt(taskEl.dataset.time, 10);
+            let taskMinutes = storedTime;
+            if (Number.isNaN(taskMinutes) || taskMinutes < 0) {
+                // 後方互換: time未保持タスクのみ差分で補完
+                const start = new Date(`1970-01-01T${taskEl.dataset.startTime}:00`);
+                const end = new Date(`1970-01-01T${taskEl.dataset.endTime}:00`);
+                if (end < start) end.setDate(end.getDate() + 1);
+                taskMinutes = Math.round((end - start) / 1000 / 60);
+            }
 
             tasks.push({
                 categoryA_id: taskEl.dataset.categoryAId,
                 categoryA_label: taskEl.dataset.categoryALabel,
                 categoryB_id: taskEl.dataset.categoryBId,
                 categoryB_label: taskEl.dataset.categoryBLabel,
-                time: Math.round(diffMinutes),
+                time: taskMinutes,
                 startTime: taskEl.dataset.startTime,
                 endTime: taskEl.dataset.endTime,
                 comment: taskEl.dataset.comment || ""
@@ -5328,6 +5338,7 @@ function addProxyTimetableTask() {
     // データを要素に保存（将来の編集/削除用）
     taskElement.dataset.startTime = startTime;
     taskElement.dataset.endTime = endTime;
+    taskElement.dataset.time = String(duration);
     taskElement.dataset.categoryAId = categoryA_id;
     taskElement.dataset.categoryALabel = categoryA_label;
     taskElement.dataset.categoryBId = categoryB_id;
@@ -5462,6 +5473,7 @@ function renderExistingTimetableTask(task) {
 
     taskElement.dataset.startTime = startTime;
     taskElement.dataset.endTime = endTime;
+    taskElement.dataset.time = (task.time !== undefined && task.time !== null) ? String(task.time) : String(Math.round(duration));
     taskElement.dataset.categoryAId = categoryA_id;
     taskElement.dataset.categoryALabel = categoryA_label;
     taskElement.dataset.categoryBId = categoryB_id;
@@ -5546,7 +5558,13 @@ function handleTaskClick(taskElement) {
     catASelect.disabled = isBreakTask;
     commentInput.disabled = isBreakTask;
 
-    updateTaskDuration(); // 時間（分）も更新
+    // 既存taskのtimeを優先してフォームへ反映（start/end差分への自動上書きを避ける）
+    const storedTime = parseInt(taskElement.dataset.time, 10);
+    if (!Number.isNaN(storedTime) && storedTime >= 0) {
+        document.getElementById('task-duration').value = storedTime;
+    } else {
+        updateTaskDuration();
+    }
 
     // ボタンを編集モードに切り替え
     updateTaskFormButtons('edit');
@@ -5605,6 +5623,7 @@ function handleEditTask() {
     // datasetを更新
     currentlyEditingTaskElement.dataset.startTime = startTime;
     currentlyEditingTaskElement.dataset.endTime = endTime;
+    currentlyEditingTaskElement.dataset.time = String(duration);
     currentlyEditingTaskElement.dataset.categoryAId = categoryA_id;
     currentlyEditingTaskElement.dataset.categoryALabel = categoryA_label;
     currentlyEditingTaskElement.dataset.categoryBId = categoryB_id;
@@ -5795,6 +5814,7 @@ function setupTimetableInteractions() {
                     // データを更新
                     target.dataset.startTime = newStartTimeStr;
                     target.dataset.endTime = newEndTimeStr;
+                    target.dataset.time = String(newDuration);
                     target.style.height = (newSlots * slotHeight) + 'px'; // 最終的な高さを確定
 
                     // フォームとサマリーを更新
