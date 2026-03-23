@@ -249,7 +249,7 @@
         }
 
         /* --- 過去日報モーダル固有のスタイル --- */
-        /* タイムテーブル縦幅は従来比 120% 程度（計算しやすいピクセル値） */
+        /* タイムテーブル縦幅: 基準360/420から 120%×120%（7日・月度の共通描画と同一クラス） */
         .past-reports-root {
             padding: 10px;
             height: 100%;
@@ -261,7 +261,7 @@
             flex-wrap: nowrap !important;
             align-items: stretch;
             gap: 5px;
-            min-height: 504px; /* 420px × 120% */
+            min-height: 605px; /* 420 × 1.2 × 1.2 */
             width: 100%;
         }
         .past-reports-ruler-column {
@@ -352,7 +352,7 @@
             position: relative;
             flex-grow: 1;
             flex: 1 1 auto;
-            min-height: 432px; /* 360px × 120% */
+            min-height: 518px; /* 360 × 1.2 × 1.2 */
             overflow: hidden;
             background-color: #fafafa;
             background-image: repeating-linear-gradient(

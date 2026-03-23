@@ -6012,7 +6012,9 @@ function handlePastReportsLayoutClick(event) {
             changed = true;
         }
     } else if (action === 'later-start') {
-        if (pastReportsVisibleStartHour < pastReportsVisibleEndHour - 1) {
+        // 上部「−」: 表示開始を遅くするが、既定の 7:00 より遅くはできない
+        if (pastReportsVisibleStartHour < pastReportsVisibleEndHour - 1
+            && pastReportsVisibleStartHour < PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H) {
             pastReportsVisibleStartHour += 1;
             changed = true;
         }
@@ -6022,7 +6024,9 @@ function handlePastReportsLayoutClick(event) {
             changed = true;
         }
     } else if (action === 'earlier-end') {
-        if (pastReportsVisibleEndHour > pastReportsVisibleStartHour + 1) {
+        // 下部「−」: 表示終了を早くするが、既定の 18:00 より早くはできない
+        if (pastReportsVisibleEndHour > pastReportsVisibleStartHour + 1
+            && pastReportsVisibleEndHour > PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H) {
             pastReportsVisibleEndHour -= 1;
             changed = true;
         }
@@ -6039,9 +6043,15 @@ function updatePastReportsRulerButtons(layout) {
     const le = layout.querySelector('[data-past-action="later-end"]');
     const ee = layout.querySelector('[data-past-action="earlier-end"]');
     if (es) es.disabled = pastReportsVisibleStartHour <= PAST_REPORTS_VISIBLE_TIME.MIN_START_H;
-    if (ls) ls.disabled = pastReportsVisibleStartHour >= pastReportsVisibleEndHour - 1;
+    if (ls) {
+        ls.disabled = pastReportsVisibleStartHour >= pastReportsVisibleEndHour - 1
+            || pastReportsVisibleStartHour >= PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
+    }
     if (le) le.disabled = pastReportsVisibleEndHour >= PAST_REPORTS_VISIBLE_TIME.MAX_END_H;
-    if (ee) ee.disabled = pastReportsVisibleEndHour <= pastReportsVisibleStartHour + 1;
+    if (ee) {
+        ee.disabled = pastReportsVisibleEndHour <= pastReportsVisibleStartHour + 1
+            || pastReportsVisibleEndHour <= PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+    }
 }
 
 /**
@@ -6178,12 +6188,12 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
         <div class="past-day-header">時刻</div>
         <div class="past-timetable-strip">
             <button type="button" class="past-ruler-btn" data-past-action="earlier-start" title="表示開始を1時間早く（最大${PAST_REPORTS_VISIBLE_TIME.MIN_START_H}:00）">+</button>
-            <button type="button" class="past-ruler-btn" data-past-action="later-start" title="表示開始を1時間遅く">−</button>
+            <button type="button" class="past-ruler-btn" data-past-action="later-start" title="表示開始を1時間遅く（${PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H}:00まで）">−</button>
         </div>
         <div class="past-day-timetable past-ruler-timetable"></div>
         <div class="past-timetable-strip">
             <button type="button" class="past-ruler-btn" data-past-action="later-end" title="表示終了を1時間遅く（最大${PAST_REPORTS_VISIBLE_TIME.MAX_END_H}:00）">+</button>
-            <button type="button" class="past-ruler-btn" data-past-action="earlier-end" title="表示終了を1時間早く">−</button>
+            <button type="button" class="past-ruler-btn" data-past-action="earlier-end" title="表示終了を1時間早く（${PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H}:00まで）">−</button>
         </div>
     `;
     const rulerTimetable = rulerColumn.querySelector('.past-ruler-timetable');
