@@ -17,7 +17,7 @@ import time
 import requests
 
 from datetime import datetime, timezone, timedelta
-from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes
+from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes, resolve_paid_leave_minutes_engineering
 from app_core.utils import send_push_message, activate_download_link
 # from app_core.utils import send_quick_report_email # 【実装保留】のためコメントアウト
 from app_core.config import COLLECTION_DAILY_REPORTS, COLLECTION_JOBCAN_RAW_RESPONSES
@@ -644,7 +644,9 @@ def get_user_info():
         "main_group_name": user_info.get("main_group_name"), # 表示名を返す
         "main_group": user_info.get("main_group_id"), # グループIDを返す
         "is_executive": user_info.get("is_executive", False), # フロントエンドへ返す
-        "history": user_info.get("history", {"catA": [], "catB": []}) # 履歴を返す
+        "history": user_info.get("history", {"catA": [], "catB": []}), # 履歴を返す
+        # users に存在する場合のみ値あり（未同期・未設定は null）。参照先はまず本フィールドのみ。
+        "work_kind_id": user_info.get("work_kind_id"),
     }), 200
 
 @api_bp.route("/work-time", methods=["GET"])
@@ -3058,7 +3060,7 @@ def sync_paid_holidays():
                         
                         use_date = datetime.strptime(use_date_str, '%Y-%m-%d')
                         
-                        # 全休/半休判定
+                        # 全休/半休判定（use_days.days）
                         days = 0
                         if log.get("use_days"):
                              days = float(log["use_days"].get("days", 0))
@@ -3070,12 +3072,14 @@ def sync_paid_holidays():
                             holiday_type = 'half'
                         
                         if holiday_type:
-                            # 登録処理 (既存関数を利用)
-                            # 戻り値: 実際に作成/更新した場合のみ True
+                            # 工務: holiday_types.minutes（Firestore）を優先。use_id は work_kind_id または
+                            # holiday_type_id（doc id）と照合。無ければ 480/240。
+                            use_id = log.get("use_id")
+                            minutes = resolve_paid_leave_minutes_engineering(use_id, holiday_type)
                             applied = register_paid_holiday_work_report(
                                 target_employee_id=target_company_id,
                                 target_date=use_date,
-                                holiday_type=holiday_type,
+                                minutes=minutes,
                                 inputter_info=user_info
                             )
                             if applied:
@@ -3187,7 +3191,7 @@ def sync_paid_holidays():
     return jsonify({"status": "success", "count": processed_count}), 200
 
 # --- 内部関数: 有休自動入力用 ---
-def register_paid_holiday_work_report(target_employee_id, target_date, holiday_type, inputter_info):
+def register_paid_holiday_work_report(target_employee_id, target_date, minutes, inputter_info):
     """
     有休情報を元に日報データを生成・更新する関数。
     戻り値: 実際に作成/更新した場合は True、既存有休タスクがありスキップした場合は False。
@@ -3195,14 +3199,16 @@ def register_paid_holiday_work_report(target_employee_id, target_date, holiday_t
     Args:
         target_employee_id (str): 対象従業員の社内ID
         target_date (datetime): 対象日 (datetimeオブジェクト)
-        holiday_type (str): 'full' (480分) or 'half' (240分)
+        minutes (int): 有休タスクの分数（工務: holiday_types.minutes または 480/240 フォールバック）
         inputter_info (dict): 実行者のユーザー情報 (company_employee_id, nameを含む)
     """
-    # 定数定義
-    MINUTES_FULL = 480
-    MINUTES_HALF = 240
-    minutes = MINUTES_FULL if holiday_type == 'full' else MINUTES_HALF
-    
+    try:
+        minutes = int(minutes)
+    except (TypeError, ValueError):
+        minutes = 0
+    if minutes < 0:
+        minutes = 0
+
     CATEGORY_A_ID = "A00"
     CATEGORY_A_LABEL = "有休"
     CATEGORY_B_ID = "e_000000"

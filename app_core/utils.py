@@ -80,7 +80,9 @@ def get_user_info_by_line_id(line_user_id: str) -> dict:
         "is_system_admin": user_data.get("is_system_admin", False), # ★システム管理者フラグを追加
         "main_group_name": group_name,
         "mail": user_data.get("mail"), # メールアドレスを取得する処理を追加
-        "history": history # 選択履歴を追加
+        "history": history, # 選択履歴を追加
+        # Jobcan 従業員マスタ同期（管理画面スタッフ一覧等）で付与。未設定時は None。
+        "work_kind_id": user_data.get("work_kind_id"),
     }
 
 def _get_realtime_work_minutes(jobcan_service, jobcan_employee_id: str) -> int:
@@ -1074,6 +1076,80 @@ def enrich_holiday_types_payload_with_minutes(payload) -> None:
             item["minutes"] = m
         else:
             item.pop("minutes", None)
+
+
+def _minutes_from_holiday_types_doc(data: dict) -> Optional[int]:
+    """holiday_types ドキュメントから minutes を取り出す。不正・未設定は None。"""
+    if not isinstance(data, dict):
+        return None
+    m = data.get("minutes")
+    if m is None:
+        return None
+    try:
+        v = int(float(m))
+    except (TypeError, ValueError):
+        return None
+    if v < 0:
+        return None
+    return v
+
+
+def resolve_paid_leave_minutes_engineering(use_id, holiday_bucket: str) -> int:
+    """
+    工務前提: Jobcan use-days の use_logs.use_id と Firestore holiday_types を照合し、
+    minutes を採用する。holiday_types.minutes はそのまま使用。
+
+    照合順:
+      1) work_kind_id が use_id と一致するドキュメント（先頭1件）
+      2) ドキュメントIDが str(use_id)（holiday_type_id としての一致）
+
+    minutes が取得できない場合は full=480 / half=240 にフォールバック。
+    """
+    fallback = 480 if holiday_bucket == "full" else 240
+
+    if use_id is None:
+        return fallback
+
+    try:
+        uid_int = int(use_id)
+    except (TypeError, ValueError):
+        uid_int = None
+
+    col = db.collection(COLLECTION_HOLIDAY_TYPES)
+
+    # 1) work_kind_id 一致（use_id ↔ holiday_types.work_kind_id）
+    if uid_int is not None:
+        try:
+            q = col.where(filter=FieldFilter("work_kind_id", "==", uid_int)).limit(1)
+            for snap in q.stream():
+                m = _minutes_from_holiday_types_doc(snap.to_dict())
+                if m is not None:
+                    return m
+                break
+        except Exception as e:
+            try:
+                current_app.logger.warning(
+                    f"resolve_paid_leave_minutes_engineering: query work_kind_id={uid_int} failed: {e}"
+                )
+            except Exception:
+                pass
+
+    # 2) ドキュメントID = use_id（holiday_type_id）
+    try:
+        doc = col.document(str(use_id).strip()).get()
+        if doc.exists:
+            m = _minutes_from_holiday_types_doc(doc.to_dict())
+            if m is not None:
+                return m
+    except Exception as e:
+        try:
+            current_app.logger.warning(
+                f"resolve_paid_leave_minutes_engineering: doc get id={use_id} failed: {e}"
+            )
+        except Exception:
+            pass
+
+    return fallback
 
 
 def save_jobcan_holiday_types_to_firestore(db_client, jobcan_result) -> int:
