@@ -2651,6 +2651,12 @@ def _calculate_allowance_period_date_only(target_month: str, now_jst: datetime) 
     月度の開始・終了日は既存 calculate_monthly_period を流用しつつ、時刻は日付境界に正規化する。
     - start_date: 00:00:00.000000
     - end_date:   23:59:59.999999
+
+    NOTE:
+    calculate_monthly_period は「日」のみを切り替える関数で、時刻は保持される。
+    そのため datetime.now(...) をそのまま渡すと、例えば start_date が 2026-02-21 14:37 になり、
+    2026-02-21 09:00 の日報が「月度先頭日なのに範囲外」になるケースがある。
+    月度を日付単位で扱いたい集計では、必ず時刻を日付境界に正規化すること。
     """
     start_date, end_date = calculate_monthly_period(now_jst)
     if target_month == "previous":
@@ -2679,6 +2685,10 @@ def download_allowance_excel():
 
         jst = timezone(timedelta(hours=9))
         base_date = datetime.now(jst)
+        # NOTE:
+        # この集計は「月度を日付単位」で扱う必要があるため、時刻つき now を直接
+        # calculate_monthly_period に渡さない。専用関数で 00:00〜23:59:59.999999 に正規化する。
+        # （月度先頭日の朝データが漏れる再発防止）
         start_date, end_date = _calculate_allowance_period_date_only(target_month, base_date)
 
         # 出力ファイル名: 手当集計_2026年03月度.xlsx
@@ -3409,21 +3419,44 @@ def register_paid_holiday_work_report(
             data = doc.to_dict()
             tasks = data.get('tasks', [])
 
-            # 既に有休タスクが存在する場合は上書きしない
-            # （手動で調整した時間を再同期で潰さないため）
-            has_existing_paid_task = any(
-                t.get('categoryA_id') == CATEGORY_A_ID and t.get('categoryB_id') == CATEGORY_B_ID
-                for t in tasks
-            )
-            if has_existing_paid_task:
-                current_app.logger.info(
-                    f"Skipped paid holiday overwrite for {target_employee_id} on {target_date.strftime('%Y-%m-%d')} "
-                    f"because a paid holiday task already exists."
-                )
-                return False
+            paid_task_indexes = [
+                idx for idx, t in enumerate(tasks)
+                if t.get('categoryA_id') == CATEGORY_A_ID and t.get('categoryB_id') == CATEGORY_B_ID
+            ]
+            has_existing_paid_task = len(paid_task_indexes) > 0
 
-            # 有休タスクが未登録の場合のみ追加
-            tasks.append(new_task)
+            if has_existing_paid_task:
+                # 既存の有休タスクがある場合:
+                # - 工務（start/endなし）は従来どおり上書きしない
+                # - ネット（start/endあり）は、既存有休に時刻が無い場合のみ時刻付きへ補正する
+                if not use_net_task_shape:
+                    current_app.logger.info(
+                        f"Skipped paid holiday overwrite for {target_employee_id} on {target_date.strftime('%Y-%m-%d')} "
+                        f"because a paid holiday task already exists."
+                    )
+                    return False
+
+                all_paid_have_time = all(
+                    tasks[idx].get("startTime") and tasks[idx].get("endTime")
+                    for idx in paid_task_indexes
+                )
+                if all_paid_have_time:
+                    current_app.logger.info(
+                        f"Skipped net paid holiday overwrite for {target_employee_id} on {target_date.strftime('%Y-%m-%d')} "
+                        f"because existing paid holiday task(s) already include start/end time."
+                    )
+                    return False
+
+                first_idx = paid_task_indexes[0]
+                # 既存有休タスクを1件の時刻付き有休タスクへ置換
+                tasks = [
+                    t for idx, t in enumerate(tasks)
+                    if idx not in set(paid_task_indexes)
+                ]
+                tasks.insert(first_idx, new_task)
+            else:
+                # 有休タスクが未登録の場合のみ追加
+                tasks.append(new_task)
             
             # 合計時間の再計算
             new_total = 0
