@@ -249,6 +249,7 @@
         }
 
         /* --- 過去日報モーダル固有のスタイル --- */
+        /* タイムテーブル縦幅は従来比 120% 程度（計算しやすいピクセル値） */
         .past-reports-root {
             padding: 10px;
             height: 100%;
@@ -260,7 +261,7 @@
             flex-wrap: nowrap !important;
             align-items: stretch;
             gap: 5px;
-            min-height: 420px;
+            min-height: 504px; /* 420px × 120% */
             width: 100%;
         }
         .past-reports-ruler-column {
@@ -351,7 +352,7 @@
             position: relative;
             flex-grow: 1;
             flex: 1 1 auto;
-            min-height: 360px;
+            min-height: 432px; /* 360px × 120% */
             overflow: hidden;
             background-color: #fafafa;
             background-image: repeating-linear-gradient(
