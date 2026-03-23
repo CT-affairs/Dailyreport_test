@@ -5942,6 +5942,108 @@ function setupTimetableInteractions() {
 
 let pastReportsCurrentEndDate = null; // 過去日報の表示期間の終了日
 
+/** 過去日報タイムテーブルの表示時間帯（タスク位置・横線と同期） */
+const PAST_REPORTS_VISIBLE_TIME = Object.freeze({
+    DEFAULT_START_H: 7,
+    DEFAULT_END_H: 18,
+    MIN_START_H: 5,
+    MAX_END_H: 22,
+});
+
+let pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
+let pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+/** 直近描画の再描画用キャッシュ（時刻幅変更ボタン用） */
+let pastReportsTimetableRenderState = null;
+/** 取得データの日付範囲が変わったら表示時間帯をデフォルトに戻す */
+let pastReportsLastDataRangeKey = '';
+
+function formatLocalYmd(d) {
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+}
+
+function getPastReportsDataRangeKey(rangeStart, rangeEnd) {
+    return `${formatLocalYmd(rangeStart)}_${formatLocalYmd(rangeEnd)}`;
+}
+
+function maybeResetPastReportsVisibleHoursForDataRange(rangeStart, rangeEnd) {
+    const key = getPastReportsDataRangeKey(rangeStart, rangeEnd);
+    if (key !== pastReportsLastDataRangeKey) {
+        pastReportsLastDataRangeKey = key;
+        pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
+        pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+    }
+}
+
+function getPastReportsVisibleTimeTotals() {
+    const startMin = pastReportsVisibleStartHour * 60;
+    const endMin = pastReportsVisibleEndHour * 60;
+    const totalMin = endMin - startMin;
+    const hourSpan = pastReportsVisibleEndHour - pastReportsVisibleStartHour;
+    return { startMin, endMin, totalMin, hourSpan };
+}
+
+function parsePastReportTimeToMinutes(timeStr) {
+    if (!timeStr || typeof timeStr !== 'string') return null;
+    const parts = timeStr.trim().split(':');
+    if (parts.length < 2) return null;
+    const h = Number(parts[0]);
+    const m = Number(parts[1]);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
+}
+
+function repaintPastReportsTimetablesFromCache() {
+    if (!pastReportsTimetableRenderState) return;
+    const { reportsByDate, rangeStart, rangeEnd, container, taskClickHandler } = pastReportsTimetableRenderState;
+    renderPastReportsTimetables(reportsByDate, rangeStart, rangeEnd, container, taskClickHandler);
+}
+
+function handlePastReportsLayoutClick(event) {
+    const btn = event.target.closest('[data-past-action]');
+    if (!btn || btn.disabled) return;
+    const action = btn.getAttribute('data-past-action');
+    let changed = false;
+    if (action === 'earlier-start') {
+        if (pastReportsVisibleStartHour > PAST_REPORTS_VISIBLE_TIME.MIN_START_H) {
+            pastReportsVisibleStartHour -= 1;
+            changed = true;
+        }
+    } else if (action === 'later-start') {
+        if (pastReportsVisibleStartHour < pastReportsVisibleEndHour - 1) {
+            pastReportsVisibleStartHour += 1;
+            changed = true;
+        }
+    } else if (action === 'later-end') {
+        if (pastReportsVisibleEndHour < PAST_REPORTS_VISIBLE_TIME.MAX_END_H) {
+            pastReportsVisibleEndHour += 1;
+            changed = true;
+        }
+    } else if (action === 'earlier-end') {
+        if (pastReportsVisibleEndHour > pastReportsVisibleStartHour + 1) {
+            pastReportsVisibleEndHour -= 1;
+            changed = true;
+        }
+    }
+    if (!changed) return;
+    event.preventDefault();
+    repaintPastReportsTimetablesFromCache();
+}
+
+function updatePastReportsRulerButtons(layout) {
+    if (!layout) return;
+    const es = layout.querySelector('[data-past-action="earlier-start"]');
+    const ls = layout.querySelector('[data-past-action="later-start"]');
+    const le = layout.querySelector('[data-past-action="later-end"]');
+    const ee = layout.querySelector('[data-past-action="earlier-end"]');
+    if (es) es.disabled = pastReportsVisibleStartHour <= PAST_REPORTS_VISIBLE_TIME.MIN_START_H;
+    if (ls) ls.disabled = pastReportsVisibleStartHour >= pastReportsVisibleEndHour - 1;
+    if (le) le.disabled = pastReportsVisibleEndHour >= PAST_REPORTS_VISIBLE_TIME.MAX_END_H;
+    if (ee) ee.disabled = pastReportsVisibleEndHour <= pastReportsVisibleStartHour + 1;
+}
+
 /**
  * 過去日報参照モーダルを開く
  */
@@ -5951,6 +6053,10 @@ function openPastReportsModal() {
         console.error('Past reports modal not found.');
         return;
     }
+
+    pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
+    pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+    pastReportsLastDataRangeKey = '';
 
     // 表示期間の初期化（今日の1日前を終了日とする）
     pastReportsCurrentEndDate = new Date(currentProxyTarget.date);
@@ -6013,7 +6119,10 @@ async function fetchAndRenderPastReports() {
             throw new Error(errData.message || '過去日報の取得に失敗しました。');
         }
         const reportsByDate = await response.json();
-        renderPastReportsTimetables(reportsByDate, startDate, endDate);
+        const rangeStart = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+        const rangeEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+        maybeResetPastReportsVisibleHoursForDataRange(rangeStart, rangeEnd);
+        renderPastReportsTimetables(reportsByDate, rangeStart, rangeEnd);
 
     } catch (error) {
         console.error(error);
@@ -6022,35 +6131,94 @@ async function fetchAndRenderPastReports() {
 }
 
 /**
- * 取得したデータから7日分のタイムテーブルを描画する
+ * 取得したデータから指定期間のタイムテーブルを描画する（過去日報モーダル／ネット月度過去日報など共通）
+ * @param {Object} reportsByDate - 日付キー（YYYY-MM-DD）→ タスク配列
+ * @param {Date} startDate
+ * @param {Date} endDate
+ * @param {HTMLElement|string|null} [containerEl] - 描画先。省略時は #past-reports-container
+ * @param {function(Event):void} [taskClickHandler] - タスククリック時。省略時は過去日報モーダル用ハンドラ
  */
-function renderPastReportsTimetables(reportsByDate, startDate, endDate) {
-    const container = document.getElementById('past-reports-container');
+function renderPastReportsTimetables(reportsByDate, startDate, endDate, containerEl, taskClickHandler) {
+    const container = (typeof containerEl === 'string' ? document.getElementById(containerEl) : containerEl)
+        || document.getElementById('past-reports-container');
+    if (!container) return;
+
+    const onTaskClick = typeof taskClickHandler === 'function' ? taskClickHandler : handlePastTaskClick;
     container.innerHTML = ''; // コンテナをクリア
 
     // APIから返されたデータが空オブジェクトの場合、メッセージを表示して終了
     if (Object.keys(reportsByDate).length === 0) {
-        container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0; color: #666;">この期間に記録された日報はありません。</div>';
+        pastReportsTimetableRenderState = null;
+        container.innerHTML = '<div style="text-align: center; padding: 50px 0; color: #666;">この期間に記録された日報はありません。</div>';
+        return;
+    }
+
+    const rangeStart = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const rangeEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    const { startMin, endMin, totalMin, hourSpan } = getPastReportsVisibleTimeTotals();
+    if (totalMin <= 0) {
+        pastReportsTimetableRenderState = null;
+        container.innerHTML = '<div style="text-align: center; padding: 50px 0; color: #c00;">表示時間帯の設定が不正です。</div>';
+        return;
+    }
+    if (rangeStart.getTime() > rangeEnd.getTime()) {
+        pastReportsTimetableRenderState = null;
+        container.innerHTML = '<div style="text-align: center; padding: 50px 0; color: #c00;">表示期間が不正です。</div>';
         return;
     }
 
     const days = ['日', '月', '火', '水', '木', '金', '土'];
-    const timeToTop = (timeStr) => {
-        const [hour, minute] = timeStr.split(':').map(Number);
-        // 7:00を基準(0%)とする
-        const totalMinutesFromStart = (hour - 7) * 60 + minute;
-        // 7:00-18:00 (11時間 = 660分) を100%とする
-        return (totalMinutesFromStart / 660) * 100;
-    };
 
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().split('T')[0];
+    const layout = document.createElement('div');
+    layout.className = 'past-reports-layout';
+
+    const rulerColumn = document.createElement('div');
+    rulerColumn.className = 'past-day-column past-reports-ruler-column';
+    rulerColumn.innerHTML = `
+        <div class="past-day-header">時刻</div>
+        <div class="past-timetable-strip">
+            <button type="button" class="past-ruler-btn" data-past-action="earlier-start" title="表示開始を1時間早く（最大${PAST_REPORTS_VISIBLE_TIME.MIN_START_H}:00）">+</button>
+            <button type="button" class="past-ruler-btn" data-past-action="later-start" title="表示開始を1時間遅く">−</button>
+        </div>
+        <div class="past-day-timetable past-ruler-timetable"></div>
+        <div class="past-timetable-strip">
+            <button type="button" class="past-ruler-btn" data-past-action="later-end" title="表示終了を1時間遅く（最大${PAST_REPORTS_VISIBLE_TIME.MAX_END_H}:00）">+</button>
+            <button type="button" class="past-ruler-btn" data-past-action="earlier-end" title="表示終了を1時間早く">−</button>
+        </div>
+    `;
+    const rulerTimetable = rulerColumn.querySelector('.past-ruler-timetable');
+    rulerTimetable.style.setProperty('--past-hour-span', String(hourSpan));
+    for (let h = pastReportsVisibleStartHour; h <= pastReportsVisibleEndHour; h += 1) {
+        const label = document.createElement('div');
+        label.className = 'past-ruler-hour-label';
+        label.textContent = `${h}:00`;
+        const pct = ((h * 60 - startMin) / totalMin) * 100;
+        if (h === pastReportsVisibleStartHour) {
+            label.classList.add('is-first');
+        } else if (h === pastReportsVisibleEndHour) {
+            label.classList.add('is-last');
+        } else {
+            label.classList.add('is-mid');
+            label.style.top = `${pct}%`;
+        }
+        rulerTimetable.appendChild(label);
+    }
+
+    const daysWrap = document.createElement('div');
+    daysWrap.className = 'past-reports-days-wrap';
+    const gridInner = document.createElement('div');
+    gridInner.className = 'past-reports-grid-inner';
+
+    let dayCount = 0;
+    for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
+        dayCount += 1;
+        const dateStr = formatLocalYmd(d);
         const dayOfWeek = days[d.getDay()];
         const reports = reportsByDate[dateStr] || [];
 
         const column = document.createElement('div');
         column.className = 'past-day-column';
-        
+
         let headerClass = '';
         if (d.getDay() === 0) headerClass = 'sunday';
         if (d.getDay() === 6) headerClass = 'saturday';
@@ -6059,27 +6227,35 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate) {
             <div class="past-day-header ${headerClass}">
                 ${dateStr.substring(5).replace('-', '/')} (${dayOfWeek})
             </div>
+            <div class="past-timetable-strip past-day-spacer-strip">&nbsp;</div>
             <div class="past-day-timetable"></div>
+            <div class="past-timetable-strip past-day-spacer-strip">&nbsp;</div>
         `;
 
         const timetableEl = column.querySelector('.past-day-timetable');
+        timetableEl.style.setProperty('--past-hour-span', String(hourSpan));
 
-        reports.forEach(task => {
-            if (!task.startTime || !task.endTime || task.categoryA_id === 'N99') return; // 休憩タスクは表示しない
+        reports.forEach((task) => {
+            if (!task.startTime || !task.endTime || task.categoryA_id === 'N99') return;
 
-            const start = new Date(`1970-01-01T${task.startTime}:00`);
-            const end = new Date(`1970-01-01T${task.endTime}:00`);
-            const duration = (end - start) / 60000;
+            const taskStartMin = parsePastReportTimeToMinutes(task.startTime);
+            const taskEndMin = parsePastReportTimeToMinutes(task.endTime);
+            if (taskStartMin === null || taskEndMin === null) return;
+            const duration = taskEndMin - taskStartMin;
             if (duration <= 0) return;
 
-            const top = timeToTop(task.startTime);
-            const height = (duration / 660) * 100;
+            const clipStart = Math.max(taskStartMin, startMin);
+            const clipEnd = Math.min(taskEndMin, endMin);
+            if (clipEnd <= clipStart) return;
+
+            const top = ((clipStart - startMin) / totalMin) * 100;
+            const height = ((clipEnd - clipStart) / totalMin) * 100;
 
             const taskBlock = document.createElement('div');
             taskBlock.className = 'past-task-block';
             taskBlock.style.top = `${top}%`;
             taskBlock.style.height = `${height}%`;
-            
+
             const catBData = proxyCategoryBOptions.find(opt => opt.id === task.categoryB_id);
             const settings = catBData ? catBData.category_a_settings : null;
             const taskColor = settings ? settings[task.categoryA_id] : null;
@@ -6095,19 +6271,43 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate) {
             taskBlock.dataset.categoryAId = task.categoryA_id;
             taskBlock.dataset.comment = task.comment || '';
 
-            taskBlock.addEventListener('click', handlePastTaskClick);
+            taskBlock.addEventListener('click', onTaskClick);
             timetableEl.appendChild(taskBlock);
         });
 
-        container.appendChild(column);
+        gridInner.appendChild(column);
     }
+
+    if (dayCount === 0) {
+        pastReportsTimetableRenderState = null;
+        container.innerHTML = '<div style="text-align: center; padding: 50px 0; color: #666;">表示する日がありません。</div>';
+        return;
+    }
+
+    gridInner.style.gridTemplateColumns = `repeat(${dayCount}, minmax(72px, 1fr))`;
+    daysWrap.appendChild(gridInner);
+
+    layout.appendChild(rulerColumn);
+    layout.appendChild(daysWrap);
+    container.appendChild(layout);
+
+    layout.addEventListener('click', handlePastReportsLayoutClick);
+    updatePastReportsRulerButtons(layout);
+
+    pastReportsTimetableRenderState = {
+        reportsByDate,
+        rangeStart,
+        rangeEnd,
+        container,
+        taskClickHandler: onTaskClick,
+    };
 }
 
 /**
- * 過去日報のタスクをクリックした際の処理
+ * 過去日報タスクの内容を日報入力フォームへ反映する（モーダル開閉は別）
  */
-function handlePastTaskClick(event) {
-    const taskBlock = event.currentTarget;
+function applyPastTaskSelectionToProxyForm(taskBlock) {
+    if (!taskBlock) return;
     const { categoryBId, categoryAId, comment } = taskBlock.dataset;
 
     if (!categoryBId || !categoryAId) return;
@@ -6128,9 +6328,226 @@ function handlePastTaskClick(event) {
         const current = commentInput.value || '';
         commentInput.value = current ? current + '\n' + comment : comment;
     }
+}
 
+/**
+ * 過去日報のタスクをクリックした際の処理
+ */
+function handlePastTaskClick(event) {
+    applyPastTaskSelectionToProxyForm(event.currentTarget);
     // モーダルを閉じる
-    document.getElementById('past-reports-modal').classList.remove('is-active');
+    const modal = document.getElementById('past-reports-modal');
+    if (modal) modal.classList.remove('is-active');
+}
+
+/**
+ * ネット事業部「月度（21日〜翌月20日）」過去日報用: フォーム反映のみ（表示場所未定のためモーダルは閉じない）
+ */
+function handleNetFiscalPastTaskClick(event) {
+    applyPastTaskSelectionToProxyForm(event.currentTarget);
+}
+
+// --- ★ネット事業部: 月度（21日〜翌月20日）の過去日報表示（UI配置は別途） ---
+
+/** 締め日（翌月側の末日） */
+const NET_FISCAL_PAST_REPORTS_CLOSING_DAY = 20;
+/** 月度の開始日（当月側） */
+const NET_FISCAL_PAST_REPORTS_OPENING_DAY = 21;
+
+/** 現在表示中の「締め日」（常に当月度ブロックの20日）。前月ボタンで1ヶ月戻す */
+let netFiscalPastReportsClosingEndDate = null;
+
+/**
+ * YYYY-MM-DD をローカル日付として解釈（UTCずれ防止）
+ */
+function parseProxyYmdToLocalDate(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return new Date();
+    const parts = dateStr.split('-').map(Number);
+    if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return new Date(dateStr);
+    const [y, m, d] = parts;
+    return new Date(y, m - 1, d);
+}
+
+/**
+ * 基準日が属する「21日〜翌月20日」月度の締め日（20日）を返す
+ * @param {Date} refDate
+ * @returns {Date}
+ */
+function getNetFiscalPastReportsClosingEndForDate(refDate) {
+    const y = refDate.getFullYear();
+    const m = refDate.getMonth();
+    const day = refDate.getDate();
+    let endY;
+    let endM;
+    if (day >= NET_FISCAL_PAST_REPORTS_OPENING_DAY) {
+        endM = m + 1;
+        endY = y + Math.floor(endM / 12);
+        endM = endM % 12;
+    } else {
+        endY = y;
+        endM = m;
+    }
+    return new Date(endY, endM, NET_FISCAL_PAST_REPORTS_CLOSING_DAY);
+}
+
+/**
+ * 締め日（20日）から月度の開始日（前月21日）を返す
+ * @param {Date} closingEndDate
+ * @returns {Date}
+ */
+function getNetFiscalPastReportsStartFromClosingEnd(closingEndDate) {
+    const y = closingEndDate.getFullYear();
+    const m = closingEndDate.getMonth();
+    return new Date(y, m - 1, NET_FISCAL_PAST_REPORTS_OPENING_DAY);
+}
+
+/**
+ * 締め日を1ヶ月前／後にずらす（日は常に20日）
+ * @param {Date} closingEndDate
+ * @param {number} deltaMonths - 負数で前月
+ */
+function shiftNetFiscalPastReportsClosingEnd(closingEndDate, deltaMonths) {
+    const y = closingEndDate.getFullYear();
+    const m = closingEndDate.getMonth();
+    return new Date(y, m + deltaMonths, NET_FISCAL_PAST_REPORTS_CLOSING_DAY);
+}
+
+/**
+ * currentProxyTarget の日付を基準に、当月度（21〜20）の締め日へ状態をリセット
+ */
+function resetNetFiscalPastReportsPeriodToCurrent() {
+    if (!currentProxyTarget || !currentProxyTarget.date) {
+        netFiscalPastReportsClosingEndDate = getNetFiscalPastReportsClosingEndForDate(new Date());
+        return;
+    }
+    const ref = parseProxyYmdToLocalDate(currentProxyTarget.date);
+    netFiscalPastReportsClosingEndDate = getNetFiscalPastReportsClosingEndForDate(ref);
+}
+
+/**
+ * 表示月度を1つ前（前の21日〜20日ブロック）にずらす
+ */
+function goNetFiscalPastReportsToPreviousPeriod() {
+    if (!netFiscalPastReportsClosingEndDate) {
+        resetNetFiscalPastReportsPeriodToCurrent();
+    }
+    netFiscalPastReportsClosingEndDate = shiftNetFiscalPastReportsClosingEnd(netFiscalPastReportsClosingEndDate, -1);
+}
+
+/**
+ * 現在の netFiscalPastReportsClosingEndDate に対応する表示用ラベル・日付文字列
+ * @returns {{ startDate: Date, endDate: Date, startDateStr: string, endDateStr: string, label: string }}
+ */
+function getNetFiscalPastReportsCurrentRange() {
+    if (!netFiscalPastReportsClosingEndDate) {
+        resetNetFiscalPastReportsPeriodToCurrent();
+    }
+    const endDate = new Date(netFiscalPastReportsClosingEndDate);
+    const startDate = getNetFiscalPastReportsStartFromClosingEnd(endDate);
+    const toYmd = (d) => {
+        const yy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
+    };
+    const startDateStr = toYmd(startDate);
+    const endDateStr = toYmd(endDate);
+    return {
+        startDate,
+        endDate,
+        startDateStr,
+        endDateStr,
+        label: `${startDateStr} 〜 ${endDateStr}`,
+    };
+}
+
+/**
+ * 基準日の月度ブロックが「現在の作業日（プロキシ日付）」と同じか（次月ボタン無効化などに利用可）
+ */
+function isNetFiscalPastReportsAtCurrentTargetPeriod() {
+    if (!currentProxyTarget || !currentProxyTarget.date || !netFiscalPastReportsClosingEndDate) return false;
+    const ref = parseProxyYmdToLocalDate(currentProxyTarget.date);
+    const currentClosing = getNetFiscalPastReportsClosingEndForDate(ref);
+    return (
+        currentClosing.getFullYear() === netFiscalPastReportsClosingEndDate.getFullYear()
+        && currentClosing.getMonth() === netFiscalPastReportsClosingEndDate.getMonth()
+        && currentClosing.getDate() === netFiscalPastReportsClosingEndDate.getDate()
+    );
+}
+
+/**
+ * ネット事業部用: 月度（21日〜翌月20日）の過去日報を取得し、指定コンテナに描画する。
+ * 表示場所の要素が決まったら container を渡して呼び出す。
+ *
+ * @param {HTMLElement|string} containerEl - 描画先
+ * @param {HTMLElement|string|null} [periodDisplayEl] - 期間表示用（省略可）
+ * @param {{ nextButtonEl?: HTMLElement|string|null }} [options] - nextButtonEl があれば「現在の作業月度」まで来たら無効化
+ */
+async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, options) {
+    const container = typeof containerEl === 'string' ? document.getElementById(containerEl) : containerEl;
+    if (!container || !currentProxyTarget) return;
+
+    const periodEl = periodDisplayEl
+        ? (typeof periodDisplayEl === 'string' ? document.getElementById(periodDisplayEl) : periodDisplayEl)
+        : null;
+    const nextBtn = options && options.nextButtonEl
+        ? (typeof options.nextButtonEl === 'string' ? document.getElementById(options.nextButtonEl) : options.nextButtonEl)
+        : null;
+
+    if (!netFiscalPastReportsClosingEndDate) {
+        resetNetFiscalPastReportsPeriodToCurrent();
+    }
+
+    const range = getNetFiscalPastReportsCurrentRange();
+    if (periodEl) {
+        periodEl.textContent = range.label;
+    }
+    if (nextBtn) {
+        nextBtn.disabled = isNetFiscalPastReportsAtCurrentTargetPeriod();
+    }
+
+    container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0;">読み込み中...</div>';
+
+    try {
+        const response = await fetchWithAuth(
+            `${API_BASE_URL}/api/manager/past-reports?employee_id=${currentProxyTarget.employeeId}&start_date=${range.startDateStr}&end_date=${range.endDateStr}`,
+        );
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.message || '過去日報の取得に失敗しました。');
+        }
+        const reportsByDate = await response.json();
+        const rs = new Date(range.startDate.getFullYear(), range.startDate.getMonth(), range.startDate.getDate());
+        const re = new Date(range.endDate.getFullYear(), range.endDate.getMonth(), range.endDate.getDate());
+        maybeResetPastReportsVisibleHoursForDataRange(rs, re);
+        renderPastReportsTimetables(
+            reportsByDate,
+            rs,
+            re,
+            container,
+            handleNetFiscalPastTaskClick,
+        );
+    } catch (error) {
+        console.error(error);
+        container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0; color: red;">${error.message}</div>`;
+    }
+}
+
+/**
+ * 次の月度（21〜20）へ（現在の作業日が属する月度を上限とする想定で next ボタンと併用）
+ */
+function goNetFiscalPastReportsToNextPeriod() {
+    if (!netFiscalPastReportsClosingEndDate) {
+        resetNetFiscalPastReportsPeriodToCurrent();
+        return;
+    }
+    const ref = currentProxyTarget && currentProxyTarget.date
+        ? parseProxyYmdToLocalDate(currentProxyTarget.date)
+        : new Date();
+    const maxClosing = getNetFiscalPastReportsClosingEndForDate(ref);
+    const candidate = shiftNetFiscalPastReportsClosingEnd(netFiscalPastReportsClosingEndDate, 1);
+    if (candidate > maxClosing) return;
+    netFiscalPastReportsClosingEndDate = candidate;
 }
 
 // --- ★ここまで: 過去日報参照機能 ---

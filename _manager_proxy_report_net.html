@@ -182,8 +182,8 @@
                     <span id="past-reports-period-display" style="font-weight: bold;"></span>
                     <button id="past-reports-next-btn" class="btn-secondary">未来7日 ▶</button>
                 </div>
-                <div id="past-reports-container" class="past-reports-grid" style="flex-grow: 1; overflow-y: auto;">
-                    <!-- ここに7日分のタイムテーブルがJSで描画される -->
+                <div id="past-reports-container" class="past-reports-root" style="flex-grow: 1; overflow: auto;">
+                    <!-- JS: 左・時刻軸＋日付列グリッド -->
                 </div>
             </div>
         </div>
@@ -249,19 +249,39 @@
         }
 
         /* --- 過去日報モーダル固有のスタイル --- */
-        /* (このスタイルは .dr-modal-content の子要素に適用される) */
-        .past-reports-grid {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 5px;
+        .past-reports-root {
             padding: 10px;
             height: 100%;
+            box-sizing: border-box;
+        }
+        .past-reports-layout {
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
+            gap: 5px;
+            min-height: 420px;
+        }
+        .past-reports-ruler-column {
+            flex: 0 0 52px;
+            min-width: 48px;
+        }
+        .past-reports-days-wrap {
+            flex: 1;
+            min-width: 0;
+            overflow-x: auto;
+        }
+        .past-reports-grid-inner {
+            display: grid;
+            gap: 5px;
+            min-height: 100%;
+            /* grid-template-columns は JS で日数分設定 */
         }
         .past-day-column {
             border: 1px solid #ddd;
             background-color: #fdfdfd;
             display: flex;
             flex-direction: column;
+            min-width: 72px;
         }
         .past-day-header {
             text-align: center;
@@ -274,12 +294,83 @@
         }
         .past-day-header.saturday { color: #3498db; }
         .past-day-header.sunday { color: #e74c3c; }
+        /* 時刻調整ボタン帯（ルーラ列は実ボタン、他列は高さ合わせのスペーサ） */
+        .past-timetable-strip {
+            flex-shrink: 0;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            box-sizing: border-box;
+        }
+        .past-ruler-btn {
+            width: 22px;
+            height: 20px;
+            padding: 0;
+            margin: 0;
+            font-size: 12px;
+            line-height: 1;
+            cursor: pointer;
+            border: 1px solid #bbb;
+            border-radius: 3px;
+            background: #f8f8f8;
+            color: #333;
+        }
+        .past-ruler-btn:hover:not(:disabled) {
+            background: #e8f4ff;
+            border-color: #3498db;
+        }
+        .past-ruler-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+        .past-day-spacer-strip {
+            visibility: hidden;
+            pointer-events: none;
+        }
+        /* タスク位置と一致させる時間軸（7:00〜18:00＝11時間分の区切り。--past-hour-span で可変） */
         .past-day-timetable {
+            --past-hour-span: 11;
             position: relative;
             flex-grow: 1;
-            min-height: 400px; /* 最小高さを確保 */
-            background-image: linear-gradient(to bottom, #eee 1px, transparent 1px);
-            background-size: 100% 38.46px;
+            flex: 1 1 auto;
+            min-height: 360px;
+            overflow: hidden;
+            background-color: #fafafa;
+            background-image: repeating-linear-gradient(
+                to bottom,
+                #e0e0e0 0,
+                #e0e0e0 1px,
+                transparent 1px,
+                transparent calc(100% / var(--past-hour-span))
+            );
+        }
+        .past-ruler-timetable {
+            overflow: visible;
+        }
+        .past-ruler-hour-label {
+            position: absolute;
+            left: 0;
+            right: 0;
+            font-size: 10px;
+            line-height: 1.1;
+            color: #555;
+            text-align: right;
+            padding-right: 2px;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        .past-ruler-hour-label.is-first {
+            top: 0;
+            transform: translateY(0);
+        }
+        .past-ruler-hour-label.is-last {
+            top: 100%;
+            transform: translateY(-100%);
+        }
+        .past-ruler-hour-label.is-mid {
+            transform: translateY(-50%);
         }
         .past-task-block {
             position: absolute;
