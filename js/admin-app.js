@@ -6342,8 +6342,15 @@ async function fetchAndRenderPastReports() {
     nextBtn.disabled = endDate >= today;
 
     try {
-        // NOTE: バックエンドに /api/manager/past-reports の実装が必要です
-        const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/past-reports?employee_id=${currentProxyTarget.employeeId}&start_date=${startDateStr}&end_date=${endDateStr}`);
+        // 管理者APIを優先し、権限不足時は一般APIへフォールバック
+        let response = await fetchWithAuth(
+            `${API_BASE_URL}/api/manager/past-reports?employee_id=${currentProxyTarget.employeeId}&start_date=${startDateStr}&end_date=${endDateStr}`,
+        );
+        if (!response.ok && (response.status === 401 || response.status === 403)) {
+            response = await fetchWithAuth(
+                `${API_BASE_URL}/api/past-reports?employee_id=${currentProxyTarget.employeeId}&start_date=${startDateStr}&end_date=${endDateStr}`,
+            );
+        }
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.message || '過去日報の取得に失敗しました。');
@@ -6841,9 +6848,14 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
     container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0;">読み込み中...</div>';
 
     try {
-        const response = await fetchWithAuth(
+        let response = await fetchWithAuth(
             `${API_BASE_URL}/api/manager/past-reports?employee_id=${ctx.employeeId}&start_date=${range.startDateStr}&end_date=${range.endDateStr}`,
         );
+        if (!response.ok && (response.status === 401 || response.status === 403)) {
+            response = await fetchWithAuth(
+                `${API_BASE_URL}/api/past-reports?employee_id=${ctx.employeeId}&start_date=${range.startDateStr}&end_date=${range.endDateStr}`,
+            );
+        }
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.message || '過去日報の取得に失敗しました。');

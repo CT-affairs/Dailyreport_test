@@ -2018,40 +2018,74 @@ def get_past_reports():
         abort(400, "Invalid date format. Use YYYY-MM-DD.")
 
     try:
-        query = db.collection(COLLECTION_DAILY_REPORTS) \
-            .where(filter=FieldFilter("company_employee_id", "==", employee_id)) \
-            .where(filter=FieldFilter("date", ">=", start_date)) \
-            .where(filter=FieldFilter("date", "<=", end_date)) \
-            .order_by("date")
-
-        docs = query.stream()
-
-        reports_by_date = {}
-        for doc in docs:
-            data = doc.to_dict()
-            report_date = data.get('date')
-            if isinstance(report_date, datetime):
-                date_key = report_date.strftime('%Y-%m-%d')
-                # フロントエンドが期待するタスクの形式で返す
-                raw_tasks = data.get('tasks', []) or []
-                normalized_tasks = []
-                for task in raw_tasks:
-                    if not isinstance(task, dict):
-                        continue
-                    # 既存タスクをコピーしつつ comment フィールドを必ず持たせる
-                    task_copy = dict(task)
-                    if 'comment' not in task_copy:
-                        task_copy['comment'] = ""
-                    normalized_tasks.append(task_copy)
-
-                reports_by_date[date_key] = normalized_tasks
-        
-        # データが存在しない場合でも200 OKと空のオブジェクトを返す
-        return jsonify(reports_by_date), 200
-
+        return jsonify(_fetch_past_reports_by_date(employee_id, start_date, end_date)), 200
     except Exception as e:
         current_app.logger.error(f"Error fetching past reports for {employee_id}: {e}", exc_info=True)
         abort(500, "過去日報の取得中にエラーが発生しました。")
+
+
+@api_bp.route("/past-reports", methods=["GET"])
+@token_required
+@login_required
+def get_past_reports_for_user():
+    """
+    一般ユーザー向け過去日報取得。
+    employee_id 未指定時は本人のみ。指定時は本人IDか管理者のみ許可。
+    """
+    user_info = get_user_info_by_line_id(g.line_user_id)
+    self_employee_id = user_info.get("company_employee_id")
+    is_manager = bool(user_info.get("is_manager"))
+
+    employee_id = request.args.get('employee_id') or self_employee_id
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+
+    if not all([employee_id, start_date_str, end_date_str]):
+        abort(400, "employee_id, start_date, end_date are required.")
+
+    if (not is_manager) and str(employee_id) != str(self_employee_id):
+        abort(403, "他ユーザーの過去日報参照には管理者権限が必要です。")
+
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+    except ValueError:
+        abort(400, "Invalid date format. Use YYYY-MM-DD.")
+
+    try:
+        return jsonify(_fetch_past_reports_by_date(employee_id, start_date, end_date)), 200
+    except Exception as e:
+        current_app.logger.error(f"Error fetching user past reports for {employee_id}: {e}", exc_info=True)
+        abort(500, "過去日報の取得中にエラーが発生しました。")
+
+
+def _fetch_past_reports_by_date(employee_id: str, start_date: datetime, end_date: datetime) -> dict:
+    query = db.collection(COLLECTION_DAILY_REPORTS) \
+        .where(filter=FieldFilter("company_employee_id", "==", employee_id)) \
+        .where(filter=FieldFilter("date", ">=", start_date)) \
+        .where(filter=FieldFilter("date", "<=", end_date)) \
+        .order_by("date")
+
+    docs = query.stream()
+    reports_by_date = {}
+    for doc in docs:
+        data = doc.to_dict()
+        report_date = data.get('date')
+        if isinstance(report_date, datetime):
+            date_key = report_date.strftime('%Y-%m-%d')
+            raw_tasks = data.get('tasks', []) or []
+            normalized_tasks = []
+            for task in raw_tasks:
+                if not isinstance(task, dict):
+                    continue
+                task_copy = dict(task)
+                if 'comment' not in task_copy:
+                    task_copy['comment'] = ""
+                normalized_tasks.append(task_copy)
+
+            reports_by_date[date_key] = normalized_tasks
+
+    return reports_by_date
 
 @api_bp.route("/manager/work-times", methods=["GET"])
 @token_required
