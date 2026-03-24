@@ -161,11 +161,14 @@ async function updateUserInfo() {
         // --- メニューの表示制御 ---
         const koumuMenuItems = document.querySelectorAll('.menu-koumu');
         const netMenuItems = document.querySelectorAll('.menu-net');
+        const somuMenuItems = document.querySelectorAll('.menu-somu');
 
         const showKoumu = () => koumuMenuItems.forEach(el => el.style.display = '');
         const hideKoumu = () => koumuMenuItems.forEach(el => el.style.display = 'none');
         const showNet = () => netMenuItems.forEach(el => el.style.display = '');
         const hideNet = () => netMenuItems.forEach(el => el.style.display = 'none');
+        const showSomu = () => somuMenuItems.forEach(el => el.style.display = '');
+        const hideSomu = () => somuMenuItems.forEach(el => el.style.display = 'none');
 
         if (systemUser) {
             const isSystemAdmin = systemUser.is_system_admin === true || systemUser.is_system_admin === 1 || systemUser.is_system_admin === '1';
@@ -175,7 +178,9 @@ async function updateUserInfo() {
                 // システム管理者は全て表示
                 showKoumu();
                 showNet();
+                showSomu();
             } else {
+                hideSomu();
                 if (mainGroupId === '3' || mainGroupId === 3) {
                     // ネット事業部
                     hideKoumu();
@@ -194,6 +199,7 @@ async function updateUserInfo() {
             // ユーザー情報が取得できない場合は、安全のため両方非表示にする
             hideKoumu();
             hideNet();
+            hideSomu();
         }
 
     } catch (error) {
@@ -1262,6 +1268,11 @@ function handleNavigation(target, params = {}, options = { push: true }) {
         case 'groups':
             pageTitle.textContent = 'グループ設定';
             contentArea.innerHTML = '<div style="padding:20px;">グループ設定画面（準備中）</div>';
+            break;
+
+        case 'reports':
+            pageTitle.textContent = '帳票';
+            contentArea.innerHTML = '<div style="padding:20px;"></div>';
             break;
 
         case 'system_admin':
