@@ -2606,8 +2606,12 @@ def download_staff_summary_excel():
             # シート名が 'temp' でない場合はアクティブシートを使用
             template_sheet = wb.active
         
-        # 集計する業務種別IDの固定順序
-        cat_a_order = ['A01', 'A02', 'A05', 'A10', 'A03', 'A09', 'A04', 'A07', 'A06', 'A08', 'A00']
+        # 集計する業務種別IDの固定順序（テンプレ C 列〜の見出しと一致させる。A11/A12 追加に伴い工事番号列は +2）
+        cat_a_order = [
+            'A01', 'A11', 'A02', 'A05', 'A10', 'A03', 'A12', 'A09', 'A04', 'A07', 'A06', 'A08', 'A00',
+        ]
+        # Category B（工事番号）動的列の開始列（1-based）。旧15列目→A列2列増に合わせ17列目（Q）以降
+        staff_summary_cat_b_start_col = 17
         
         # 各従業員のシートを作成
         for emp in employees:
@@ -2627,10 +2631,10 @@ def download_staff_summary_excel():
             ws['B1'] = emp_name
             ws['B2'] = emp_id
             
-            # Category B (工事番号) ヘッダー (O列=15列目以降)
+            # Category B (工事番号) ヘッダー (Q列=17列目以降)
             emp_proj_list = sorted(list(employee_projects.get(emp_id, set())))
             for i, proj_label in enumerate(emp_proj_list):
-                col_idx = 15 + i
+                col_idx = staff_summary_cat_b_start_col + i
                 ws.cell(row=2, column=col_idx, value=proj_label).alignment = Alignment(horizontal='center')
             
             # データ行の書き込み (行3〜33)
@@ -2644,7 +2648,7 @@ def download_staff_summary_excel():
                 
                 row_total_min = 0
                 
-                # C列(3) 〜 M列(13)
+                # C列(3) 〜 O列(15) … 業務種別13列
                 for i, cat_id in enumerate(cat_a_order):
                     col_idx = 3 + i
                     val_min = day_data.get(cat_id, 0)
@@ -2658,9 +2662,9 @@ def download_staff_summary_excel():
                 if row_total_min > 0:
                     ws.cell(row=row_idx, column=2, value=row_total_min/60.0)
                 
-                # O列(15) 〜 (Category B / 工事番号)
+                # Q列(17) 〜 (Category B / 工事番号)
                 for i, proj_label in enumerate(emp_proj_list):
-                    col_idx = 15 + i
+                    col_idx = staff_summary_cat_b_start_col + i
                     val_min = day_data_b.get(proj_label, 0)
                     
                     if val_min > 0:
