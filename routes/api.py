@@ -1244,6 +1244,14 @@ def get_category_b_for_user():
         # 1. Firestoreから基本情報を取得
         user_info = get_user_info_by_line_id(g.line_user_id)
         jobcan_employee_id = user_info.get("jobcan_employee_id")
+        current_app.logger.info(
+            "[/api/categories/b] start line_user_id=%s company_employee_id=%s fs_main_group=%s fs_main_group_name=%s has_jobcan_employee_id=%s",
+            g.line_user_id,
+            user_info.get("company_employee_id"),
+            user_info.get("main_group"),
+            user_info.get("main_group_name"),
+            bool(jobcan_employee_id),
+        )
 
         # 2. Jobcan APIから最新のグループ情報を取得
         if jobcan_employee_id:
@@ -1311,6 +1319,14 @@ def get_category_b_for_user():
             else:
                 # デフォルトは工務
                 kind = "engineering"
+        current_app.logger.info(
+            "[/api/categories/b] resolved line_user_id=%s latest_group_id=%s resolved_main_group=%s resolved_group_name=%s kind=%s",
+            g.line_user_id,
+            locals().get("latest_group_id"),
+            resolved_main_group,
+            user_info.get("main_group_name", ""),
+            kind,
+        )
 
         # 4. 決定したkindでカテゴリを取得して返す (詳細情報付き)
         # get_all_category_b_labels(kind=kind) の代わりに直接クエリを実行
@@ -1335,6 +1351,20 @@ def get_category_b_for_user():
 
         # order降順、label昇順でソート
         categories.sort(key=lambda x: (-x['order'], x['label']))
+        current_app.logger.info(
+            "[/api/categories/b] result line_user_id=%s kind=%s category_count=%d",
+            g.line_user_id,
+            kind,
+            len(categories),
+        )
+        if len(categories) == 0:
+            current_app.logger.warning(
+                "[/api/categories/b] empty categories line_user_id=%s kind=%s resolved_main_group=%s group_name=%s",
+                g.line_user_id,
+                kind,
+                resolved_main_group,
+                user_info.get("main_group_name", ""),
+            )
 
         return jsonify(categories), 200
     except Exception as e:
