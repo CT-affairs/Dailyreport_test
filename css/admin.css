@@ -332,6 +332,18 @@ th.sortable-th:hover {
     justify-content: flex-start !important;
     align-items: flex-start !important;
 }
+/* 月度・過去日報一覧: パネルを画面横幅いっぱい */
+#net-fiscal-past-reports-modal.net-fiscal-past-reports-modal-root.dr-modal-pane-container {
+    justify-content: stretch !important;
+    align-items: stretch !important;
+}
+#net-fiscal-past-reports-modal .net-fiscal-past-reports-modal-pane.dr-modal-content.dr-modal-left-pane {
+    width: 100% !important;
+    max-width: none !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    border-radius: 0 !important;
+}
 .dr-modal-content {
     background: #fff !important;
     border-radius: 8px !important;
@@ -392,11 +404,16 @@ th.sortable-th:hover {
     min-width: 72px;
     max-width: none;
 }
-/* 月度一覧は1日分の列幅を7日分の約60%に */
+/* 月度一覧: 1日列は7日分比で狭く、さらに約10%狭く */
 .past-reports-grid-inner.past-reports-grid-inner--fiscal > .past-day-column {
-    min-width: 43px; /* 72px × 0.6 */
+    min-width: 39px; /* 約 43px × 0.9 */
     flex: 1 1 0;
     max-width: none;
+}
+/* 月度: タスク表示文字をやや小さく */
+.past-reports-grid-inner.past-reports-grid-inner--fiscal .past-task-block {
+    font-size: 0.62em;
+    padding: 1px 2px;
 }
 .past-day-column {
     border: 1px solid #ddd;

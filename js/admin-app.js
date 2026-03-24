@@ -6306,7 +6306,8 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
     daysWrap.className = 'past-reports-days-wrap';
     const gridInner = document.createElement('div');
     gridInner.className = 'past-reports-grid-inner';
-    if (container && container.id === 'net-fiscal-past-reports-container') {
+    const isNetFiscalMonthlyView = !!(container && container.id === 'net-fiscal-past-reports-container');
+    if (isNetFiscalMonthlyView) {
         gridInner.classList.add('past-reports-grid-inner--fiscal');
     }
 
@@ -6324,9 +6325,14 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
         if (d.getDay() === 0) headerClass = 'sunday';
         if (d.getDay() === 6) headerClass = 'saturday';
 
+        const dateOnlyLabel = dateStr.substring(5).replace('-', '/');
+        const headerText = isNetFiscalMonthlyView
+            ? dateOnlyLabel
+            : `${dateOnlyLabel} (${dayOfWeek})`;
+
         column.innerHTML = `
             <div class="past-day-header ${headerClass}">
-                ${dateStr.substring(5).replace('-', '/')} (${dayOfWeek})
+                ${headerText}
             </div>
             <div class="past-timetable-strip past-day-spacer-strip">&nbsp;</div>
             <div class="past-day-timetable"></div>
