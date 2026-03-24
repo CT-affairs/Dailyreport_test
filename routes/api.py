@@ -1283,13 +1283,34 @@ def get_category_b_for_user():
             else:
                 current_app.logger.warning(f"Could not retrieve latest group info from Jobcan for user {g.line_user_id}. Falling back to Firestore data.")
 
-        # 3. 最新のグループ名に基づいてカテゴリの 'kind' を決定
-        current_group_name = user_info.get("main_group_name", "")
-        if "ネット" in current_group_name:
+        # 3. カテゴリ kind を決定
+        #    優先順位:
+        #    (1) Jobcan から取得した最新 main_group
+        #    (2) users.main_group（Firestore）
+        #    (3) main_group_name の文字列判定（後方互換フォールバック）
+        resolved_main_group = None
+        if jobcan_employee_id:
+            # 上で取得できていれば latest_group_id がローカル変数に入っている想定
+            try:
+                if latest_group_id is not None:
+                    resolved_main_group = str(latest_group_id).strip()
+            except Exception:
+                resolved_main_group = None
+
+        if not resolved_main_group:
+            fs_main_group = user_info.get("main_group")
+            if fs_main_group is not None:
+                resolved_main_group = str(fs_main_group).strip()
+
+        if resolved_main_group == "3":
             kind = "net"
         else:
-            # デフォルトは工務
-            kind = "engineering"
+            current_group_name = user_info.get("main_group_name", "") or ""
+            if "ネット" in current_group_name:
+                kind = "net"
+            else:
+                # デフォルトは工務
+                kind = "engineering"
 
         # 4. 決定したkindでカテゴリを取得して返す (詳細情報付き)
         # get_all_category_b_labels(kind=kind) の代わりに直接クエリを実行
