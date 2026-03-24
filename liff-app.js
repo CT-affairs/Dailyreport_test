@@ -754,6 +754,7 @@ function showSelectionModal(title, options, inputElement, modalOptions = {}) {
         const modalTitle = document.getElementById('selection-modal-title');
         const optionsContainer = document.getElementById('selection-modal-options');
         const modalContent = modal.querySelector('.modal-content');
+        let viewportCleanup = null;
 
         // ★要望: 上端の余白を狭くする
         modalContent.style.paddingTop = '2px';
@@ -765,6 +766,10 @@ function showSelectionModal(title, options, inputElement, modalOptions = {}) {
             document.body.classList.remove('modal-open');
             optionsContainer.removeEventListener('click', handleSelection);
             window.onclick = null; // window.onclickもリセット
+            if (typeof viewportCleanup === 'function') {
+                viewportCleanup();
+                viewportCleanup = null;
+            }
             reject('cancelled');
         };
 
@@ -783,9 +788,46 @@ function showSelectionModal(title, options, inputElement, modalOptions = {}) {
         // 戻るボタンで閉じられた場合はキャンセル扱いとする
         openModalState(closeModalAndCancel);
 
+        // モーダルの高さ調整:
+        // iOS/LIFF WebView で vh が過大計算されるケースに備え、dvh + visualViewport で補正する。
+        const applySelectionModalViewport = () => {
+            const vv = window.visualViewport;
+            const vhPx = vv && vv.height ? Math.floor(vv.height) : window.innerHeight;
+            // 上下に少し余白を残し、機種差でのはみ出しを避ける
+            const desired = Math.max(320, vhPx - 12);
+            modalContent.style.height = `${desired}px`;
+            modalContent.style.maxHeight = '92dvh';
+        };
+        const bindSelectionModalViewportResize = () => {
+            let rafId = 0;
+            const onResize = () => {
+                if (rafId) cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(() => {
+                    applySelectionModalViewport();
+                });
+            };
+            applySelectionModalViewport();
+            // 初回表示直後にもう一度補正（WebViewで1フレーム遅れるケース対策）
+            requestAnimationFrame(() => requestAnimationFrame(applySelectionModalViewport));
+            window.addEventListener('resize', onResize);
+            window.addEventListener('orientationchange', onResize);
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', onResize);
+                window.visualViewport.addEventListener('scroll', onResize);
+            }
+            return () => {
+                if (rafId) cancelAnimationFrame(rafId);
+                window.removeEventListener('resize', onResize);
+                window.removeEventListener('orientationchange', onResize);
+                if (window.visualViewport) {
+                    window.visualViewport.removeEventListener('resize', onResize);
+                    window.visualViewport.removeEventListener('scroll', onResize);
+                }
+            };
+        };
+
         // モーダルの高さを画面いっぱいに広げるスタイル調整
         modal.style.paddingTop = '2px'; // 上部の余白を詰める
-        modalContent.style.height = '90%'; // 高さを確保
         modalContent.style.display = 'flex';
         modalContent.style.flexDirection = 'column';
         optionsContainer.style.maxHeight = 'none'; // max-height制限を解除
@@ -921,6 +963,10 @@ function showSelectionModal(title, options, inputElement, modalOptions = {}) {
                     modal.style.display = 'none';
                     document.body.classList.remove('modal-open');
                     optionsContainer.removeEventListener('click', handleSelection);
+                    if (typeof viewportCleanup === 'function') {
+                        viewportCleanup();
+                        viewportCleanup = null;
+                    }
                     resolve(selectedValue);
                 } else {
                     // 1回目のタップ（選択）
@@ -987,6 +1033,7 @@ function showSelectionModal(title, options, inputElement, modalOptions = {}) {
         optionsContainer.addEventListener('click', handleSelection);
         modal.style.display = 'block';
         document.body.classList.add('modal-open'); // 背景スクロール固定
+        viewportCleanup = bindSelectionModalViewportResize();
 
         // モーダルの外側をクリックしたら閉じる（キャンセル扱い）
         window.onclick = (event) => {
