@@ -2691,6 +2691,178 @@ def download_staff_summary_excel():
         abort(500, f"Excel生成中にエラーが発生しました: {str(e)}")
 
 
+def _parse_daily_report_doc_id(doc_id: str) -> tuple[str | None, str | None]:
+    """{company_employee_id}_{YYYY-MM-DD} 形式から ID と日付を返す。"""
+    if not doc_id or "_" not in doc_id:
+        return None, None
+    emp_id, date_part = doc_id.rsplit("_", 1)
+    if len(date_part) != 10 or date_part[4] != "-" or date_part[7] != "-":
+        return None, None
+    return emp_id, date_part
+
+
+def _report_date_field_to_str(r_date) -> str | None:
+    if r_date is None:
+        return None
+    if isinstance(r_date, datetime):
+        return r_date.strftime("%Y-%m-%d")
+    if isinstance(r_date, str) and len(r_date) >= 10:
+        return r_date[:10]
+    return None
+
+
+def _iter_tasks_for_net_csv(tasks):
+    """tasks が list または map（連番キー）のどちらでも1要素ずつ返す。"""
+    if tasks is None:
+        return
+    if isinstance(tasks, list):
+        for t in tasks:
+            yield t
+    elif isinstance(tasks, dict):
+        for t in tasks.values():
+            yield t
+
+
+def _norm_str_id(v) -> str | None:
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+
+def _safe_int_minutes(v) -> int | None:
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_net_daily_report_group(group_id) -> bool:
+    """ネット事業部の日報（group_id=3）のみ。"""
+    if group_id is None:
+        return False
+    return str(group_id).strip() == "3"
+
+
+@api_bp.route("/manager/net-task-summary/csv", methods=["POST"])
+@token_required
+@login_required
+def download_net_task_summary_csv():
+    """
+    ネット事業部の日報データを月度単位で集計し、ピボット用の縦持ちCSVを返す。
+    集計キー: (company_employee_id, date, categoryA_id, categoryB_id) ／ time は分で合算。
+    """
+    try:
+        data = request.get_json() or {}
+        target_month = data.get("target_month", "current")
+
+        jst = timezone(timedelta(hours=9))
+        base_date = datetime.now(jst)
+        start_date, end_date = calculate_monthly_period(base_date)
+
+        if target_month == "previous":
+            prev_month_base = start_date - timedelta(days=1)
+            start_date, end_date = calculate_monthly_period(prev_month_base)
+
+        current_app.logger.info(
+            f"Net task summary CSV period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+        )
+
+        query = (
+            db.collection(COLLECTION_DAILY_REPORTS)
+            .where(filter=FieldFilter("date", ">=", start_date))
+            .where(filter=FieldFilter("date", "<=", end_date))
+        )
+        docs = query.stream()
+
+        # key: (emp_id, date_str, cat_a_id, cat_b_id)
+        # value: { time, categoryA_label, categoryB_label, employee_name }
+        agg: dict = {}
+
+        for doc in docs:
+            rep = doc.to_dict()
+            if not _is_net_daily_report_group(rep.get("group_id")):
+                continue
+
+            parsed_e, parsed_d = _parse_daily_report_doc_id(doc.id)
+            emp_id = _norm_str_id(rep.get("company_employee_id")) or parsed_e
+            if not emp_id:
+                continue
+
+            date_str = _report_date_field_to_str(rep.get("date")) or parsed_d
+            if not date_str:
+                continue
+
+            employee_name = rep.get("employee_name") or ""
+
+            for task in _iter_tasks_for_net_csv(rep.get("tasks")):
+                if not isinstance(task, dict):
+                    continue
+                cat_a = _norm_str_id(task.get("categoryA_id"))
+                cat_b = _norm_str_id(task.get("categoryB_id"))
+                tmin = _safe_int_minutes(task.get("time"))
+                if tmin is None:
+                    continue
+                if not cat_a or not cat_b:
+                    continue
+
+                key = (emp_id, date_str, cat_a, cat_b)
+                if key not in agg:
+                    agg[key] = {
+                        "time": tmin,
+                        "categoryA_label": str(task.get("categoryA_label") or ""),
+                        "categoryB_label": str(task.get("categoryB_label") or ""),
+                        "employee_name": employee_name,
+                    }
+                else:
+                    agg[key]["time"] += tmin
+
+        # 出力行のソート（安定したピボット向け）
+        rows = []
+        for (emp_id, date_str, cat_a, cat_b), v in sorted(
+            agg.items(), key=lambda x: (x[0][0], x[0][1], x[0][2], x[0][3])
+        ):
+            rows.append(
+                [
+                    emp_id,
+                    v["employee_name"],
+                    date_str,
+                    cat_a,
+                    v["categoryA_label"],
+                    cat_b,
+                    v["categoryB_label"],
+                    int(v["time"]),
+                ]
+            )
+
+        buf = io.StringIO()
+        writer = csv.writer(buf, lineterminator="\n")
+        writer.writerow(
+            [
+                "company_employee_id",
+                "employee_name",
+                "date",
+                "categoryA_id",
+                "categoryA_label",
+                "categoryB_id",
+                "categoryB_label",
+                "time",
+            ]
+        )
+        writer.writerows(rows)
+        csv_bytes = buf.getvalue().encode("utf-8-sig")
+        b64_data = base64.b64encode(csv_bytes).decode("utf-8")
+
+        file_name = f"業務別集計_ネット_{end_date.strftime('%Y年%m月度')}.csv"
+        return jsonify({"file_name": file_name, "file_content": b64_data}), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Net task summary CSV failed: {e}", exc_info=True)
+        abort(500, f"CSV生成中にエラーが発生しました: {str(e)}")
+
+
 def _date_to_allowance_row(day: int) -> int:
     """対象期間の日付の「日」から、テンプレートの行番号(1-based)を返す。21〜31→2〜12、1〜20→13〜32。"""
     if 21 <= day <= 31:

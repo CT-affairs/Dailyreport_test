@@ -260,6 +260,26 @@ function downloadExcelFromBase64(filename, base64Content) {
 }
 
 /**
+ * Base64（UTF-8 CSV バイト列）をダウンロードする（ネット業務別集計など）
+ */
+function downloadCsvFromBase64(filename, base64Content) {
+    const bin = atob(base64Content);
+    const buffer = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) {
+        buffer[i] = bin.charCodeAt(i);
+    }
+    const blob = new Blob([buffer], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+/**
  * HTMLファイルを読み込んでその内容を文字列として返す関数
  * @param {string} htmlFile 読み込むHTMLファイルへのパス
  * @returns {Promise<string>} 読み込んだHTMLの文字列
@@ -1484,14 +1504,43 @@ async function renderDashboardHome(container) {
     document.getElementById('shukuhaku-zenkoku-curr-btn').addEventListener('click', () => handleAllowanceDownload('current', 'shukuhaku-zenkoku-curr-btn'));
     document.getElementById('shukuhaku-zenkoku-prev-btn').addEventListener('click', () => handleAllowanceDownload('previous', 'shukuhaku-zenkoku-prev-btn'));
 
-    // 業務別(ネット) / スタッフ別(ネット) は未実装のためアラートのみ表示して何もしない
-    const showNetNotImplemented = () => {
-        alert('ネット事業部向けの集計表ダウンロードは現在未実装です。');
+    // 業務別(ネット): ピボット用縦持ちCSV（/api/manager/net-task-summary/csv）
+    const handleNetGyomuCsvDownload = async (targetMonth, btnId) => {
+        const btn = document.getElementById(btnId);
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+
+        try {
+            const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/net-task-summary/csv`, {
+                method: 'POST',
+                body: JSON.stringify({ target_month: targetMonth }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || `ダウンロード失敗: ${response.status}`);
+            }
+
+            const result = await response.json();
+            downloadCsvFromBase64(result.file_name, result.file_content);
+        } catch (error) {
+            console.error('Net task summary CSV download error:', error);
+            alert(`エラーが発生しました: ${error.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
     };
-    document.getElementById('net-gyomu-curr-btn').addEventListener('click', showNetNotImplemented);
-    document.getElementById('net-gyomu-prev-btn').addEventListener('click', showNetNotImplemented);
-    document.getElementById('net-staff-curr-btn').addEventListener('click', showNetNotImplemented);
-    document.getElementById('net-staff-prev-btn').addEventListener('click', showNetNotImplemented);
+    document.getElementById('net-gyomu-curr-btn').addEventListener('click', () => handleNetGyomuCsvDownload('current', 'net-gyomu-curr-btn'));
+    document.getElementById('net-gyomu-prev-btn').addEventListener('click', () => handleNetGyomuCsvDownload('previous', 'net-gyomu-prev-btn'));
+
+    // スタッフ別(ネット) は未実装のためアラートのみ
+    const showNetStaffNotImplemented = () => {
+        alert('スタッフ別(ネット)の集計表ダウンロードは現在未実装です。');
+    };
+    document.getElementById('net-staff-curr-btn').addEventListener('click', showNetStaffNotImplemented);
+    document.getElementById('net-staff-prev-btn').addEventListener('click', showNetStaffNotImplemented);
 
     // 残業/休出(全社) - 非表示だが念のためリスナーを追加
     document.getElementById('zankyu-zensha-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'zankyu-zensha-curr-btn'));
