@@ -3851,26 +3851,33 @@ async function setupProxyCategoryDatalists() {
         }
 
         // 小分類 (対象者のグループに基づいて取得)
-        const responseB = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/b?kind=${kind}`);
-        if (responseB.ok) {
-            const categories = await responseB.json();
-            // アクティブなカテゴリのみを抽出
-            const activeCategories = categories.filter(cat => cat.active !== false);
-            
-            proxyCategoryBOptions = activeCategories.map(cat => ({
-                id: cat.id,
-                label: cat.label,
-                order: typeof cat.order === 'number' ? cat.order : 0,
-                client: cat.client || '',
-                project: cat.project || '',
-                offices: cat.offices || [],
-                category_a_settings: cat.category_a_settings || {},
-                category_a_sort: cat.category_a_sort || {}
-            }));
-            // 集計項目は order 昇順で表示（PC日報入力・ネット事業部）
-            proxyCategoryBOptions.sort((a, b) => (a.order - b.order) || a.label.localeCompare(b.label || '', 'ja'));
-            _proxyCategoryBOptionsKindLoaded = kind;
+        // まず管理者APIを試し、権限不足時は一般APIへフォールバックする
+        let responseB = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/b?kind=${kind}`);
+        if (!responseB.ok && (responseB.status === 401 || responseB.status === 403)) {
+            responseB = await fetchWithAuth(`${API_BASE_URL}/api/categories/b?kind=${kind}`);
         }
+        if (!responseB.ok) {
+            throw new Error(`集計項目の取得に失敗しました: ${responseB.status}`);
+        }
+
+        const categories = await responseB.json();
+        // active が明示的に false のものだけ除外（一般APIは active を返さない場合あり）
+        const activeCategories = categories.filter((cat) => cat.active !== false);
+
+        proxyCategoryBOptions = activeCategories.map((cat) => ({
+            id: cat.id,
+            label: cat.label,
+            order: typeof cat.order === 'number' ? cat.order : 0,
+            client: cat.client || '',
+            project: cat.project || '',
+            offices: cat.offices || [],
+            category_a_settings: cat.category_a_settings || {},
+            // 一般APIは category_a_sort を返さないため空マップで吸収
+            category_a_sort: cat.category_a_sort || {},
+        }));
+        // 集計項目は order 昇順で表示（PC日報入力・ネット事業部）
+        proxyCategoryBOptions.sort((a, b) => (a.order - b.order) || a.label.localeCompare(b.label || '', 'ja'));
+        _proxyCategoryBOptionsKindLoaded = kind;
     } catch (error) {
         console.error("カテゴリ候補の取得に失敗しました:", error);
     }
