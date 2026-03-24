@@ -265,19 +265,17 @@
             <div id="net-fiscal-past-task-detail" class="net-fiscal-past-task-detail" aria-live="polite">
                 <p id="net-fiscal-past-task-detail-placeholder" class="net-fiscal-past-task-detail-placeholder">タイムテーブル内のタスクをクリックすると、ここに詳細が表示されます。</p>
                 <div id="net-fiscal-past-task-detail-body" class="net-fiscal-past-task-detail-body" style="display: none;">
-                    <div class="net-fiscal-past-task-detail-grid">
-                        <div class="net-fiscal-past-task-detail-item">
-                            <div class="net-fiscal-past-task-detail-heading">集計項目</div>
-                            <div id="net-fiscal-detail-cat-b" class="net-fiscal-past-task-detail-value"></div>
-                        </div>
-                        <div class="net-fiscal-past-task-detail-item">
-                            <div class="net-fiscal-past-task-detail-heading">業務種別</div>
-                            <div id="net-fiscal-detail-cat-a" class="net-fiscal-past-task-detail-value"></div>
-                        </div>
-                        <div class="net-fiscal-past-task-detail-item net-fiscal-past-task-detail-item--full">
-                            <div class="net-fiscal-past-task-detail-heading">コメント</div>
-                            <div id="net-fiscal-detail-comment" class="net-fiscal-past-task-detail-value net-fiscal-past-task-detail-value--multiline"></div>
-                        </div>
+                    <div class="net-fiscal-past-task-detail-summary-row">
+                        <span class="net-fiscal-past-task-detail-inline">
+                            <span class="net-fiscal-past-task-detail-label">集計項目：</span><span id="net-fiscal-detail-cat-b" class="net-fiscal-past-task-detail-value net-fiscal-past-task-detail-value--inline"></span>
+                        </span>
+                        <span class="net-fiscal-past-task-detail-inline">
+                            <span class="net-fiscal-past-task-detail-label">業務種別：</span><span id="net-fiscal-detail-cat-a" class="net-fiscal-past-task-detail-value net-fiscal-past-task-detail-value--inline"></span>
+                        </span>
+                    </div>
+                    <div class="net-fiscal-past-task-detail-comment-block">
+                        <div class="net-fiscal-past-task-detail-heading">コメント</div>
+                        <div id="net-fiscal-detail-comment" class="net-fiscal-past-task-detail-value net-fiscal-past-task-detail-value--multiline"></div>
                     </div>
                 </div>
             </div>

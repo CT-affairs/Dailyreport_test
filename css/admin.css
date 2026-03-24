@@ -383,14 +383,31 @@ th.sortable-th:hover {
     text-align: center;
     line-height: 1.5;
 }
-.net-fiscal-past-task-detail-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px 16px;
-    align-items: start;
+/* 集計項目・業務種別：ラベル＋値を同一行内に並べる */
+.net-fiscal-past-task-detail-summary-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 2.25rem;
+    margin-bottom: 10px;
+    line-height: 1.45;
 }
-.net-fiscal-past-task-detail-item--full {
-    grid-column: 1 / -1;
+.net-fiscal-past-task-detail-inline {
+    display: inline-flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0;
+    min-width: 0;
+}
+.net-fiscal-past-task-detail-label {
+    font-size: 0.68em;
+    font-weight: 600;
+    color: #6c757d;
+    flex-shrink: 0;
+    line-height: 1.3;
+}
+.net-fiscal-past-task-detail-comment-block {
+    margin-top: 2px;
 }
 .net-fiscal-past-task-detail-heading {
     font-size: 0.68em;
@@ -404,6 +421,9 @@ th.sortable-th:hover {
     color: #212529;
     line-height: 1.45;
     word-break: break-word;
+}
+.net-fiscal-past-task-detail-value--inline {
+    min-width: 0;
 }
 .net-fiscal-past-task-detail-value--multiline {
     white-space: pre-wrap;
