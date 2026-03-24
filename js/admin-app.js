@@ -3240,8 +3240,12 @@ async function fetchStaffCalendarStatuses(employeeId, reportMonthDate) {
 
         const startDateStr = toUTCDateString(startDate);
         const endDateStr = toUTCDateString(endDate);
-        
-        const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${employeeId}&start_date=${startDateStr}&end_date=${endDateStr}`);
+
+        // Firestore 側の最新反映を確実に取りに行くため、毎回ユニークなURLで取得する
+        const cacheBuster = Date.now();
+        const response = await fetchWithAuth(
+            `${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${employeeId}&start_date=${startDateStr}&end_date=${endDateStr}&_ts=${cacheBuster}`,
+        );
         if (!response.ok) {
             throw new Error(`ステータス取得失敗: ${response.status}`);
         }
@@ -3296,10 +3300,14 @@ async function handleSyncPaidHolidaysForStaff() {
             throw new Error(errorData?.message || `反映に失敗しました: ${response.status}`);
         }
         await response.json().catch(() => ({}));
-        alert('同期が完了しました。');
-        
-        // カレンダーを再描画
+
+        // 更新後は勤務時間（Jobcan）だけでなく、日報入力（Firestore）側も再読込して突合を更新する
         await initializeStaffCalendar();
+        // 同期API直後の反映タイミング差に備え、短い待機後にもう一度再読込
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await initializeStaffCalendar();
+
+        alert('同期が完了しました。');
 
     } catch (e) {
         console.error(e);

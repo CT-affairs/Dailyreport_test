@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template_string
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
@@ -230,19 +230,17 @@ def handle_unexpected_error(e):
 # ----------------------------
 # APIエンドポイント
 # ----------------------------
-@app.route("/")
-def index():
-
+def build_invoice_response():
     t0 = time.time()
     files = get_drive_files()
     t_files = time.time()
 
     if not files:
-        return jsonify({"message": "No PDF found"})
+        return {"message": "No PDF found"}, 200
 
     if isinstance(files, list) and files and isinstance(files[0], dict) and files[0].get("error"):
         # Drive API 自体が失敗している
-        return jsonify({"message": "Drive API error", "debug": files[0]}), 500
+        return {"message": "Drive API error", "debug": files[0]}, 500
 
     # 明示指定があればそれを優先（デバッグ/検証用）
     requested_file_id = request.args.get("file_id")
@@ -250,13 +248,11 @@ def index():
     if requested_file_id:
         chosen = next((f for f in files if f.get("id") == requested_file_id), None)
         if not chosen:
-            return jsonify(
-                {
-                    "message": "Requested file_id not found in folder listing",
-                    "requested_file_id": requested_file_id,
-                    "available_files": files,
-                }
-            ), 404
+            return {
+                "message": "Requested file_id not found in folder listing",
+                "requested_file_id": requested_file_id,
+                "available_files": files,
+            }, 404
     else:
         chosen = files[0]
 
@@ -298,7 +294,158 @@ def index():
             if APP_DEBUG:
                 resp["llm_extraction_traceback"] = traceback.format_exc()
 
-    return jsonify(resp)
+    return resp, 200
+
+
+@app.route("/")
+def index():
+    resp, status = build_invoice_response()
+    return jsonify(resp), status
+
+
+@app.route("/view")
+def view():
+    """
+    抽出結果の人間向け表示（ブラウザ確認用）。
+    / と同じ処理を実行して、ヘッダ情報 + 明細テーブルで表示する。
+    """
+    resp, status = build_invoice_response()
+    if status != 200:
+        return jsonify(resp), status
+
+    llm = resp.get("llm_extraction") or {}
+    llm_error = resp.get("llm_extraction_error")
+
+    # スキーマ差分に対応:
+    # - 新: {vendor:{...}, invoice:{...}, line_items:[...]}
+    # - 旧: {vendor_name, invoice_number, ...}
+    vendor = llm.get("vendor") or {}
+    invoice = llm.get("invoice") or {}
+    line_items = llm.get("line_items") or []
+
+    if not vendor and "vendor_name" in llm:
+        vendor = {
+            "vendor_name": llm.get("vendor_name"),
+            "confidence": llm.get("confidence"),
+        }
+    if not invoice and any(k in llm for k in ["invoice_number", "date", "total_amount"]):
+        invoice = {
+            "invoice_number": llm.get("invoice_number"),
+            "order_number": llm.get("order_number"),
+            "date": llm.get("date"),
+            "payment_due_date": llm.get("payment_due_date"),
+            "total_amount": llm.get("total_amount"),
+            "tax_amount": llm.get("tax_amount"),
+        }
+
+    html = """
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Invoice OCR Viewer</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; color: #222; }
+    h1, h2 { margin: 8px 0; }
+    .meta { margin-bottom: 14px; padding: 10px; background: #f6f8fa; border-radius: 8px; }
+    .row { margin: 4px 0; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: left; vertical-align: top; }
+    th { background: #f2f2f2; position: sticky; top: 0; }
+    .mono { font-family: Consolas, monospace; }
+    .ok { color: #137333; font-weight: bold; }
+    .ng { color: #a50e0e; font-weight: bold; }
+    .small { color: #666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Invoice OCR Result</h1>
+  {% if llm_error %}
+  <div class="meta" style="background:#fdecea; border:1px solid #f5c2c7;">
+    <div class="row"><b>llm_extraction_error:</b> {{ llm_error }}</div>
+  </div>
+  {% endif %}
+  <div class="meta">
+    <div class="row"><b>file_id:</b> <span class="mono">{{ resp.file_id }}</span></div>
+    <div class="row"><b>file_name:</b> {{ resp.file_name }}</div>
+    <div class="row"><b>modified:</b> {{ resp.file_modifiedTime }}</div>
+    <div class="row"><b>ocr_method:</b> {{ resp.method_used }}</div>
+    <div class="row"><b>LLM accepted:</b>
+      {% if resp.llm_extraction_accepted %}
+        <span class="ok">true</span>
+      {% else %}
+        <span class="ng">false</span>
+      {% endif %}
+      <span class="small">(threshold={{ resp.llm_confidence_threshold }})</span>
+    </div>
+  </div>
+
+  <h2>Invoice Header</h2>
+  <div class="meta">
+    <div class="row"><b>vendor_name:</b> {{ vendor.vendor_name }}</div>
+    <div class="row"><b>vendor_confidence:</b> {{ vendor.confidence }}</div>
+    <div class="row"><b>invoice_number:</b> {{ invoice.invoice_number }}</div>
+    <div class="row"><b>order_number:</b> {{ invoice.order_number }}</div>
+    <div class="row"><b>date:</b> {{ invoice.date }}</div>
+    <div class="row"><b>payment_due_date:</b> {{ invoice.payment_due_date }}</div>
+    <div class="row"><b>total_amount:</b> {{ invoice.total_amount }}</div>
+    <div class="row"><b>tax_amount:</b> {{ invoice.tax_amount }}</div>
+  </div>
+
+  <h2>Line Items ({{ line_items|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>item_name</th>
+        <th>order_number</th>
+        <th>quantity</th>
+        <th>unit</th>
+        <th>unit_price</th>
+        <th>amount</th>
+        <th>tax</th>
+        <th>note</th>
+        <th>confidence</th>
+        <th>status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in line_items %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ item.item_name }}</td>
+        <td>{{ item.order_number }}</td>
+        <td>{{ item.quantity }}</td>
+        <td>{{ item.unit }}</td>
+        <td>{{ item.unit_price }}</td>
+        <td>{{ item.amount }}</td>
+        <td>{{ item.tax }}</td>
+        <td>{{ item.note }}</td>
+        <td>{{ item.confidence }}</td>
+        <td>{{ item.status }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Reasoning</h2>
+  <div class="meta">{{ llm.reasoning }}</div>
+
+  <h2>LLM Raw (debug)</h2>
+  <div class="meta mono" style="white-space: pre-wrap;">{{ llm._raw }}</div>
+</body>
+</html>
+"""
+    return render_template_string(
+        html,
+        resp=resp,
+        vendor=vendor,
+        invoice=invoice,
+        line_items=line_items,
+        llm=llm,
+        llm_error=llm_error,
+    )
 
 
 @app.route("/debug")

@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
@@ -9,6 +9,121 @@ from openai import OpenAI
 # export OPENAI_API_KEY="sk-xxxx"
 
 client = OpenAI()
+
+
+ORDER_NUMBER_PATTERN = re.compile(r"\b\d{5,}[\/_-]\d{3,}\b|\b\d{6,}\b")
+
+
+def _to_number(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if not s:
+        return None
+    s = s.replace(",", "")
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _normalize_order_number(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    # OCR由来の空白や全角記号を最低限吸収
+    s = s.replace(" ", "").replace("　", "")
+    s = s.replace("／", "/").replace("ー", "-")
+    m = ORDER_NUMBER_PATTERN.search(s)
+    return m.group(0) if m else None
+
+
+def _extract_order_number_from_item(item: Dict[str, Any]) -> Optional[str]:
+    for key in ("order_number", "note", "item_name"):
+        cand = _normalize_order_number(item.get(key))
+        if cand:
+            return cand
+    return None
+
+
+def _is_summary_line(item_name: str) -> bool:
+    s = (item_name or "").strip()
+    if not s:
+        return False
+    # 合計行・税行・小計行などは明細から除外
+    summary_keywords = ["合計", "小計", "税抜", "消費税", "税込", "請求額", "値引", "差引"]
+    return any(k in s for k in summary_keywords)
+
+
+def _is_meaningful_line_item(item: Dict[str, Any]) -> bool:
+    item_name = str(item.get("item_name") or "").strip()
+    qty = _to_number(item.get("quantity"))
+    unit_price = _to_number(item.get("unit_price"))
+    amount = _to_number(item.get("amount"))
+    order_no = _normalize_order_number(item.get("order_number"))
+
+    if _is_summary_line(item_name):
+        return False
+
+    # 明細行として扱う最小条件
+    # - 品名あり かつ (数量/金額/単価/発注番号のいずれかあり)
+    if item_name and (qty is not None or amount is not None or unit_price is not None or order_no):
+        return True
+
+    # 例外: 品名が薄くても数値3点が揃うなら明細扱い
+    numeric_points = sum(x is not None for x in (qty, unit_price, amount))
+    return numeric_points >= 2
+
+
+def _postprocess_line_items(line_items: List[Dict[str, Any]], invoice_obj: Dict[str, Any]) -> List[Dict[str, Any]]:
+    normalized_items: List[Dict[str, Any]] = []
+
+    # 1) 明細行判定 + order_number候補抽出
+    for raw in line_items:
+        if not isinstance(raw, dict):
+            continue
+
+        item = {
+            "item_name": raw.get("item_name"),
+            "order_number": _normalize_order_number(raw.get("order_number")),
+            "quantity": _to_number(raw.get("quantity")),
+            "unit": raw.get("unit"),
+            "unit_price": _to_number(raw.get("unit_price")),
+            "amount": _to_number(raw.get("amount")),
+            "tax": _to_number(raw.get("tax")),
+            "note": raw.get("note"),
+            "confidence": raw.get("confidence"),
+            "status": raw.get("status") or "pending",
+            # 先方伝票番号は補助情報として後付け
+            "supplier_slip_number": raw.get("supplier_slip_number"),
+        }
+
+        if not _is_meaningful_line_item(item):
+            continue
+
+        if not item["order_number"]:
+            item["order_number"] = _extract_order_number_from_item(raw)
+
+        normalized_items.append(item)
+
+    # 2) 明細に order_number を可能な限り埋める（最優先要件）
+    invoice_level_order = _normalize_order_number(invoice_obj.get("order_number"))
+    if invoice_level_order:
+        for item in normalized_items:
+            if not item.get("order_number"):
+                item["order_number"] = invoice_level_order
+
+    # 3) 先方伝票番号（補助情報）を後付け
+    invoice_no = invoice_obj.get("invoice_number")
+    for item in normalized_items:
+        if not item.get("supplier_slip_number"):
+            item["supplier_slip_number"] = invoice_no
+
+    return normalized_items
 
 def _response_to_debug_dict(response: Any) -> Dict[str, Any]:
     try:
@@ -128,7 +243,13 @@ def extract_invoice_data(ocr_text: str) -> Dict[str, Any]:
   - 明細行の値を優先する
   - 全体の値は使用しない
 
-④ 判別できない場合
+④ 表記ゆれについて
+  - 「注文番号」「発注No」「注文No」のように表記ゆれを考慮して判断する
+
+⑤ 発注番号の重要性について
+  - 解析の目的は明細行に分解した要素に発注番号を振っていくことであるため、請求書発行元が振っている伝票番号よりも重要性は高い
+
+⑥ 判別できない場合
   - order_numberはnullにする（推測で埋めない）
 
 # ■ 判定ヒント
@@ -136,6 +257,27 @@ def extract_invoice_data(ocr_text: str) -> Dict[str, Any]:
 - ヘッダ付近・合計付近に1つ → 全体
 - 明細内に複数 → 行単位
 - 「注文番号」「発注No」などのラベルを優先
+
+# ■ OCRテキストの再構築について
+
+- OCRは改行が崩れている可能性がある
+- そのため、視覚的な表の行を推定して再構築すること
+
+- 明細行1行として候補とする場合の条件
+・品名、及び、数値（数量 + 単価 + 小計の3つであることが多い)のまとまりが、1明細行として成立する
+・「明細行」としては1行でも、品名の詳細部分や発注番号は改行されて記載されていることがある
+
+# ■ 解析の優先順位
+
+1. 明細行の正しい分割
+2. 各行へのorder_number付与
+3. 数値項目の正確性
+※ ここまでは重要で、以下は優先順位が低い
+4. 請求元が付与した伝票番号
+5. 入金情報のような、請求書として目的からやや外れた連絡的な要素、副次的な要素
+
+※ 完璧でなくても、order_numberが正しく付与されることを最優先とする
+
 # ■ 出力JSON構造（厳守）
 
 {{
@@ -236,15 +378,40 @@ def extract_invoice_data(ocr_text: str) -> Dict[str, Any]:
         repaired = _repair_json_via_model(raw_text)
         data = _coerce_json(repaired)
 
-    # 最低限の形を揃える（欠けても落とさない）
+    # 新スキーマ（vendor/invoice/line_items）を優先して返す。
+    # 旧スキーマのキーしか無い場合でも互換のために最低限埋める。
+    vendor_obj = data.get("vendor") if isinstance(data.get("vendor"), dict) else {}
+    invoice_obj = data.get("invoice") if isinstance(data.get("invoice"), dict) else {}
+    line_items_obj = data.get("line_items") if isinstance(data.get("line_items"), list) else []
+
+    invoice_payload = {
+        "invoice_number": invoice_obj.get("invoice_number", data.get("invoice_number")),
+        "order_number": invoice_obj.get("order_number", data.get("order_number")),
+        "date": invoice_obj.get("date", data.get("date")),
+        "payment_due_date": invoice_obj.get("payment_due_date"),
+        "total_amount": invoice_obj.get("total_amount", data.get("total_amount")),
+        "tax_amount": invoice_obj.get("tax_amount"),
+        "registration_number": invoice_obj.get("registration_number", data.get("registration_number")),
+    }
+    processed_line_items = _postprocess_line_items(
+        [x for x in line_items_obj if isinstance(x, dict)],
+        invoice_payload,
+    )
+
     out: Dict[str, Any] = {
-        "invoice_number": data.get("invoice_number"),
-        "date": data.get("date"),
-        "vendor_name": data.get("vendor_name"),
-        "registration_number": data.get("registration_number"),
-        "total_amount": data.get("total_amount"),
-        "confidence": data.get("confidence"),
+        "invoice_id": data.get("invoice_id"),
+        "status": data.get("status"),
+        "vendor": {
+            "vendor_id": vendor_obj.get("vendor_id"),
+            "vendor_name": vendor_obj.get("vendor_name") or data.get("vendor_name"),
+            "confidence": vendor_obj.get("confidence", data.get("confidence")),
+        },
+        "invoice": invoice_payload,
+        "line_items": processed_line_items,
         "reasoning": data.get("reasoning"),
+        "confidence": data.get("confidence", vendor_obj.get("confidence")),
+        "ocr_text": data.get("ocr_text"),
+        "created_at": data.get("created_at"),
         "_raw": raw_text,
     }
     return out
