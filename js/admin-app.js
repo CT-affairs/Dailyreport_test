@@ -3851,7 +3851,10 @@ async function setupProxyCategoryDatalists() {
         }
 
         // 小分類 (対象者のグループに基づいて取得)
-        // まず管理者APIを試し、権限不足時は一般APIへフォールバックする
+        // NOTE:
+        // PC入力画面は管理者・一般ユーザーの両方で利用されるため、
+        // manager API が 401/403 の場合は user API に自動フォールバックする。
+        // これにより、権限差で「集計項目」が空になる事象を防ぐ。
         let responseB = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/b?kind=${kind}`);
         if (!responseB.ok && (responseB.status === 401 || responseB.status === 403)) {
             responseB = await fetchWithAuth(`${API_BASE_URL}/api/categories/b?kind=${kind}`);
