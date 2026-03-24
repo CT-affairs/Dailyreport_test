@@ -3270,6 +3270,7 @@ async function handleSyncPaidHolidaysForStaff() {
     btn.innerText = "受信中...";
 
     try {
+        const isManager = !!(cachedAdminUserInfo && cachedAdminUserInfo.is_manager === true);
         // 個別入力画面と同等に、月度内の日ごとに勤務時間を強制再取得する（wait=3）
         const startDateOfNextMonth = closingDay + 1;
         const year = currentCalendarReportMonth.getUTCFullYear();
@@ -3280,7 +3281,11 @@ async function handleSyncPaidHolidaysForStaff() {
         let done = 0;
         for (let d = new Date(startDate); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
             const ymd = toUTCDateString(d);
-            await fetchWithAuth(`${API_BASE_URL}/api/work-time?date=${ymd}&employee_id=${currentCalendarEmployeeId}&source=admin&wait=3`);
+            // 一般ユーザーは本人向けに取得（employee_id を付けない）
+            const workTimeUrl = isManager
+                ? `${API_BASE_URL}/api/work-time?date=${ymd}&employee_id=${currentCalendarEmployeeId}&source=admin&wait=3`
+                : `${API_BASE_URL}/api/work-time?date=${ymd}&source=report&wait=3`;
+            await fetchWithAuth(workTimeUrl);
             done += 1;
             btn.innerText = `受信中... (${done}/${totalDays})`;
         }
@@ -3288,12 +3293,16 @@ async function handleSyncPaidHolidaysForStaff() {
         btn.innerText = "反映中...";
         // 休暇・宿泊備考などは既存同期APIで反映
         const dateStr = toUTCDateString(currentCalendarReportMonth);
+        const syncBody = {
+            date: dateStr,
+        };
+        // 一般ユーザーは target_employee_id を送らず、本人同期として実行する
+        if (isManager) {
+            syncBody.target_employee_id = currentCalendarEmployeeId; // 管理者機能として対象IDを指定
+        }
         const response = await fetchWithAuth(`${API_BASE_URL}/api/sync-paid-holidays`, {
             method: 'POST',
-            body: JSON.stringify({
-                date: dateStr,
-                target_employee_id: currentCalendarEmployeeId // 管理者機能として対象IDを指定
-            })
+            body: JSON.stringify(syncBody)
         });
         if (!response.ok) {
             const errorData = await response.json().catch(() => null);
