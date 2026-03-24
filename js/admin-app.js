@@ -3198,34 +3198,48 @@ async function fetchStaffCalendarStatuses(employeeId, reportMonthDate) {
 async function handleSyncPaidHolidaysForStaff() {
     if (!currentCalendarEmployeeId || !currentCalendarReportMonth) return;
 
-    if (!confirm("Jobcanから勤怠データ（有休・宿泊備考）を取得し、反映しますか？\n※表示中の月度が対象です。")) return;
+    if (!confirm("Jobcanから勤怠データ（勤務時間・有休・宿泊備考）を取得し、反映しますか？\n※表示中の月度が対象です。")) return;
 
     const btn = document.getElementById('staff-cal-sync-holidays');
     const originalText = btn.innerText;
     btn.disabled = true;
-    btn.innerText = "反映中...";
+    btn.innerText = "受信中...";
 
     try {
+        // 個別入力画面と同等に、月度内の日ごとに勤務時間を強制再取得する（wait=3）
+        const startDateOfNextMonth = closingDay + 1;
+        const year = currentCalendarReportMonth.getUTCFullYear();
+        const month = currentCalendarReportMonth.getUTCMonth();
+        const startDate = new Date(Date.UTC(year, month - 1, startDateOfNextMonth));
+        const endDate = new Date(Date.UTC(year, month, closingDay));
+        const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+        let done = 0;
+        for (let d = new Date(startDate); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+            const ymd = toUTCDateString(d);
+            await fetchWithAuth(`${API_BASE_URL}/api/work-time?date=${ymd}&employee_id=${currentCalendarEmployeeId}&source=admin&wait=3`);
+            done += 1;
+            btn.innerText = `受信中... (${done}/${totalDays})`;
+        }
+
+        btn.innerText = "反映中...";
+        // 休暇・宿泊備考などは既存同期APIで反映
         const dateStr = toUTCDateString(currentCalendarReportMonth);
-        
         const response = await fetchWithAuth(`${API_BASE_URL}/api/sync-paid-holidays`, {
             method: 'POST',
-            body: JSON.stringify({ 
+            body: JSON.stringify({
                 date: dateStr,
                 target_employee_id: currentCalendarEmployeeId // 管理者機能として対象IDを指定
             })
         });
-
         if (!response.ok) {
             const errorData = await response.json().catch(() => null);
             throw new Error(errorData?.message || `反映に失敗しました: ${response.status}`);
         }
-
-        const result = await response.json();
-        alert(`同期が完了しました。\n処理件数: ${result.count}件`);
+        await response.json().catch(() => ({}));
+        alert('同期が完了しました。');
         
         // カレンダーを再描画
-        initializeStaffCalendar();
+        await initializeStaffCalendar();
 
     } catch (e) {
         console.error(e);
