@@ -293,6 +293,22 @@ th.sortable-th:hover {
     margin-bottom: 15px;
 }
 
+/* ダッシュボード「ネット」系と同じ赤茶（renderDashboardHome の wineRed） */
+.btn-net-wine-red {
+    background-color: #a94442;
+    color: #fff;
+    border: 1px solid #8a2c2a;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+.btn-net-wine-red:hover {
+    background-color: #953d3b;
+    border-color: #732424;
+    color: #fff;
+}
+
 /* ダッシュボード用共通アクションボタン */
 .btn-dashboard-action {
     padding: 8px 20px;
@@ -409,6 +425,12 @@ th.sortable-th:hover {
     min-width: 39px; /* 約 43px × 0.9 */
     flex: 1 1 0;
     max-width: none;
+}
+/* 月度: 日付ヘッダーのフォントをやや小さく */
+.past-reports-grid-inner.past-reports-grid-inner--fiscal .past-day-header {
+    font-size: 0.68em;
+    padding: 3px 2px;
+    font-weight: 600;
 }
 /* 月度: タスク表示文字をやや小さく */
 .past-reports-grid-inner.past-reports-grid-inner--fiscal .past-task-block {

@@ -3016,7 +3016,7 @@ function calculateVisibleRange(currentDate) {
  */
 function renderStaffCalendarUI(container, params = {}) {
     const netFiscalListBtnHtml = dashboardListMode === 'net'
-        ? '<button type="button" id="staff-calendar-net-fiscal-list-btn" class="btn-secondary" style="margin-right: 5px;" title="当月度（21日〜翌月20日）の過去日報を一覧表示">一覧</button>'
+        ? '<button type="button" id="staff-calendar-net-fiscal-list-btn" class="btn-net-wine-red" style="margin-right: 5px;" title="当月度（21日〜翌月20日）の過去日報を一覧表示">一覧</button>'
         : '';
     container.innerHTML = `
          <div class="staff-calendar-controls" style="padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #e9ecef; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
@@ -3634,6 +3634,8 @@ document.addEventListener('DOMContentLoaded', main);
 let proxyTaskCounter = 0;
 let proxyCategoryAOptions = [];
 let proxyCategoryBOptions = [];
+/** setupProxyCategoryDatalists / 過去日報用 ensure で最後に読み込んだ categories/b の kind */
+let _proxyCategoryBOptionsKindLoaded = null;
 let proxyActiveSliderInput = null;
 let currentProxyTarget = null; // { employeeId, name, date, groupId, returnTarget }
 let currentProxyHistory = { catA: [], catB: [] }; // 代理入力対象者の履歴
@@ -3853,9 +3855,42 @@ async function setupProxyCategoryDatalists() {
             }));
             // 集計項目は order 昇順で表示（PC日報入力・ネット事業部）
             proxyCategoryBOptions.sort((a, b) => (a.order - b.order) || a.label.localeCompare(b.label || '', 'ja'));
+            _proxyCategoryBOptionsKindLoaded = kind;
         }
     } catch (error) {
         console.error("カテゴリ候補の取得に失敗しました:", error);
+    }
+}
+
+/**
+ * 代理入力画面を開いていない場合でも、過去日報の色付けに必要な集計項目（category B）マスタを読み込む
+ * @param {'net'|'engineering'} kind
+ */
+async function ensureProxyCategoryBOptionsForPastReports(kind) {
+    if (_proxyCategoryBOptionsKindLoaded === kind && proxyCategoryBOptions.length > 0) {
+        return;
+    }
+    try {
+        const responseB = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/b?kind=${kind}`);
+        if (!responseB.ok) return;
+        const categories = await responseB.json();
+        const activeCategories = categories.filter((cat) => cat.active !== false);
+        proxyCategoryBOptions = activeCategories.map((cat) => ({
+            id: cat.id,
+            label: cat.label,
+            order: typeof cat.order === 'number' ? cat.order : 0,
+            client: cat.client || '',
+            project: cat.project || '',
+            offices: cat.offices || [],
+            category_a_settings: cat.category_a_settings || {},
+            category_a_sort: cat.category_a_sort || {},
+        }));
+        proxyCategoryBOptions.sort(
+            (a, b) => (a.order - b.order) || (a.label || '').localeCompare(b.label || '', 'ja'),
+        );
+        _proxyCategoryBOptionsKindLoaded = kind;
+    } catch (e) {
+        console.error('過去日報表示用カテゴリの取得に失敗:', e);
     }
 }
 
@@ -6363,9 +6398,12 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
             taskBlock.style.top = `${top}%`;
             taskBlock.style.height = `${height}%`;
 
-            const catBData = proxyCategoryBOptions.find(opt => opt.id === task.categoryB_id);
+            const catBData = proxyCategoryBOptions.find((opt) => String(opt.id) === String(task.categoryB_id));
             const settings = catBData ? catBData.category_a_settings : null;
-            const taskColor = settings ? settings[task.categoryA_id] : null;
+            const aId = task.categoryA_id;
+            const taskColor = settings
+                ? (settings[aId] ?? settings[String(aId)])
+                : null;
             const bgColor = taskColor || '#e0e0e0';
             taskBlock.style.backgroundColor = bgColor;
             taskBlock.style.color = isDarkColor(bgColor) ? '#fff' : '#333';
@@ -6625,6 +6663,9 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
     const container = typeof containerEl === 'string' ? document.getElementById(containerEl) : containerEl;
     const ctx = getNetFiscalPastReportsTargetContext();
     if (!container || !ctx) return;
+
+    const categoryKind = ctx.groupId && String(ctx.groupId) === '3' ? 'net' : 'engineering';
+    await ensureProxyCategoryBOptionsForPastReports(categoryKind);
 
     const periodEl = periodDisplayEl
         ? (typeof periodDisplayEl === 'string' ? document.getElementById(periodDisplayEl) : periodDisplayEl)
