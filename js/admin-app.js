@@ -6172,6 +6172,8 @@ function openNetFiscalPastReportsModal() {
         return;
     }
 
+    resetNetFiscalPastTaskDetailPanel();
+
     const modal = document.getElementById('net-fiscal-past-reports-modal');
     if (!modal) {
         console.error('Net fiscal past reports modal not found.');
@@ -6415,6 +6417,8 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
             taskBlock.dataset.categoryBId = task.categoryB_id;
             taskBlock.dataset.categoryAId = task.categoryA_id;
             taskBlock.dataset.comment = task.comment || '';
+            taskBlock.dataset.categoryBLabel = task.categoryB_label != null ? String(task.categoryB_label) : '';
+            taskBlock.dataset.categoryALabel = task.categoryA_label != null ? String(task.categoryA_label) : '';
 
             taskBlock.addEventListener('click', onTaskClick);
             timetableEl.appendChild(taskBlock);
@@ -6490,10 +6494,51 @@ function handlePastTaskClick(event) {
 }
 
 /**
- * ネット事業部「月度（21日〜翌月20日）」過去日報用: フォーム反映のみ（表示場所未定のためモーダルは閉じない）
+ * ネット事業部「月度（21日〜翌月20日）」過去日報モーダル専用: 下部パネルに集計項目・業務種別・コメントを表示
  */
-function handleNetFiscalPastTaskClick(event) {
-    applyPastTaskSelectionToProxyForm(event.currentTarget);
+function handleNetFiscalModalTaskDetailClick(event) {
+    event.stopPropagation();
+    const el = event.currentTarget;
+    const catB = el.dataset.categoryBLabel || '';
+    const catA = el.dataset.categoryALabel || '';
+    const cmt = el.dataset.comment || '';
+    updateNetFiscalPastTaskDetailPanel(catB, catA, cmt);
+}
+
+/**
+ * 月度モーダル下部の詳細パネルを初期状態に戻す
+ */
+function resetNetFiscalPastTaskDetailPanel() {
+    const ph = document.getElementById('net-fiscal-past-task-detail-placeholder');
+    const body = document.getElementById('net-fiscal-past-task-detail-body');
+    const elB = document.getElementById('net-fiscal-detail-cat-b');
+    const elA = document.getElementById('net-fiscal-detail-cat-a');
+    const elC = document.getElementById('net-fiscal-detail-comment');
+    if (ph) {
+        ph.style.display = '';
+        ph.textContent = 'タイムテーブル内のタスクをクリックすると、ここに詳細が表示されます。';
+    }
+    if (body) body.style.display = 'none';
+    if (elB) elB.textContent = '';
+    if (elA) elA.textContent = '';
+    if (elC) elC.textContent = '';
+}
+
+/**
+ * 月度モーダル下部にタスク詳細を表示（textContent のみで XSS 回避）
+ */
+function updateNetFiscalPastTaskDetailPanel(categoryBLabel, categoryALabel, comment) {
+    const ph = document.getElementById('net-fiscal-past-task-detail-placeholder');
+    const body = document.getElementById('net-fiscal-past-task-detail-body');
+    const elB = document.getElementById('net-fiscal-detail-cat-b');
+    const elA = document.getElementById('net-fiscal-detail-cat-a');
+    const elC = document.getElementById('net-fiscal-detail-comment');
+    if (!body || !elB || !elA || !elC) return;
+    if (ph) ph.style.display = 'none';
+    body.style.display = 'block';
+    elB.textContent = categoryBLabel.trim() ? categoryBLabel : '（なし）';
+    elA.textContent = categoryALabel.trim() ? categoryALabel : '（なし）';
+    elC.textContent = comment.trim() ? comment : '（なし）';
 }
 
 // --- ★ネット事業部: 月度（21日〜翌月20日）の過去日報表示（UI配置は別途） ---
@@ -6667,6 +6712,8 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
     const categoryKind = ctx.groupId && String(ctx.groupId) === '3' ? 'net' : 'engineering';
     await ensureProxyCategoryBOptionsForPastReports(categoryKind);
 
+    resetNetFiscalPastTaskDetailPanel();
+
     const periodEl = periodDisplayEl
         ? (typeof periodDisplayEl === 'string' ? document.getElementById(periodDisplayEl) : periodDisplayEl)
         : null;
@@ -6705,10 +6752,11 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
             rs,
             re,
             container,
-            handleNetFiscalPastTaskClick,
+            handleNetFiscalModalTaskDetailClick,
         );
     } catch (error) {
         console.error(error);
+        resetNetFiscalPastTaskDetailPanel();
         container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0; color: red;">${error.message}</div>`;
     }
 }

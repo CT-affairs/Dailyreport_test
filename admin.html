@@ -261,7 +261,26 @@
                 <span id="net-fiscal-past-reports-period-display" style="font-weight: bold;"></span>
                 <button type="button" id="net-fiscal-past-reports-next-btn" class="btn-secondary">次月 ▶</button>
             </div>
-            <div id="net-fiscal-past-reports-container" class="past-reports-root" style="flex-grow: 1; overflow: auto;"></div>
+            <div id="net-fiscal-past-reports-container" class="past-reports-root" style="flex-grow: 1; overflow: auto; min-height: 0;"></div>
+            <div id="net-fiscal-past-task-detail" class="net-fiscal-past-task-detail" aria-live="polite">
+                <p id="net-fiscal-past-task-detail-placeholder" class="net-fiscal-past-task-detail-placeholder">タイムテーブル内のタスクをクリックすると、ここに詳細が表示されます。</p>
+                <div id="net-fiscal-past-task-detail-body" class="net-fiscal-past-task-detail-body" style="display: none;">
+                    <div class="net-fiscal-past-task-detail-grid">
+                        <div class="net-fiscal-past-task-detail-item">
+                            <div class="net-fiscal-past-task-detail-heading">集計項目</div>
+                            <div id="net-fiscal-detail-cat-b" class="net-fiscal-past-task-detail-value"></div>
+                        </div>
+                        <div class="net-fiscal-past-task-detail-item">
+                            <div class="net-fiscal-past-task-detail-heading">業務種別</div>
+                            <div id="net-fiscal-detail-cat-a" class="net-fiscal-past-task-detail-value"></div>
+                        </div>
+                        <div class="net-fiscal-past-task-detail-item net-fiscal-past-task-detail-item--full">
+                            <div class="net-fiscal-past-task-detail-heading">コメント</div>
+                            <div id="net-fiscal-detail-comment" class="net-fiscal-past-task-detail-value net-fiscal-past-task-detail-value--multiline"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
