@@ -4068,6 +4068,12 @@ async function loadProxyExistingData() {
             // 再読込時の重複描画を防ぐため、既存タスク表示を先にクリアする
             document.querySelectorAll('.timetable-task').forEach((el) => el.remove());
             detachedTaskElements = [];
+            timetableStartHour = TIMETABLE_DEFAULT_START;
+            timetableEndHour = TIMETABLE_DEFAULT_END;
+            if (existingTasks.length > 0) {
+                expandProxyTimetableRangeForTasks(existingTasks);
+            }
+            renderProxyTimetable();
             if (existingTasks.length > 0) {
                 existingTasks.forEach(task => {
                     if (task.startTime && task.endTime) {
@@ -4400,14 +4406,16 @@ function updateProxySliderRemainingTime() {
  * @param {string} endTime - 例: '13:00'
  */
 function renderBreakTask(startTime, endTime) {
-    const start = new Date(`1970-01-01T${startTime}:00`);
-    const end = new Date(`1970-01-01T${endTime}:00`);
+    const st = normalizeProxyNetTimeStr(startTime);
+    const et = normalizeProxyNetTimeStr(endTime);
+    const start = new Date(`1970-01-01T${st}:00`);
+    const end = new Date(`1970-01-01T${et}:00`);
     if (end <= start) end.setDate(end.getDate() + 1);
     const duration = (end - start) / 1000 / 60;
 
-    const startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+    const startRow = document.querySelector(`#timetable-rows tr[data-time="${st}"]`);
     if (!startRow) {
-        console.warn('Could not find start row for break task:', startTime);
+        console.warn('Could not find start row for break task:', st);
         return;
     }
     const startSlotCell = startRow.querySelector('.timetable-slot');
@@ -4425,8 +4433,8 @@ function renderBreakTask(startTime, endTime) {
 
     taskElement.innerHTML = `<div>昼休憩</div>`;
 
-    taskElement.dataset.startTime = startTime;
-    taskElement.dataset.endTime = endTime;
+    taskElement.dataset.startTime = st;
+    taskElement.dataset.endTime = et;
     taskElement.dataset.time = '0';
     taskElement.dataset.comment = '昼休憩';
     taskElement.dataset.categoryAId = 'N99';
@@ -5016,13 +5024,63 @@ async function autoSaveProxyNetReport(triggerName = 'auto-save') {
 let currentlyEditingTaskElement = null; // ★編集中のタスク要素を保持
 let detachedTaskElements = []; // ★画面外のタスク要素を保持する
 let timetableStartHour = 7;
-let timetableEndHour = 18;
+let timetableEndHour = 21;
 const TIMETABLE_MIN_START = 5; // 早出の最小時刻
 const TIMETABLE_ZOOM_OUT_START = 8; // ズームアウト時の最大開始時刻
 const TIMETABLE_DEFAULT_START = 7;
 const TIMETABLE_ZOOM_OUT_END = 17; // ズームアウト時の最小終了時刻
-const TIMETABLE_DEFAULT_END = 18;
+/** 表示の終了は排他的（7〜21 なら 7:00 行から 20:45 行まで）→ 7:00〜20:00 台をデフォルト表示 */
+const TIMETABLE_DEFAULT_END = 21;
 const TIMETABLE_MAX_END = 22; // 残業の最大時刻
+
+/**
+ * API・フォームの時刻を data-time 行（HH:MM ゼロ埋め）に合わせる
+ */
+function normalizeProxyNetTimeStr(timeStr) {
+    if (timeStr == null || timeStr === '') return '';
+    const s = String(timeStr).trim();
+    const m = s.match(/^(\d{1,2}):(\d{2})(?::\d+)?$/);
+    if (!m) return s;
+    const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+    const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function timeStrToMinutesProxyNet(timeStr) {
+    const n = normalizeProxyNetTimeStr(timeStr);
+    if (!n || !/^\d{2}:\d{2}$/.test(n)) return null;
+    const [h, min] = n.split(':').map((x) => parseInt(x, 10));
+    return h * 60 + min;
+}
+
+/**
+ * 既存タスクの開始・終了が現在の表示範囲外でも行が生成されるよう拡張する
+ */
+function expandProxyTimetableRangeForTaskTimes(startTimeStr, endTimeStr) {
+    const sm = timeStrToMinutesProxyNet(startTimeStr);
+    const em0 = timeStrToMinutesProxyNet(endTimeStr);
+    if (sm === null || em0 === null) return;
+
+    let em = em0;
+    if (em <= sm) em += 24 * 60;
+
+    const firstHour = Math.floor(sm / 60);
+    timetableStartHour = Math.max(TIMETABLE_MIN_START, Math.min(timetableStartHour, firstHour));
+
+    const lastSlotStartMin = em - 15;
+    if (lastSlotStartMin < sm) return;
+    const requiredEndExclusive = Math.floor(lastSlotStartMin / 60) + 1;
+    timetableEndHour = Math.min(TIMETABLE_MAX_END, Math.max(timetableEndHour, requiredEndExclusive));
+}
+
+function expandProxyTimetableRangeForTasks(tasks) {
+    if (!Array.isArray(tasks)) return;
+    tasks.forEach((task) => {
+        if (task && task.startTime && task.endTime) {
+            expandProxyTimetableRangeForTaskTimes(task.startTime, task.endTime);
+        }
+    });
+}
 
 /**
  * 代理入力（ネット事業部版）のタイムテーブルUIを初期化する
@@ -5305,9 +5363,11 @@ function updateTimetableZoomButtons() {
  * @returns {boolean} 重複している場合は true
  */
 function checkTaskCollision(startTimeStr, endTimeStr, excludeElement = null) {
+    const ns = normalizeProxyNetTimeStr(startTimeStr);
+    const ne = normalizeProxyNetTimeStr(endTimeStr);
     // 比較用のDateオブジェクトを作成
-    const newStart = new Date(`1970-01-01T${startTimeStr}:00`);
-    let newEnd = new Date(`1970-01-01T${endTimeStr}:00`);
+    const newStart = new Date(`1970-01-01T${ns}:00`);
+    let newEnd = new Date(`1970-01-01T${ne}:00`);
     // 日付またぎ対応 (終了時刻が開始時刻より前の場合は翌日とみなす)
     if (newEnd < newStart) {
         newEnd.setDate(newEnd.getDate() + 1);
@@ -5317,8 +5377,8 @@ function checkTaskCollision(startTimeStr, endTimeStr, excludeElement = null) {
     for (const task of tasks) {
         if (task === excludeElement) continue;
 
-        const taskStart = new Date(`1970-01-01T${task.dataset.startTime}:00`);
-        let taskEnd = new Date(`1970-01-01T${task.dataset.endTime}:00`);
+        const taskStart = new Date(`1970-01-01T${normalizeProxyNetTimeStr(task.dataset.startTime)}:00`);
+        let taskEnd = new Date(`1970-01-01T${normalizeProxyNetTimeStr(task.dataset.endTime)}:00`);
         if (taskEnd < taskStart) {
             taskEnd.setDate(taskEnd.getDate() + 1);
         }
@@ -5513,8 +5573,8 @@ const isDarkColor = (color) => {
  * タイムテーブルにタスクブロックを追加する
  */
 function addProxyTimetableTask() {
-    const startTime = document.getElementById('task-start-time').value;
-    const endTime = document.getElementById('task-end-time').value;
+    const startTime = normalizeProxyNetTimeStr(document.getElementById('task-start-time').value);
+    const endTime = normalizeProxyNetTimeStr(document.getElementById('task-end-time').value);
     const duration = parseInt(document.getElementById('task-duration').value, 10);
     const catA_select = document.getElementById('task-category-a-select');
     const catB_select = document.getElementById('task-category-b-select');
@@ -5540,7 +5600,12 @@ function addProxyTimetableTask() {
         return;
     }
 
-    const startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+    let startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+    if (!startRow) {
+        expandProxyTimetableRangeForTaskTimes(startTime, endTime);
+        renderProxyTimetable();
+        startRow = document.querySelector(`#timetable-rows tr[data-time="${startTime}"]`);
+    }
     if (!startRow) {
         alert('タイムテーブル上で開始時刻に対応する行が見つかりません。');
         return;
@@ -5660,11 +5725,13 @@ function clearProxyTaskDetailsForm() {
 function renderExistingTimetableTask(task) {
     // ★休憩タスクの場合、保存された開始・終了時刻で描画する（デフォルトの12:00-13:00に戻さない）
     if (task.categoryA_id === 'N99' && task.startTime && task.endTime) {
-        renderBreakTask(task.startTime, task.endTime);
+        renderBreakTask(normalizeProxyNetTimeStr(task.startTime), normalizeProxyNetTimeStr(task.endTime));
         return;
     }
 
-    const { startTime, endTime, categoryA_id, categoryA_label, categoryB_id, categoryB_label, comment } = task;
+    const { categoryA_id, categoryA_label, categoryB_id, categoryB_label, comment } = task;
+    const startTime = normalizeProxyNetTimeStr(task.startTime);
+    const endTime = normalizeProxyNetTimeStr(task.endTime);
 
     if (!startTime || !endTime) {
         console.warn('Skipping rendering existing task due to missing time:', task);
