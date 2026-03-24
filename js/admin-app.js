@@ -4056,6 +4056,9 @@ async function loadProxyExistingData() {
         if (isNetTemplate) {
             // ネット事業部: タイムテーブルに既存タスクを描画
             // APIがstartTime/endTimeを返すようになったら、この部分が機能する
+            // 再読込時の重複描画を防ぐため、既存タスク表示を先にクリアする
+            document.querySelectorAll('.timetable-task').forEach((el) => el.remove());
+            detachedTaskElements = [];
             if (existingTasks.length > 0) {
                 existingTasks.forEach(task => {
                     if (task.startTime && task.endTime) {

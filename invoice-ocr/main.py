@@ -14,6 +14,7 @@ import time
 import traceback
 import urllib.request
 import urllib.error
+from collections import defaultdict
 
 # LLM 抽出（OpenAI）
 ENABLE_LLM_EXTRACT = os.environ.get("ENABLE_LLM_EXTRACT", "0") == "1"
@@ -103,9 +104,9 @@ def upload_pdf_to_gcs(pdf_bytes: bytes, blob_name: str) -> str:
 # ----------------------------
 # Vision PDF OCR（GCS 経由・async）
 # ----------------------------
-def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> str:
+def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> dict:
     if not GCS_BUCKET_NAME:
-        return "[CONFIG_ERROR] GCS_BUCKET_NAME is not set"
+        return {"text": "[CONFIG_ERROR] GCS_BUCKET_NAME is not set", "layout": {"pages": [], "lines": []}}
 
     input_blob_name = f"input/{file_id}.pdf"
     gcs_source_uri = upload_pdf_to_gcs(pdf_bytes, input_blob_name)
@@ -137,13 +138,14 @@ def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> str:
     try:
         operation.result(timeout=300)
     except Exception as e:
-        return f"[VISION_PDF_OCR_ERROR] {e}"
+        return {"text": f"[VISION_PDF_OCR_ERROR] {e}", "layout": {"pages": [], "lines": []}}
 
     storage_client = storage.Client()
     bucket = storage_client.bucket(GCS_BUCKET_NAME)
     prefix = f"{GCS_OCR_OUTPUT_PREFIX}/{file_id}/{run_id}/"
 
     texts: list[str] = []
+    pages_layout: list[dict] = []
     for blob in bucket.list_blobs(prefix=prefix):
         if not blob.name.endswith(".json"):
             continue
@@ -151,14 +153,130 @@ def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> str:
         try:
             data = json.loads(blob.download_as_text())
         except Exception as e:
-            return f"[OCR_OUTPUT_PARSE_ERROR] {e}"
+            return {"text": f"[OCR_OUTPUT_PARSE_ERROR] {e}", "layout": {"pages": [], "lines": []}}
 
         for resp in data.get("responses", []):
             full_text = resp.get("fullTextAnnotation", {}).get("text")
             if full_text:
                 texts.append(full_text)
+            pages_layout.extend(_extract_layout_from_full_text_annotation(resp.get("fullTextAnnotation", {})))
 
-    return "\n".join(texts).strip()
+    return {
+        "text": "\n".join(texts).strip(),
+        "layout": {
+            "pages": pages_layout,
+            "lines": _group_lines_by_y(pages_layout),
+        },
+    }
+
+
+def _normalize_bounding_box(bb: dict) -> dict:
+    vertices = bb.get("vertices", []) if isinstance(bb, dict) else []
+    norm_vertices = []
+    xs = []
+    ys = []
+    for v in vertices:
+        x = int(v.get("x", 0) or 0)
+        y = int(v.get("y", 0) or 0)
+        norm_vertices.append({"x": x, "y": y})
+        xs.append(x)
+        ys.append(y)
+    return {
+        "vertices": norm_vertices,
+        "x_min": min(xs) if xs else 0,
+        "y_min": min(ys) if ys else 0,
+        "x_max": max(xs) if xs else 0,
+        "y_max": max(ys) if ys else 0,
+    }
+
+
+def _word_text(word: dict) -> str:
+    symbols = word.get("symbols", []) if isinstance(word, dict) else []
+    return "".join((s.get("text", "") for s in symbols if isinstance(s, dict))).strip()
+
+
+def _extract_layout_from_full_text_annotation(full: dict) -> list[dict]:
+    pages = full.get("pages", []) if isinstance(full, dict) else []
+    out_pages: list[dict] = []
+    for p_idx, page in enumerate(pages):
+        blocks = page.get("blocks", []) if isinstance(page, dict) else []
+        out_blocks = []
+        for b_idx, block in enumerate(blocks):
+            paragraphs = block.get("paragraphs", []) if isinstance(block, dict) else []
+            out_paragraphs = []
+            for para in paragraphs:
+                words = para.get("words", []) if isinstance(para, dict) else []
+                out_words = []
+                for word in words:
+                    text = _word_text(word)
+                    if not text:
+                        continue
+                    out_words.append(
+                        {
+                            "text": text,
+                            "boundingBox": _normalize_bounding_box(word.get("boundingBox", {})),
+                        }
+                    )
+                out_paragraphs.append(
+                    {
+                        "boundingBox": _normalize_bounding_box(para.get("boundingBox", {})),
+                        "words": out_words,
+                    }
+                )
+            out_blocks.append(
+                {
+                    "blockIndex": b_idx,
+                    "boundingBox": _normalize_bounding_box(block.get("boundingBox", {})),
+                    "paragraphs": out_paragraphs,
+                }
+            )
+        out_pages.append(
+            {
+                "pageIndex": p_idx,
+                "width": page.get("width"),
+                "height": page.get("height"),
+                "blocks": out_blocks,
+            }
+        )
+    return out_pages
+
+
+def _group_lines_by_y(pages_layout: list[dict], y_tolerance_px: int = 8) -> list[dict]:
+    """
+    同じ高さのテキストを1行としてグルーピングする簡易ロジック。
+    """
+    grouped_lines: list[dict] = []
+    for page in pages_layout:
+        page_idx = page.get("pageIndex", 0)
+        buckets: dict[int, list[dict]] = defaultdict(list)
+        for block in page.get("blocks", []):
+            for para in block.get("paragraphs", []):
+                for w in para.get("words", []):
+                    bb = w.get("boundingBox", {})
+                    y = int(bb.get("y_min", 0))
+                    key = int(round(y / max(1, y_tolerance_px)))
+                    buckets[key].append(w)
+
+        for key in sorted(buckets.keys()):
+            words = buckets[key]
+            words = sorted(words, key=lambda w: (w.get("boundingBox", {}).get("x_min", 0)))
+            line_text = " ".join((w.get("text", "") for w in words)).strip()
+            line_bb = {
+                "x_min": min((w.get("boundingBox", {}).get("x_min", 0) for w in words), default=0),
+                "y_min": min((w.get("boundingBox", {}).get("y_min", 0) for w in words), default=0),
+                "x_max": max((w.get("boundingBox", {}).get("x_max", 0) for w in words), default=0),
+                "y_max": max((w.get("boundingBox", {}).get("y_max", 0) for w in words), default=0),
+            }
+            grouped_lines.append(
+                {
+                    "pageIndex": page_idx,
+                    "lineKey": key,
+                    "text": line_text,
+                    "boundingBox": line_bb,
+                    "words": words,
+                }
+            )
+    return grouped_lines
 
 
 # ----------------------------
@@ -176,14 +294,16 @@ def ocr_pdf(file_id):
     if text:
         return {
             "method": "digital_pdf_text_extract",
-            "text": text
+            "text": text,
+            "layout": {"pages": [], "lines": []},
         }
 
     # ② ダメなら Vision の PDF OCR（GCS 経由）
-    text = vision_pdf_ocr_via_gcs(file_bytes, file_id)
+    ocr = vision_pdf_ocr_via_gcs(file_bytes, file_id)
     return {
         "method": "vision_pdf_ocr_via_gcs",
-        "text": text
+        "text": ocr.get("text", ""),
+        "layout": ocr.get("layout", {"pages": [], "lines": []}),
     }
 
 
@@ -267,6 +387,7 @@ def build_invoice_response():
         "file_modifiedTime": chosen.get("modifiedTime"),
         "method_used": ocr_result["method"],
         "ocr_text": ocr_result["text"],
+        "ocr_layout": ocr_result.get("layout", {"pages": [], "lines": []}),
         "timing_ms": {
             "drive_list": int((t_files - t0) * 1000),
             "ocr_total": int((t_ocr - t_files) * 1000),

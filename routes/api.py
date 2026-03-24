@@ -267,8 +267,14 @@ def post_report():
 
     if not date or work_time is None or jobcan_work_minutes is None:
         abort(400, "Invalid request body. 'date', 'taskTotalMinutes', and 'jobcanWorkMinutes' are required.")
-    
-    if tasks is None or (work_time > 0 and not tasks):
+
+    # 受信値はバリデーション用途のみ。保存値は tasks 合計で再計算して確定する。
+    try:
+        requested_total = int(work_time)
+    except (TypeError, ValueError):
+        requested_total = 0
+
+    if tasks is None or (requested_total > 0 and not tasks):
         abort(400, "Invalid request body. 'tasks' is required when 'taskTotalMinutes' is greater than 0.")
 
     report_content_lines = [
@@ -276,7 +282,15 @@ def post_report():
         for task in (tasks or [])
     ]
     report_content = "\n".join(report_content_lines)
-    work_time_minutes = int(work_time) if str(work_time).isdigit() else 0
+    # task_total_minutes はサーバー側で tasks から再計算して正とする
+    work_time_minutes = 0
+    for task in (tasks or []):
+        if not isinstance(task, dict):
+            continue
+        try:
+            work_time_minutes += int(task.get("time", 0) or 0)
+        except (TypeError, ValueError):
+            continue
     date_obj = datetime.strptime(date, '%Y-%m-%d')
 
     # --- 報告者と入力者の情報を決定 ---
@@ -382,8 +396,14 @@ def post_net_report():
 
     if not date or work_time is None or jobcan_work_minutes is None:
         abort(400, "Invalid request body. 'date', 'taskTotalMinutes', and 'jobcanWorkMinutes' are required.")
-    
-    if tasks_from_req is None or (work_time > 0 and not tasks_from_req):
+
+    # 受信値はバリデーション用途のみ。保存値は tasks 合計で再計算して確定する。
+    try:
+        requested_total = int(work_time)
+    except (TypeError, ValueError):
+        requested_total = 0
+
+    if tasks_from_req is None or (requested_total > 0 and not tasks_from_req):
         abort(400, "Invalid request body. 'tasks' is required when 'taskTotalMinutes' is greater than 0.")
 
     # --- 新しい形式に合わせて report_content と tasks を生成 ---
@@ -412,7 +432,15 @@ def post_net_report():
         })
 
     report_content = "\n".join(report_content_lines)
-    work_time_minutes = int(work_time) if str(work_time).isdigit() else 0
+    # task_total_minutes はサーバー側で tasks から再計算して正とする
+    work_time_minutes = 0
+    for task in tasks_to_save:
+        if not isinstance(task, dict):
+            continue
+        try:
+            work_time_minutes += int(task.get("time", 0) or 0)
+        except (TypeError, ValueError):
+            continue
     
     # 文字列の日付をdatetimeオブジェクトに変換。FirestoreはこれをTimestampとして保存する。
     date_obj = datetime.strptime(date, '%Y-%m-%d')
