@@ -1270,7 +1270,7 @@ function handleNavigation(target, params = {}, options = { push: true }) {
             contentArea.innerHTML = '<div style="padding:20px;">グループ設定画面（準備中）</div>';
             break;
 
-        case 'reports':
+        case 'invoice_ocr':
             pageTitle.textContent = '帳票';
             contentArea.innerHTML = '<div style="padding:20px;"></div>';
             break;
