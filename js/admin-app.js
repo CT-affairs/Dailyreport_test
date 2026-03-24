@@ -6419,6 +6419,7 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
             taskBlock.dataset.comment = task.comment || '';
             taskBlock.dataset.categoryBLabel = task.categoryB_label != null ? String(task.categoryB_label) : '';
             taskBlock.dataset.categoryALabel = task.categoryA_label != null ? String(task.categoryA_label) : '';
+            taskBlock.dataset.taskBgColor = bgColor;
 
             taskBlock.addEventListener('click', onTaskClick);
             timetableEl.appendChild(taskBlock);
@@ -6502,7 +6503,8 @@ function handleNetFiscalModalTaskDetailClick(event) {
     const catB = el.dataset.categoryBLabel || '';
     const catA = el.dataset.categoryALabel || '';
     const cmt = el.dataset.comment || '';
-    updateNetFiscalPastTaskDetailPanel(catB, catA, cmt);
+    const taskBg = el.dataset.taskBgColor || '';
+    updateNetFiscalPastTaskDetailPanel(catB, catA, cmt, taskBg);
 }
 
 /**
@@ -6514,6 +6516,7 @@ function resetNetFiscalPastTaskDetailPanel() {
     const elB = document.getElementById('net-fiscal-detail-cat-b');
     const elA = document.getElementById('net-fiscal-detail-cat-a');
     const elC = document.getElementById('net-fiscal-detail-comment');
+    const swatch = document.getElementById('net-fiscal-detail-task-swatch');
     if (ph) {
         ph.style.display = '';
         ph.textContent = 'タイムテーブル内のタスクをクリックすると、ここに詳細が表示されます。';
@@ -6522,23 +6525,30 @@ function resetNetFiscalPastTaskDetailPanel() {
     if (elB) elB.textContent = '';
     if (elA) elA.textContent = '';
     if (elC) elC.textContent = '';
+    if (swatch) swatch.style.backgroundColor = '';
 }
 
 /**
  * 月度モーダル下部にタスク詳細を表示（textContent のみで XSS 回避）
+ * @param {string} taskBgColor - タイムテーブル上のタスク背景色（描画時に dataset と同値）
  */
-function updateNetFiscalPastTaskDetailPanel(categoryBLabel, categoryALabel, comment) {
+function updateNetFiscalPastTaskDetailPanel(categoryBLabel, categoryALabel, comment, taskBgColor) {
     const ph = document.getElementById('net-fiscal-past-task-detail-placeholder');
     const body = document.getElementById('net-fiscal-past-task-detail-body');
     const elB = document.getElementById('net-fiscal-detail-cat-b');
     const elA = document.getElementById('net-fiscal-detail-cat-a');
     const elC = document.getElementById('net-fiscal-detail-comment');
+    const swatch = document.getElementById('net-fiscal-detail-task-swatch');
     if (!body || !elB || !elA || !elC) return;
     if (ph) ph.style.display = 'none';
     body.style.display = 'block';
     elB.textContent = categoryBLabel.trim() ? categoryBLabel : '（なし）';
     elA.textContent = categoryALabel.trim() ? categoryALabel : '（なし）';
     elC.textContent = comment.trim() ? comment : '（なし）';
+    if (swatch) {
+        const c = taskBgColor && String(taskBgColor).trim() ? String(taskBgColor).trim() : '#e0e0e0';
+        swatch.style.backgroundColor = c;
+    }
 }
 
 // --- ★ネット事業部: 月度（21日〜翌月20日）の過去日報表示（UI配置は別途） ---

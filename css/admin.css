@@ -387,10 +387,23 @@ th.sortable-th:hover {
 .net-fiscal-past-task-detail-summary-row {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
-    gap: 6px 2.25rem;
+    align-items: center;
+    gap: 8px 2.25rem;
     margin-bottom: 10px;
     line-height: 1.45;
+}
+/* タイムテーブル上のタスク色を再現（集計項目の左・横長） */
+.net-fiscal-past-task-detail-swatch {
+    flex-shrink: 0;
+    width: 3rem;
+    min-width: 40px;
+    max-width: 56px;
+    height: 0.95rem;
+    border-radius: 3px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    box-sizing: border-box;
+    background-color: transparent;
+    align-self: center;
 }
 .net-fiscal-past-task-detail-inline {
     display: inline-flex;
