@@ -1311,7 +1311,7 @@ async function renderDashboardHome(container) {
 
             <!-- 中部: 集計表ダウンロード -->
             <div class="card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
-                <h3 style="margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; font-size: 1.2em; color: #2c3e50;">集計表ダウンロード -エクセル形式-</h3>
+                <h3 style="margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; font-size: 1.2em; color: #2c3e50;">集計表ダウンロード -エクセル/CSV形式-</h3>
                 
                 <!-- Row 1: 工務 & 全社 -->
                 <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 15px; margin-bottom: 20px;">
