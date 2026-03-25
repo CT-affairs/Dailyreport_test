@@ -6165,6 +6165,9 @@ let pastReportsCurrentEndDate = null; // 過去日報の表示期間の終了日
 const PAST_REPORTS_VISIBLE_TIME = Object.freeze({
     DEFAULT_START_H: 7,
     DEFAULT_END_H: 18,
+    /** 過去日報一覧（月度）モーダルの規定表示: 7:00〜20:00（終了時刻はグリッド上の 20:00 ラベルまで） */
+    FISCAL_DEFAULT_START_H: 7,
+    FISCAL_DEFAULT_END_H: 20,
     MIN_START_H: 5,
     MAX_END_H: 22,
 });
@@ -6175,6 +6178,70 @@ let pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
 let pastReportsTimetableRenderState = null;
 /** 取得データの日付範囲が変わったら表示時間帯をデフォルトに戻す */
 let pastReportsLastDataRangeKey = '';
+
+/**
+ * ネット月度モーダル用コメントツールチップの表示までの待ち（ms）。
+ * ネイティブの title は待ち時間を短くできないため、独自ツールチップで制御する。
+ * 体感では title の約半分（多くの環境で title は約1秒前後）を目安にしている。
+ */
+const PAST_REPORTS_COMMENT_TOOLTIP_DELAY_MS = 500;
+
+let pastReportsCommentTooltipTimer = null;
+let pastReportsCommentTooltipEl = null;
+
+function hidePastReportsCommentTooltip() {
+    if (pastReportsCommentTooltipTimer !== null) {
+        clearTimeout(pastReportsCommentTooltipTimer);
+        pastReportsCommentTooltipTimer = null;
+    }
+    if (pastReportsCommentTooltipEl && pastReportsCommentTooltipEl.parentNode) {
+        pastReportsCommentTooltipEl.remove();
+    }
+    pastReportsCommentTooltipEl = null;
+}
+
+function positionPastReportsCommentTooltip(anchorEl, tipEl) {
+    const rect = anchorEl.getBoundingClientRect();
+    const margin = 8;
+    let left = rect.left + rect.width / 2 - tipEl.offsetWidth / 2;
+    let top = rect.bottom + margin;
+    if (left < margin) left = margin;
+    if (left + tipEl.offsetWidth > window.innerWidth - margin) {
+        left = Math.max(margin, window.innerWidth - margin - tipEl.offsetWidth);
+    }
+    if (top + tipEl.offsetHeight > window.innerHeight - margin) {
+        top = rect.top - margin - tipEl.offsetHeight;
+    }
+    tipEl.style.left = `${Math.round(left)}px`;
+    tipEl.style.top = `${Math.round(top)}px`;
+}
+
+/**
+ * @param {HTMLElement} taskBlock
+ * @param {string} tooltipPlainText - textContent のみ（XSS 回避）
+ */
+function bindPastReportsNetFiscalCommentTooltip(taskBlock, tooltipPlainText) {
+    taskBlock.removeAttribute('title');
+    taskBlock.addEventListener('mouseenter', () => {
+        hidePastReportsCommentTooltip();
+        pastReportsCommentTooltipTimer = window.setTimeout(() => {
+            pastReportsCommentTooltipTimer = null;
+            const el = document.createElement('div');
+            el.className = 'past-reports-comment-tooltip';
+            el.setAttribute('role', 'tooltip');
+            el.textContent = tooltipPlainText;
+            el.style.cssText =
+                'position:fixed;z-index:10050;max-width:min(420px,90vw);padding:8px 10px;' +
+                'background:#333;color:#fff;font-size:12px;line-height:1.4;border-radius:4px;' +
+                'box-shadow:0 2px 8px rgba(0,0,0,0.25);pointer-events:none;white-space:pre-wrap;word-break:break-word;';
+            document.body.appendChild(el);
+            positionPastReportsCommentTooltip(taskBlock, el);
+            pastReportsCommentTooltipEl = el;
+        }, PAST_REPORTS_COMMENT_TOOLTIP_DELAY_MS);
+    });
+    taskBlock.addEventListener('mouseleave', hidePastReportsCommentTooltip);
+    taskBlock.addEventListener('click', hidePastReportsCommentTooltip);
+}
 
 function formatLocalYmd(d) {
     const yy = d.getFullYear();
@@ -6187,12 +6254,21 @@ function getPastReportsDataRangeKey(rangeStart, rangeEnd) {
     return `${formatLocalYmd(rangeStart)}_${formatLocalYmd(rangeEnd)}`;
 }
 
-function maybeResetPastReportsVisibleHoursForDataRange(rangeStart, rangeEnd) {
+/**
+ * @param {{ defaultStartH?: number, defaultEndH?: number }} [resetHourOptions] - 省略時は週次モーダル用 DEFAULT_* を使用
+ */
+function maybeResetPastReportsVisibleHoursForDataRange(rangeStart, rangeEnd, resetHourOptions) {
     const key = getPastReportsDataRangeKey(rangeStart, rangeEnd);
     if (key !== pastReportsLastDataRangeKey) {
         pastReportsLastDataRangeKey = key;
-        pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
-        pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+        const ds = resetHourOptions && Number.isFinite(resetHourOptions.defaultStartH)
+            ? resetHourOptions.defaultStartH
+            : PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
+        const de = resetHourOptions && Number.isFinite(resetHourOptions.defaultEndH)
+            ? resetHourOptions.defaultEndH
+            : PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+        pastReportsVisibleStartHour = ds;
+        pastReportsVisibleEndHour = de;
     }
 }
 
@@ -6324,7 +6400,15 @@ function ensureNetFiscalPastReportsModalInitialized() {
     const netFiscalPastModalClose = document.getElementById('net-fiscal-past-reports-modal-close');
     if (!netFiscalPastModal || !netFiscalPastModalClose) return;
     window.__netFiscalPastReportsModalListenersBound = true;
-    const closeNetFiscal = () => { netFiscalPastModal.classList.remove('is-active'); };
+    if (!window.__pastReportsFiscalTooltipScrollHideBound) {
+        window.__pastReportsFiscalTooltipScrollHideBound = true;
+        document.addEventListener('scroll', hidePastReportsCommentTooltip, true);
+        window.addEventListener('resize', hidePastReportsCommentTooltip);
+    }
+    const closeNetFiscal = () => {
+        hidePastReportsCommentTooltip();
+        netFiscalPastModal.classList.remove('is-active');
+    };
     netFiscalPastModalClose.addEventListener('click', closeNetFiscal);
     netFiscalPastModal.addEventListener('click', (e) => {
         if (e.target.classList.contains('dr-modal')) closeNetFiscal();
@@ -6351,8 +6435,8 @@ function openNetFiscalPastReportsModal() {
         return;
     }
 
-    pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
-    pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+    pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_START_H;
+    pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_END_H;
     pastReportsLastDataRangeKey = '';
 
     resetNetFiscalPastReportsPeriodToCurrent();
@@ -6455,6 +6539,8 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
     const container = (typeof containerEl === 'string' ? document.getElementById(containerEl) : containerEl)
         || document.getElementById('past-reports-container');
     if (!container) return;
+
+    hidePastReportsCommentTooltip();
 
     const onTaskClick = typeof taskClickHandler === 'function' ? taskClickHandler : handlePastTaskClick;
     container.innerHTML = ''; // コンテナをクリア
@@ -6593,12 +6679,15 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
             const displayText = [task.categoryB_label, task.categoryA_label, task.comment].filter(Boolean).join(' / ');
             if (isNetFiscalMonthlyView) {
                 taskBlock.textContent = commentTrimmed;
-                taskBlock.title = commentRaw ? commentRaw : '（コメントなし）';
                 taskBlock.style.overflow = 'hidden';
                 taskBlock.style.textOverflow = 'ellipsis';
                 taskBlock.style.whiteSpace = 'nowrap';
                 taskBlock.style.padding = '2px 4px';
                 taskBlock.style.fontSize = '0.75em';
+                bindPastReportsNetFiscalCommentTooltip(
+                    taskBlock,
+                    commentRaw ? commentRaw : '（コメントなし）',
+                );
             } else {
                 taskBlock.textContent = displayText;
                 taskBlock.title = displayText;
@@ -6951,7 +7040,10 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
         const reportsByDate = await response.json();
         const rs = new Date(range.startDate.getFullYear(), range.startDate.getMonth(), range.startDate.getDate());
         const re = new Date(range.endDate.getFullYear(), range.endDate.getMonth(), range.endDate.getDate());
-        maybeResetPastReportsVisibleHoursForDataRange(rs, re);
+        maybeResetPastReportsVisibleHoursForDataRange(rs, re, {
+            defaultStartH: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_START_H,
+            defaultEndH: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_END_H,
+        });
         renderPastReportsTimetables(
             reportsByDate,
             rs,

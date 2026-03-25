@@ -42,6 +42,9 @@ OCR_MIME_TYPES = (
 # Drive 一覧で取得する最大件数（更新日時降順の先頭 N 件が処理候補）
 DRIVE_LIST_PAGE_SIZE = int(os.environ.get("DRIVE_LIST_PAGE_SIZE", "50"))
 
+# Vision 非同期 PDF OCR の完了待ち（多ページ・大きめPDF用に長め。Cloud Run のリクエストタイムアウトも合わせて延長すること）
+VISION_ASYNC_TIMEOUT_SEC = int(os.environ.get("VISION_ASYNC_TIMEOUT_SEC", "900"))
+
 
 # ----------------------------
 # Drive認証（Application Default Credentials 使用）
@@ -194,7 +197,7 @@ def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> dict:
     operation = client.async_batch_annotate_files(requests=[async_request])
 
     try:
-        operation.result(timeout=300)
+        operation.result(timeout=VISION_ASYNC_TIMEOUT_SEC)
     except Exception as e:
         return {"text": f"[VISION_PDF_OCR_ERROR] {e}", "layout": {"pages": [], "lines": []}}
 

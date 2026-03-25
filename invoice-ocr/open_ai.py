@@ -11,10 +11,13 @@ from openai import OpenAI
 client = OpenAI()
 
 # LLM 応答が長い明細JSONで途中切れしないよう、上限は環境変数で調整可能
-LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "32000"))
-_llm_retry_default = max(64000, LLM_MAX_OUTPUT_TOKENS * 2)
+# 3ページPDFなどのテスト用にデフォルトを大きめ（本番では環境変数で下げる）
+LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "128000"))
 LLM_MAX_OUTPUT_TOKENS_RETRY = int(
-    os.environ.get("LLM_MAX_OUTPUT_TOKENS_RETRY", str(_llm_retry_default))
+    os.environ.get("LLM_MAX_OUTPUT_TOKENS_RETRY", "200000")
+)
+LLM_MAX_OUTPUT_TOKENS_RETRY2 = int(
+    os.environ.get("LLM_MAX_OUTPUT_TOKENS_RETRY2", "256000")
 )
 
 
@@ -189,7 +192,10 @@ def _repair_json_via_model(bad_json_text: str) -> str:
 {bad_json_text}
 """.strip()
 
-    resp = _call_extract(repair_prompt, max_output_tokens=800)
+    resp = _call_extract(
+        repair_prompt,
+        max_output_tokens=int(os.environ.get("LLM_REPAIR_MAX_OUTPUT_TOKENS", "32000")),
+    )
     text = getattr(resp, "output_text", None)
     if not text:
         try:
@@ -359,11 +365,13 @@ def extract_invoice_data(ocr_text: str) -> Dict[str, Any]:
 
     response = _call_extract(prompt, max_output_tokens=LLM_MAX_OUTPUT_TOKENS)
 
-    # max_output_tokens で未完なら、上限を上げて 1 回だけリトライ（以前の 1400 は誤りで逆効果）
-    status = getattr(response, "status", None)
-    incomplete_reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
-    if status == "incomplete" and incomplete_reason == "max_output_tokens":
-        response = _call_extract(prompt, max_output_tokens=LLM_MAX_OUTPUT_TOKENS_RETRY)
+    # max_output_tokens で未完なら、段階的に上限を上げて最大2回リトライ
+    for extra_tokens in (LLM_MAX_OUTPUT_TOKENS_RETRY, LLM_MAX_OUTPUT_TOKENS_RETRY2):
+        status = getattr(response, "status", None)
+        incomplete_reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
+        if status != "incomplete" or incomplete_reason != "max_output_tokens":
+            break
+        response = _call_extract(prompt, max_output_tokens=extra_tokens)
 
     # Responses API は output の構造が一定でないことがあるため、まずは output_text を優先
     raw_text = getattr(response, "output_text", None)

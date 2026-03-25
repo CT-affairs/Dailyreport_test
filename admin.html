@@ -254,15 +254,15 @@
 <!-- 過去日報一覧（月度・21日〜翌月20日）: 日報_個別（ネット）カレンダー「一覧」から表示 -->
 <div id="net-fiscal-past-reports-modal" class="dr-modal dr-modal-pane-container net-fiscal-past-reports-modal-root">
     <div class="dr-modal-content dr-modal-left-pane net-fiscal-past-reports-modal-pane">
-        <div class="dr-modal-header">
-            <h4>過去日報一覧（月度）</h4>
+        <div class="dr-modal-header net-fiscal-past-reports-modal-header">
+            <h4 class="net-fiscal-past-reports-modal-title">過去日報一覧（月度）</h4>
             <span class="dr-close-button" id="net-fiscal-past-reports-modal-close">&times;</span>
         </div>
         <div class="dr-modal-body">
-            <div class="past-reports-nav" style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">
-                <button type="button" id="net-fiscal-past-reports-prev-btn" class="btn-secondary">◀ 前月</button>
-                <span id="net-fiscal-past-reports-period-display" style="font-weight: bold;"></span>
-                <button type="button" id="net-fiscal-past-reports-next-btn" class="btn-secondary">次月 ▶</button>
+            <div class="past-reports-nav net-fiscal-past-reports-nav">
+                <button type="button" id="net-fiscal-past-reports-prev-btn" class="btn-secondary net-fiscal-past-reports-period-btn">◀ 前月</button>
+                <span id="net-fiscal-past-reports-period-display" class="net-fiscal-past-reports-period-display"></span>
+                <button type="button" id="net-fiscal-past-reports-next-btn" class="btn-secondary net-fiscal-past-reports-period-btn">次月 ▶</button>
             </div>
             <div id="net-fiscal-past-reports-container" class="past-reports-root" style="flex-grow: 1; overflow: auto; min-height: 0;"></div>
             <div id="net-fiscal-past-task-detail" class="net-fiscal-past-task-detail" aria-live="polite">
