@@ -573,10 +573,11 @@ th.sortable-th:hover {
     padding: 3px 2px;
     font-weight: 600;
 }
-/* 月度: タスク表示文字をやや小さく */
+/* 月度: コメント表示を小さく（0.62em から約2段階。インライン指定は使わない） */
 .past-reports-grid-inner.past-reports-grid-inner--fiscal .past-task-block {
-    font-size: 0.62em;
+    font-size: 0.5em;
     padding: 1px 2px;
+    line-height: 1.15;
 }
 .past-day-column {
     border: 1px solid #ddd;

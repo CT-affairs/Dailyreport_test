@@ -6682,8 +6682,6 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
                 taskBlock.style.overflow = 'hidden';
                 taskBlock.style.textOverflow = 'ellipsis';
                 taskBlock.style.whiteSpace = 'nowrap';
-                taskBlock.style.padding = '2px 4px';
-                taskBlock.style.fontSize = '0.75em';
                 bindPastReportsNetFiscalCommentTooltip(
                     taskBlock,
                     commentRaw ? commentRaw : '（コメントなし）',
