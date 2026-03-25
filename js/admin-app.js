@@ -3849,7 +3849,22 @@ async function initializeProxyReportScreen(isNetTemplate) {
 
     // イベントリスナー設定
     document.getElementById('close-proxy-report-btn').addEventListener('click', navigateBack);
-    document.getElementById('proxy-back-to-list-btn').addEventListener('click', navigateBack);
+    // 完了画面の「一覧に戻る」は、（遷移ではなく）同じ対象者・同じ日付の入力フォームへ戻す
+    const backToListBtn = document.getElementById('proxy-back-to-list-btn');
+    if (backToListBtn) {
+        backToListBtn.addEventListener('click', async () => {
+            const formWrap = document.getElementById('proxy-report-form-wrapper');
+            const completion = document.getElementById('proxy-completion-screen');
+            if (completion) completion.style.display = 'none';
+            if (formWrap) formWrap.style.display = '';
+            // 送信後に再編集するケースに備え、最新データで再描画して差分をなくす
+            try {
+                await loadProxyExistingData();
+            } catch (e) {
+                console.error(e);
+            }
+        });
+    }
 
     // ボタンのテキストと機能を変更（ラベルは「更新」に変更）
     const syncBtn = document.getElementById('proxy-get-work-time-button');
@@ -6890,7 +6905,7 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
 
             const commentRaw = task.comment != null ? String(task.comment) : '';
             const commentTrimmed = commentRaw.trim();
-            const displayText = [task.categoryB_label, task.categoryA_label, task.comment].filter(Boolean).join(' / ');
+            const displayText = [task.comment, task.categoryB_label, task.categoryA_label].filter(Boolean).join(' / ');
             if (isNetFiscalMonthlyView) {
                 taskBlock.textContent = commentTrimmed;
                 taskBlock.style.overflow = 'hidden';

@@ -1,4 +1,4 @@
-/* ベーススタイル */
+﻿/* ベーススタイル */
 body, html {
     margin: 0;
     padding: 0;
@@ -687,7 +687,7 @@ th.sortable-th:hover {
     position: absolute;
     left: 2px;
     right: 2px;
-    font-size: 0.75em;
+    font-size: 0.7em;
     padding: 2px 4px;
     overflow: hidden;
     white-space: nowrap;
