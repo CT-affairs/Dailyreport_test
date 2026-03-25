@@ -6191,6 +6191,7 @@ function handleDeleteTask() {
         currentlyEditingTaskElement = null;
         clearProxyTaskDetailsForm();
         updateProxyWorkTimeSummary();
+        autoSaveProxyNetReport('delete-task');
     }
 }
 
