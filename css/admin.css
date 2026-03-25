@@ -573,6 +573,16 @@ th.sortable-th:hover {
     padding: 3px 2px;
     font-weight: 600;
 }
+.past-reports-grid-inner.past-reports-grid-inner--fiscal .past-day-header.past-day-header--nav {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: rgba(0, 0, 0, 0.25);
+    text-underline-offset: 2px;
+}
+.past-reports-grid-inner.past-reports-grid-inner--fiscal .past-day-header.past-day-header--nav:hover {
+    background-color: rgba(0, 123, 255, 0.08);
+    text-decoration-color: rgba(0, 86, 179, 0.45);
+}
 /* 月度: コメント表示を小さく（0.62em から約2段階。インライン指定は使わない） */
 .past-reports-grid-inner.past-reports-grid-inner--fiscal .past-task-block {
     font-size: 0.5em;

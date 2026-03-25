@@ -3734,12 +3734,22 @@ let proxySelectionResolver = null; // 選択パネルのPromise解決用
 
 /**
  * 代理入力画面を開く
+ * @param {{ returnTarget?: string }} [openOptions] - 戻り先を固定したいとき（例: 月度過去日報からの遷移でカレンダーに戻す）
  */
-async function openProxyReport(employeeId, name, date, groupId) {
+async function openProxyReport(employeeId, name, date, groupId, openOptions) {
     const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
-    let returnTarget = activeTarget || 'dashboard';
-    // ネット事業部のスタッフを開いた場合、一覧に戻る先はネット用を優先
-    if (groupId && String(groupId) === '3' && returnTarget === 'dashboard') {
+    let returnTarget;
+    if (openOptions && openOptions.returnTarget != null && String(openOptions.returnTarget).trim() !== '') {
+        returnTarget = String(openOptions.returnTarget).trim();
+    } else {
+        returnTarget = activeTarget || 'dashboard';
+    }
+    // ネット事業部のスタッフを開いた場合、一覧に戻る先はネット用を優先（明示 returnTarget 時は上書きしない）
+    if (
+        !(openOptions && openOptions.returnTarget != null && String(openOptions.returnTarget).trim() !== '')
+        && groupId && String(groupId) === '3'
+        && returnTarget === 'dashboard'
+    ) {
         returnTarget = 'dashboard_net';
     }
 
@@ -6639,6 +6649,40 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
             <div class="past-day-timetable"></div>
             <div class="past-timetable-strip past-day-spacer-strip">&nbsp;</div>
         `;
+
+        const headerEl = column.querySelector('.past-day-header');
+        if (isNetFiscalMonthlyView && headerEl) {
+            headerEl.classList.add('past-day-header--nav');
+            headerEl.title = 'この日の日報入力画面を開く';
+            headerEl.dataset.pastNavDate = dateStr;
+            headerEl.setAttribute('role', 'button');
+            headerEl.setAttribute('tabindex', '0');
+            const goToProxyInputForPastNavDate = (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                const navCtx = getNetFiscalPastReportsTargetContext();
+                if (!navCtx || !navCtx.employeeId) return;
+                hidePastReportsCommentTooltip();
+                const fiscalModal = document.getElementById('net-fiscal-past-reports-modal');
+                if (fiscalModal) fiscalModal.classList.remove('is-active');
+                const openOpts = navCtx.returnTarget ? { returnTarget: navCtx.returnTarget } : undefined;
+                void openProxyReport(
+                    String(navCtx.employeeId),
+                    navCtx.name || '',
+                    dateStr,
+                    navCtx.groupId != null ? String(navCtx.groupId) : '3',
+                    openOpts,
+                );
+            };
+            headerEl.addEventListener('click', goToProxyInputForPastNavDate);
+            headerEl.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    goToProxyInputForPastNavDate(e);
+                }
+            });
+        }
 
         const timetableEl = column.querySelector('.past-day-timetable');
         timetableEl.style.setProperty('--past-hour-span', String(hourSpan));

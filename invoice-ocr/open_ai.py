@@ -1,7 +1,8 @@
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Tuple
 
 from openai import OpenAI
 
@@ -18,6 +19,17 @@ LLM_MAX_OUTPUT_TOKENS_RETRY = int(
 )
 LLM_MAX_OUTPUT_TOKENS_RETRY2 = int(
     os.environ.get("LLM_MAX_OUTPUT_TOKENS_RETRY2", "256000")
+)
+
+# 長いOCRは1プロンプトに載せるとコンテキストで後半が切れ、2ページ目以降の明細が消える。
+# layout.pages がある場合はページ単位、無い場合は文字数でチャンクして明細抽出する。
+LLM_PAGED_EXTRACTION = os.environ.get("LLM_PAGED_EXTRACTION", "1") != "0"
+OCR_SINGLE_CALL_MAX_CHARS = int(os.environ.get("OCR_SINGLE_CALL_MAX_CHARS", "14000"))
+OCR_TEXT_CHUNK_CHARS = int(os.environ.get("OCR_TEXT_CHUNK_CHARS", "12000"))
+OCR_TEXT_CHUNK_OVERLAP = int(os.environ.get("OCR_TEXT_CHUNK_OVERLAP", "1500"))
+LLM_HEADER_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_HEADER_MAX_OUTPUT_TOKENS", "8192"))
+LLM_PAGE_LINE_ITEMS_MAX_OUTPUT_TOKENS = int(
+    os.environ.get("LLM_PAGE_LINE_ITEMS_MAX_OUTPUT_TOKENS", str(LLM_MAX_OUTPUT_TOKENS))
 )
 
 
@@ -134,6 +146,114 @@ def _postprocess_line_items(line_items: List[Dict[str, Any]], invoice_obj: Dict[
             item["supplier_slip_number"] = invoice_no
 
     return normalized_items
+
+
+def _layout_page_to_plain_text(page: Dict[str, Any], y_tolerance_px: int = 8) -> str:
+    """Vision layout の1ページを、行推定してプレーンテキスト化する。"""
+    buckets: dict[int, List[Dict[str, Any]]] = defaultdict(list)
+    for block in page.get("blocks", []):
+        for para in block.get("paragraphs", []):
+            for w in para.get("words", []):
+                bb = w.get("boundingBox", {})
+                y = int(bb.get("y_min", 0))
+                key = int(round(y / max(1, y_tolerance_px)))
+                buckets[key].append(w)
+    lines: List[str] = []
+    for key in sorted(buckets.keys()):
+        words = sorted(buckets[key], key=lambda w: (w.get("boundingBox", {}).get("x_min", 0)))
+        line_text = " ".join((w.get("text", "") for w in words)).strip()
+        if line_text:
+            lines.append(line_text)
+    return "\n".join(lines)
+
+
+def _page_texts_from_layout(ocr_layout: Dict[str, Any]) -> List[str]:
+    pages = ocr_layout.get("pages") if isinstance(ocr_layout, dict) else None
+    if not isinstance(pages, list) or not pages:
+        return []
+    out: List[str] = []
+    for page in sorted(pages, key=lambda p: p.get("pageIndex", 0)):
+        if not isinstance(page, dict):
+            continue
+        t = _layout_page_to_plain_text(page).strip()
+        if t:
+            out.append(t)
+    return out
+
+
+def _chunk_plain_text(text: str, size: int, overlap: int) -> List[str]:
+    text = text.strip()
+    if len(text) <= size:
+        return [text] if text else []
+    chunks: List[str] = []
+    step = max(1, size - overlap)
+    i = 0
+    while i < len(text):
+        chunks.append(text[i : i + size])
+        i += step
+    return chunks
+
+
+def _segment_ocr_for_llm(ocr_text: str, ocr_layout: Optional[Dict[str, Any]]) -> List[str]:
+    """
+    LLM に渡す単位ごとの OCR 断片を返す（各断片がコンテキストに収まりやすくする）。
+    """
+    layout = ocr_layout if isinstance(ocr_layout, dict) else {}
+
+    # 1) Vision のページレイアウトがあれば最優先
+    from_layout = _page_texts_from_layout(layout)
+    if len(from_layout) >= 2:
+        return from_layout
+    if len(from_layout) == 1 and len(from_layout[0]) <= OCR_SINGLE_CALL_MAX_CHARS:
+        return from_layout
+
+    # 2) フォームフィード区切り（一部PDFテキスト）
+    if "\f" in ocr_text:
+        parts = [p.strip() for p in ocr_text.split("\f") if p.strip()]
+        if len(parts) >= 2:
+            return parts
+
+    # 3) レイアウト1ページだが極端に長い / レイアウトなしの長文
+    if from_layout and len(from_layout[0]) > OCR_SINGLE_CALL_MAX_CHARS:
+        return _chunk_plain_text(from_layout[0], OCR_TEXT_CHUNK_CHARS, OCR_TEXT_CHUNK_OVERLAP)
+
+    if len(ocr_text) > OCR_SINGLE_CALL_MAX_CHARS:
+        return _chunk_plain_text(ocr_text, OCR_TEXT_CHUNK_CHARS, OCR_TEXT_CHUNK_OVERLAP)
+
+    return [ocr_text] if ocr_text.strip() else []
+
+
+def _run_llm_json(prompt: str, max_output_tokens: int) -> Tuple[Dict[str, Any], str, Any]:
+    """LLM を1回走らせ、dict・生出力・response を返す。"""
+    response = _call_extract(prompt, max_output_tokens=max_output_tokens)
+
+    for extra_tokens in (LLM_MAX_OUTPUT_TOKENS_RETRY, LLM_MAX_OUTPUT_TOKENS_RETRY2):
+        status = getattr(response, "status", None)
+        incomplete_reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
+        if status != "incomplete" or incomplete_reason != "max_output_tokens":
+            break
+        if extra_tokens <= max_output_tokens:
+            continue
+        response = _call_extract(prompt, max_output_tokens=extra_tokens)
+
+    raw_text = getattr(response, "output_text", None)
+    if not raw_text:
+        try:
+            raw_text = response.output[0].content[0].text  # type: ignore[attr-defined]
+        except Exception:
+            raw_text = json.dumps(_response_to_debug_dict(response), ensure_ascii=False)
+
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        raise ValueError(
+            f"Empty model output. debug={json.dumps(_response_to_debug_dict(response), ensure_ascii=False)}"
+        )
+    try:
+        data = _coerce_json(raw_text)
+    except json.JSONDecodeError:
+        repaired = _repair_json_via_model(raw_text)
+        data = _coerce_json(repaired)
+    return data, raw_text, response
+
 
 def _response_to_debug_dict(response: Any) -> Dict[str, Any]:
     try:
