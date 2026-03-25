@@ -3857,6 +3857,12 @@ async function initializeProxyReportScreen(isNetTemplate) {
             const completion = document.getElementById('proxy-completion-screen');
             if (completion) completion.style.display = 'none';
             if (formWrap) formWrap.style.display = '';
+            // 送信ボタンの表示を元に戻す（送信中... が残り続けないようにする）
+            const submitBtn = document.getElementById('proxy-submit-button');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '送信';
+            }
             // 送信後に再編集するケースに備え、最新データで再描画して差分をなくす
             try {
                 await loadProxyExistingData();
