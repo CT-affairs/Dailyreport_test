@@ -5059,6 +5059,147 @@ async function autoSaveProxyNetReport(triggerName = 'auto-save') {
 // --- タイムテーブル用の状態変数 ---
 let currentlyEditingTaskElement = null; // ★編集中のタスク要素を保持
 let detachedTaskElements = []; // ★画面外のタスク要素を保持する
+// --- ネットタイムテーブル: コピー&ペースト（15分決め打ち） ---
+const PROXY_NET_TASK_CLIPBOARD_STORAGE_KEY = 'proxy_net_task_clipboard_v1';
+let proxyNetTaskClipboard = null; // { categoryB_id, categoryB_label, categoryA_id, categoryA_label, comment }
+
+function isTypingInTextField() {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'textarea') return true;
+    if (tag === 'input') {
+        const t = (el.getAttribute('type') || '').toLowerCase();
+        return ['text', 'search', 'email', 'url', 'tel', 'password', 'number', 'time', 'date'].includes(t);
+    }
+    return tag === 'select';
+}
+
+function loadProxyNetTaskClipboard() {
+    if (proxyNetTaskClipboard) return proxyNetTaskClipboard;
+    try {
+        const raw = localStorage.getItem(PROXY_NET_TASK_CLIPBOARD_STORAGE_KEY);
+        if (!raw) return null;
+        const obj = JSON.parse(raw);
+        if (!obj || typeof obj !== 'object') return null;
+        if (!obj.categoryA_id || !obj.categoryB_id) return null;
+        proxyNetTaskClipboard = obj;
+        return proxyNetTaskClipboard;
+    } catch {
+        return null;
+    }
+}
+
+function saveProxyNetTaskClipboard(obj) {
+    proxyNetTaskClipboard = obj;
+    try {
+        localStorage.setItem(PROXY_NET_TASK_CLIPBOARD_STORAGE_KEY, JSON.stringify(obj));
+    } catch {
+        // ignore
+    }
+}
+
+function addMinutesToTimeStrProxyNet(startTimeStr, addMinutes) {
+    const s = normalizeProxyNetTimeStr(startTimeStr);
+    const sm = timeStrToMinutesProxyNet(s);
+    if (sm === null) return '';
+    const total = (sm + addMinutes) % (24 * 60);
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+async function pasteProxyNetTimetableTaskFromClipboard() {
+    const clip = loadProxyNetTaskClipboard();
+    if (!clip) return;
+
+    const startTimeInput = document.getElementById('task-start-time');
+    const endTimeInput = document.getElementById('task-end-time');
+    if (!startTimeInput) return;
+
+    const startTime = normalizeProxyNetTimeStr(startTimeInput.value);
+    if (!startTime) return;
+
+    // 15分固定。複数選択（30分以上）の場合は選択範囲の長さで延長解釈
+    let durationMin = 15;
+    const endTimeSelected = endTimeInput ? normalizeProxyNetTimeStr(endTimeInput.value) : '';
+    const sm = timeStrToMinutesProxyNet(startTime);
+    const em = endTimeSelected ? timeStrToMinutesProxyNet(endTimeSelected) : null;
+    if (sm !== null && em !== null) {
+        let diff = em - sm;
+        if (diff < 0) diff += 24 * 60;
+        if (diff >= 30) {
+            durationMin = Math.max(15, Math.round(diff / 15) * 15);
+        }
+    }
+
+    const endTime = addMinutesToTimeStrProxyNet(startTime, durationMin);
+    if (!endTime) return;
+
+    const catBSelect = document.getElementById('task-category-b-select');
+    const catASelect = document.getElementById('task-category-a-select');
+    const commentInput = document.getElementById('task-comment');
+    if (!catBSelect || !catASelect) return;
+
+    // フォームへ反映（catB -> change -> catA の順）
+    startTimeInput.value = startTime;
+    if (endTimeInput) endTimeInput.value = endTime;
+    catBSelect.value = String(clip.categoryB_id);
+    catBSelect.dispatchEvent(new Event('change'));
+    catASelect.value = String(clip.categoryA_id);
+    if (commentInput) commentInput.value = clip.comment || '';
+
+    // duration は updateTaskDuration が計算する（表示用）
+    updateTaskDuration();
+
+    // addProxyTimetableTask は開始行が無ければ拡張して描画する実装済み
+    addProxyTimetableTask();
+}
+
+function bindProxyNetTaskClipboardShortcuts() {
+    if (window.__proxyNetTaskClipboardBound) return;
+    window.__proxyNetTaskClipboardBound = true;
+
+    document.addEventListener('keydown', async (e) => {
+        // ネットのタイムテーブル画面でのみ有効化
+        if (!document.getElementById('timetable-body')) return;
+        if (!currentProxyTarget || String(currentProxyTarget.groupId) !== '3') return;
+
+        const key = (e.key || '').toLowerCase();
+        const isCopy = (key === 'c') && (e.ctrlKey || e.metaKey);
+        const isPaste = (key === 'v') && (e.ctrlKey || e.metaKey);
+        if (!isCopy && !isPaste) return;
+
+        // 通常のテキストコピー/貼り付けは邪魔しない
+        if (isTypingInTextField()) return;
+
+        if (isCopy) {
+            if (!currentlyEditingTaskElement) return;
+            const isBreakTask = currentlyEditingTaskElement.dataset.taskType === 'break'
+                || currentlyEditingTaskElement.dataset.categoryAId === 'N99';
+            if (isBreakTask) return;
+
+            const obj = {
+                categoryB_id: currentlyEditingTaskElement.dataset.categoryBId,
+                categoryB_label: currentlyEditingTaskElement.dataset.categoryBLabel,
+                categoryA_id: currentlyEditingTaskElement.dataset.categoryAId,
+                categoryA_label: currentlyEditingTaskElement.dataset.categoryALabel,
+                comment: currentlyEditingTaskElement.dataset.comment || '',
+            };
+            if (!obj.categoryA_id || !obj.categoryB_id) return;
+            saveProxyNetTaskClipboard(obj);
+            e.preventDefault();
+            showToast('タスク内容をコピーしました（Ctrl+Vで貼り付け）', 'success');
+            return;
+        }
+
+        if (isPaste) {
+            e.preventDefault();
+            await pasteProxyNetTimetableTaskFromClipboard();
+        }
+    });
+}
+
 let timetableStartHour = 7;
 let timetableEndHour = 21;
 const TIMETABLE_MIN_START = 5; // 早出の最小時刻
@@ -5201,6 +5342,9 @@ async function initializeProxyTimetable() {
 
     // ★ Interact.js のインタラクションをセットアップ
     setupTimetableInteractions();
+
+    // Ctrl+C / Ctrl+V（ネットタイムテーブルのタスク複製）
+    bindProxyNetTaskClipboardShortcuts();
 
     // 右側の時刻入力フォームが変更されたら、合計時間も更新する
     const startTimeInput = document.getElementById('task-start-time');
