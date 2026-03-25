@@ -3728,15 +3728,18 @@ let proxyCategoryBOptions = [];
 /** setupProxyCategoryDatalists / 過去日報用 ensure で最後に読み込んだ categories/b の kind */
 let _proxyCategoryBOptionsKindLoaded = null;
 let proxyActiveSliderInput = null;
-let currentProxyTarget = null; // { employeeId, name, date, groupId, returnTarget }
+let currentProxyTarget = null; // { employeeId, name, date, groupId, returnTarget, returnProxyTarget? }
 let currentProxyHistory = { catA: [], catB: [] }; // 代理入力対象者の履歴
 let proxySelectionResolver = null; // 選択パネルのPromise解決用
 
 /**
  * 代理入力画面を開く
- * @param {{ returnTarget?: string }} [openOptions] - 戻り先を固定したいとき（例: 月度過去日報からの遷移でカレンダーに戻す）
+ * @param {{ returnTarget?: string, skipProxyStack?: boolean }} [openOptions] - 戻り先固定や、戻りスタック無効化など
  */
 async function openProxyReport(employeeId, name, date, groupId, openOptions) {
+    const previousProxyTarget = currentProxyTarget;
+    const isOpeningFromProxyScreen = !!document.getElementById('proxy-report-container');
+
     const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
     let returnTarget;
     if (openOptions && openOptions.returnTarget != null && String(openOptions.returnTarget).trim() !== '') {
@@ -3753,7 +3756,17 @@ async function openProxyReport(employeeId, name, date, groupId, openOptions) {
         returnTarget = 'dashboard_net';
     }
 
-    currentProxyTarget = { employeeId, name, date, groupId, returnTarget };
+    const nextProxyTarget = { employeeId, name, date, groupId, returnTarget };
+    if (
+        !(openOptions && openOptions.skipProxyStack)
+        && isOpeningFromProxyScreen
+        && previousProxyTarget
+        && previousProxyTarget.employeeId
+        && previousProxyTarget.date
+    ) {
+        nextProxyTarget.returnProxyTarget = { ...previousProxyTarget };
+    }
+    currentProxyTarget = nextProxyTarget;
     const contentArea = document.getElementById('content-area');
     
     // 代理入力用のHTMLを読み込む
@@ -3811,6 +3824,19 @@ async function initializeProxyReportScreen(isNetTemplate) {
         if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
         const draftKey = getProxyDraftKey();
         if (draftKey) localStorage.removeItem(draftKey);
+
+        // 直前に表示していた代理入力画面に戻す（例: 月度モーダル → 代理入力(別日) → 送信 → 一覧に戻る）
+        const prev = currentProxyTarget && currentProxyTarget.returnProxyTarget ? currentProxyTarget.returnProxyTarget : null;
+        if (prev && prev.employeeId && prev.date) {
+            void openProxyReport(
+                String(prev.employeeId),
+                prev.name || '',
+                prev.date,
+                prev.groupId != null ? String(prev.groupId) : '',
+                { returnTarget: prev.returnTarget || undefined, skipProxyStack: true },
+            );
+            return;
+        }
 
         const target = currentProxyTarget?.returnTarget || 'dashboard';
         const params = {};

@@ -5,7 +5,6 @@ from googleapiclient.errors import HttpError
 from google.cloud import vision
 from google.cloud import storage
 from google.cloud import vision_v1 as vision_pdf
-from google.cloud import firestore
 from pdfminer.high_level import extract_text
 import google.auth
 import io
@@ -22,8 +21,6 @@ from google.protobuf.json_format import MessageToDict
 ENABLE_LLM_EXTRACT = os.environ.get("ENABLE_LLM_EXTRACT", "0") == "1"
 LLM_CONFIDENCE_THRESHOLD = float(os.environ.get("LLM_CONFIDENCE_THRESHOLD", "0.75"))
 APP_DEBUG = os.environ.get("APP_DEBUG", "0") == "1"
-FIRESTORE_SAVE_ENABLED = os.environ.get("FIRESTORE_SAVE_ENABLED", "1") == "1"
-FIRESTORE_COLLECTION = os.environ.get("FIRESTORE_COLLECTION", "invoices")
 
 app = Flask(__name__)
 
@@ -517,11 +514,28 @@ def build_invoice_response():
     return resp, 200
 
 
-def _extract_view_fields(resp: dict) -> tuple[dict, dict, list, dict]:
+@app.route("/")
+def index():
+    resp, status = build_invoice_response()
+    return jsonify(resp), status
+
+
+@app.route("/view")
+def view():
     """
-    /view 表示に使う形（vendor / invoice / line_items / llm）へ正規化。
+    抽出結果の人間向け表示（ブラウザ確認用）。
+    / と同じ処理を実行して、ヘッダ情報 + 明細テーブルで表示する。
     """
+    resp, status = build_invoice_response()
+    if status != 200:
+        return jsonify(resp), status
+
     llm = resp.get("llm_extraction") or {}
+    llm_error = resp.get("llm_extraction_error")
+
+    # スキーマ差分に対応:
+    # - 新: {vendor:{...}, invoice:{...}, line_items:[...]}
+    # - 旧: {vendor_name, invoice_number, ...}
     vendor = llm.get("vendor") or {}
     invoice = llm.get("invoice") or {}
     line_items = llm.get("line_items") or []
@@ -540,73 +554,6 @@ def _extract_view_fields(resp: dict) -> tuple[dict, dict, list, dict]:
             "total_amount": llm.get("total_amount"),
             "tax_amount": llm.get("tax_amount"),
         }
-    if not isinstance(line_items, list):
-        line_items = []
-
-    return vendor, invoice, line_items, llm
-
-
-def save_invoice_view_to_firestore(resp: dict) -> dict:
-    """
-    /view で見えている最小セットのみ Firestore に保存する。
-    - file_id
-    - llm_extraction_accepted
-    - vendor / invoice（ヘッダ）
-    - line_items（明細）
-    """
-    if not FIRESTORE_SAVE_ENABLED:
-        return {"saved": False, "reason": "FIRESTORE_SAVE_ENABLED is false"}
-
-    file_id = resp.get("file_id")
-    if not file_id:
-        raise ValueError("file_id is missing")
-
-    vendor, invoice, line_items, _ = _extract_view_fields(resp)
-    doc = {
-        "file_id": file_id,
-        "llm_extraction_accepted": bool(resp.get("llm_extraction_accepted", False)),
-        "vendor": vendor,
-        "invoice": invoice,
-        "line_items": line_items,
-        "saved_at": firestore.SERVER_TIMESTAMP,
-    }
-
-    db = firestore.Client()
-    db.collection(FIRESTORE_COLLECTION).document(str(file_id)).set(doc, merge=True)
-    return {
-        "saved": True,
-        "collection": FIRESTORE_COLLECTION,
-        "document_id": str(file_id),
-        "line_items_count": len(line_items),
-    }
-
-
-@app.route("/")
-def index():
-    resp, status = build_invoice_response()
-    return jsonify(resp), status
-
-
-@app.route("/view")
-def view():
-    """
-    抽出結果の人間向け表示（ブラウザ確認用）。
-    / と同じ処理を実行して、ヘッダ情報 + 明細テーブルで表示する。
-    """
-    resp, status = build_invoice_response()
-    if status != 200:
-        return jsonify(resp), status
-
-    save_result = None
-    if request.args.get("save") == "1":
-        try:
-            save_result = save_invoice_view_to_firestore(resp)
-        except Exception as e:
-            app.logger.exception("Firestore save failed: %s", e)
-            save_result = {"saved": False, "reason": str(e)}
-
-    vendor, invoice, line_items, llm = _extract_view_fields(resp)
-    llm_error = resp.get("llm_extraction_error")
 
     html = """
 <!DOCTYPE html>
@@ -631,12 +578,6 @@ def view():
 </head>
 <body>
   <h1>Invoice OCR Result</h1>
-  {% if save_result %}
-  <div class="meta" style="background:#eef7ee; border:1px solid #c8e6c9;">
-    <div class="row"><b>Firestore save:</b> {{ "ok" if save_result.saved else "failed" }}</div>
-    <div class="row"><b>detail:</b> {{ save_result }}</div>
-  </div>
-  {% endif %}
   {% if llm_error %}
   <div class="meta" style="background:#fdecea; border:1px solid #f5c2c7;">
     <div class="row"><b>llm_extraction_error:</b> {{ llm_error }}</div>
@@ -722,27 +663,7 @@ def view():
         line_items=line_items,
         llm=llm,
         llm_error=llm_error,
-        save_result=save_result,
     )
-
-
-@app.route("/save")
-def save():
-    """
-    /view の元データと同じ処理結果を Firestore に保存する（JSON 応答）。
-    """
-    resp, status = build_invoice_response()
-    if status != 200:
-        return jsonify(resp), status
-    try:
-        result = save_invoice_view_to_firestore(resp)
-        return jsonify({"message": "saved", **result}), 200
-    except Exception as e:
-        app.logger.exception("Firestore save failed: %s", e)
-        payload = {"message": "save_failed", "error": str(e)}
-        if APP_DEBUG:
-            payload["traceback"] = traceback.format_exc()
-        return jsonify(payload), 500
 
 
 @app.route("/debug")
