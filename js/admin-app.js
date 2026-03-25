@@ -6588,9 +6588,21 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
             taskBlock.style.backgroundColor = bgColor;
             taskBlock.style.color = isDarkColor(bgColor) ? '#fff' : '#333';
 
+            const commentRaw = task.comment != null ? String(task.comment) : '';
+            const commentTrimmed = commentRaw.trim();
             const displayText = [task.categoryB_label, task.categoryA_label, task.comment].filter(Boolean).join(' / ');
-            taskBlock.textContent = displayText;
-            taskBlock.title = displayText;
+            if (isNetFiscalMonthlyView) {
+                taskBlock.textContent = commentTrimmed;
+                taskBlock.title = commentRaw ? commentRaw : '（コメントなし）';
+                taskBlock.style.overflow = 'hidden';
+                taskBlock.style.textOverflow = 'ellipsis';
+                taskBlock.style.whiteSpace = 'nowrap';
+                taskBlock.style.padding = '2px 4px';
+                taskBlock.style.fontSize = '0.75em';
+            } else {
+                taskBlock.textContent = displayText;
+                taskBlock.title = displayText;
+            }
 
             taskBlock.dataset.categoryBId = task.categoryB_id;
             taskBlock.dataset.categoryAId = task.categoryA_id;

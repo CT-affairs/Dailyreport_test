@@ -15,6 +15,7 @@ import traceback
 import urllib.request
 import urllib.error
 from collections import defaultdict
+from google.protobuf.json_format import MessageToDict
 
 # LLM 抽出（OpenAI）
 ENABLE_LLM_EXTRACT = os.environ.get("ENABLE_LLM_EXTRACT", "0") == "1"
@@ -30,6 +31,16 @@ FOLDER_ID = "1cQdDHAg8zIG7oVxE_WUoXD5tsb_Ql89U"
 # Vision PDF OCR 用（GCS 経由）
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "")
 GCS_OCR_OUTPUT_PREFIX = os.environ.get("GCS_OCR_OUTPUT_PREFIX", "vision-output")
+
+# Drive から OCR 対象にする MIME（PDF + 画像）
+OCR_MIME_TYPES = (
+    "application/pdf",
+    "image/jpeg",
+    "image/tiff",
+)
+
+# Drive 一覧で取得する最大件数（更新日時降順の先頭 N 件が処理候補）
+DRIVE_LIST_PAGE_SIZE = int(os.environ.get("DRIVE_LIST_PAGE_SIZE", "50"))
 
 
 # ----------------------------
@@ -85,6 +96,53 @@ def vision_ocr(file_bytes):
         return response.full_text_annotation.text
 
     return ""
+
+
+def _full_text_annotation_proto_to_dict(fta) -> dict:
+    """Vision の FullTextAnnotation（proto / proto-plus）を REST JSON 相当の dict にする。"""
+    if fta is None:
+        return {}
+    try:
+        pb = getattr(fta, "_pb", None)
+        if pb is not None:
+            return MessageToDict(pb)
+        return MessageToDict(fta)
+    except Exception:
+        return {}
+
+
+def vision_image_document_ocr(file_bytes: bytes) -> dict:
+    """
+    JPEG / TIFF 等の画像バイト列に対して document_text_detection（同期）。
+    返却形式は vision_pdf_ocr_via_gcs と揃える（text + layout）。
+    """
+    client = vision.ImageAnnotatorClient()
+    image = vision.Image(content=file_bytes)
+    response = client.document_text_detection(image=image)
+
+    if response.error and getattr(response.error, "message", ""):
+        return {
+            "text": f"[VISION_ERROR] {response.error.message}",
+            "layout": {"pages": [], "lines": []},
+        }
+
+    fta = response.full_text_annotation
+    if not fta:
+        return {"text": "", "layout": {"pages": [], "lines": []}}
+
+    full_dict = _full_text_annotation_proto_to_dict(fta)
+    pages_layout = _extract_layout_from_full_text_annotation(full_dict)
+    text = (full_dict.get("text") or "").strip()
+    if not text and getattr(fta, "text", None):
+        text = (fta.text or "").strip()
+
+    return {
+        "text": text,
+        "layout": {
+            "pages": pages_layout,
+            "lines": _group_lines_by_y(pages_layout),
+        },
+    }
 
 
 # ----------------------------
@@ -146,9 +204,12 @@ def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> dict:
 
     texts: list[str] = []
     pages_layout: list[dict] = []
-    for blob in bucket.list_blobs(prefix=prefix):
-        if not blob.name.endswith(".json"):
-            continue
+    # 複数ページPDFでは output が複数JSONに分かれることがある。名前順で読み、ページ順を安定させる
+    json_blobs = sorted(
+        (b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith(".json")),
+        key=lambda b: b.name,
+    )
+    for blob in json_blobs:
 
         try:
             data = json.loads(blob.download_as_text())
@@ -168,6 +229,12 @@ def vision_pdf_ocr_via_gcs(pdf_bytes: bytes, file_id: str) -> dict:
             "lines": _group_lines_by_y(pages_layout),
         },
     }
+
+
+def _get_bounding_box(obj: dict) -> dict:
+    if not isinstance(obj, dict):
+        return {}
+    return obj.get("boundingBox") or obj.get("bounding_box") or {}
 
 
 def _normalize_bounding_box(bb: dict) -> dict:
@@ -214,19 +281,19 @@ def _extract_layout_from_full_text_annotation(full: dict) -> list[dict]:
                     out_words.append(
                         {
                             "text": text,
-                            "boundingBox": _normalize_bounding_box(word.get("boundingBox", {})),
+                            "boundingBox": _normalize_bounding_box(_get_bounding_box(word)),
                         }
                     )
                 out_paragraphs.append(
                     {
-                        "boundingBox": _normalize_bounding_box(para.get("boundingBox", {})),
+                        "boundingBox": _normalize_bounding_box(_get_bounding_box(para)),
                         "words": out_words,
                     }
                 )
             out_blocks.append(
                 {
                     "blockIndex": b_idx,
-                    "boundingBox": _normalize_bounding_box(block.get("boundingBox", {})),
+                    "boundingBox": _normalize_bounding_box(_get_bounding_box(block)),
                     "paragraphs": out_paragraphs,
                 }
             )
@@ -282,47 +349,69 @@ def _group_lines_by_y(pages_layout: list[dict], y_tolerance_px: int = 8) -> list
 # ----------------------------
 # OCRメイン処理（自動判定）
 # ----------------------------
-def ocr_pdf(file_id):
-
+def ocr_drive_file(file_id: str, mime_type: str | None = None):
     drive_service = get_drive_service()
-    file_data = download_file(file_id, drive_service)
 
+    if not mime_type:
+        meta = drive_service.files().get(
+            fileId=file_id,
+            fields="mimeType",
+            supportsAllDrives=True,
+        ).execute()
+        mime_type = meta.get("mimeType", "")
+
+    file_data = download_file(file_id, drive_service)
     file_bytes = file_data.read()
 
-    # ① まずデジタルPDFとしてテキスト抽出を試す
-    text = extract_text_if_digital(file_bytes)
-    if text:
+    if mime_type == "application/pdf":
+        # ① デジタルPDFとしてテキスト抽出
+        text = extract_text_if_digital(file_bytes)
+        if text:
+            return {
+                "method": "digital_pdf_text_extract",
+                "mime_type": mime_type,
+                "text": text,
+                "layout": {"pages": [], "lines": []},
+            }
+        # ② スキャンPDF → GCS + async document_text_detection
+        ocr = vision_pdf_ocr_via_gcs(file_bytes, file_id)
         return {
-            "method": "digital_pdf_text_extract",
-            "text": text,
-            "layout": {"pages": [], "lines": []},
+            "method": "vision_pdf_ocr_via_gcs",
+            "mime_type": mime_type,
+            "text": ocr.get("text", ""),
+            "layout": ocr.get("layout", {"pages": [], "lines": []}),
         }
 
-    # ② ダメなら Vision の PDF OCR（GCS 経由）
-    ocr = vision_pdf_ocr_via_gcs(file_bytes, file_id)
+    if mime_type in ("image/jpeg", "image/tiff"):
+        ocr = vision_image_document_ocr(file_bytes)
+        return {
+            "method": "vision_document_text_detection_image",
+            "mime_type": mime_type,
+            "text": ocr.get("text", ""),
+            "layout": ocr.get("layout", {"pages": [], "lines": []}),
+        }
+
     return {
-        "method": "vision_pdf_ocr_via_gcs",
-        "text": ocr.get("text", ""),
-        "layout": ocr.get("layout", {"pages": [], "lines": []}),
+        "method": "unsupported_mime_type",
+        "mime_type": mime_type,
+        "text": f"[UNSUPPORTED_MIME] {mime_type}",
+        "layout": {"pages": [], "lines": []},
     }
 
 
 # ----------------------------
-# フォルダ内PDF取得
+# フォルダ内 OCR 対象ファイル取得（PDF / JPEG / TIFF）
 # ----------------------------
 def get_drive_files():
     drive_service = get_drive_service()
 
-    query = (
-        f"'{FOLDER_ID}' in parents and "
-        "mimeType='application/pdf' and "
-        "trashed=false"
-    )
+    mime_or = " or ".join(f"mimeType='{m}'" for m in OCR_MIME_TYPES)
+    query = f"'{FOLDER_ID}' in parents and ({mime_or}) and trashed=false"
 
     try:
         results = drive_service.files().list(
             q=query,
-            pageSize=10,
+            pageSize=DRIVE_LIST_PAGE_SIZE,
             fields="files(id, name, mimeType, parents, modifiedTime)",
             orderBy="modifiedTime desc",
             supportsAllDrives=True,
@@ -356,7 +445,7 @@ def build_invoice_response():
     t_files = time.time()
 
     if not files:
-        return {"message": "No PDF found"}, 200
+        return {"message": "No supported files found (PDF / JPEG / TIFF)"}, 200
 
     if isinstance(files, list) and files and isinstance(files[0], dict) and files[0].get("error"):
         # Drive API 自体が失敗している
@@ -378,12 +467,13 @@ def build_invoice_response():
 
     file_id = chosen["id"]
 
-    ocr_result = ocr_pdf(file_id)
+    ocr_result = ocr_drive_file(file_id, chosen.get("mimeType"))
     t_ocr = time.time()
 
     resp = {
         "file_id": file_id,
         "file_name": chosen.get("name"),
+        "file_mimeType": chosen.get("mimeType"),
         "file_modifiedTime": chosen.get("modifiedTime"),
         "method_used": ocr_result["method"],
         "ocr_text": ocr_result["text"],
@@ -490,6 +580,7 @@ def view():
   <div class="meta">
     <div class="row"><b>file_id:</b> <span class="mono">{{ resp.file_id }}</span></div>
     <div class="row"><b>file_name:</b> {{ resp.file_name }}</div>
+    <div class="row"><b>mimeType:</b> {{ resp.file_mimeType }}</div>
     <div class="row"><b>modified:</b> {{ resp.file_modifiedTime }}</div>
     <div class="row"><b>ocr_method:</b> {{ resp.method_used }}</div>
     <div class="row"><b>LLM accepted:</b>

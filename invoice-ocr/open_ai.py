@@ -10,6 +10,13 @@ from openai import OpenAI
 
 client = OpenAI()
 
+# LLM 応答が長い明細JSONで途中切れしないよう、上限は環境変数で調整可能
+LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "32000"))
+_llm_retry_default = max(64000, LLM_MAX_OUTPUT_TOKENS * 2)
+LLM_MAX_OUTPUT_TOKENS_RETRY = int(
+    os.environ.get("LLM_MAX_OUTPUT_TOKENS_RETRY", str(_llm_retry_default))
+)
+
 
 ORDER_NUMBER_PATTERN = re.compile(r"\b\d{5,}[\/_-]\d{3,}\b|\b\d{6,}\b")
 
@@ -350,14 +357,13 @@ def extract_invoice_data(ocr_text: str) -> Dict[str, Any]:
 {ocr_text}
     """.strip()
 
-    # まずは余裕を持たせる（reasoningだけで枠を使い切るケースを減らす）
-    response = _call_extract(prompt, max_output_tokens=30000)
+    response = _call_extract(prompt, max_output_tokens=LLM_MAX_OUTPUT_TOKENS)
 
-    # max_output_tokens で未完なら 1 回だけ増やしてリトライ
+    # max_output_tokens で未完なら、上限を上げて 1 回だけリトライ（以前の 1400 は誤りで逆効果）
     status = getattr(response, "status", None)
     incomplete_reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
     if status == "incomplete" and incomplete_reason == "max_output_tokens":
-        response = _call_extract(prompt, max_output_tokens=1400)
+        response = _call_extract(prompt, max_output_tokens=LLM_MAX_OUTPUT_TOKENS_RETRY)
 
     # Responses API は output の構造が一定でないことがあるため、まずは output_text を優先
     raw_text = getattr(response, "output_text", None)
@@ -413,6 +419,7 @@ def extract_invoice_data(ocr_text: str) -> Dict[str, Any]:
         "ocr_text": data.get("ocr_text"),
         "created_at": data.get("created_at"),
         "_raw": raw_text,
+        "llm_response_status": getattr(response, "status", None),
     }
     return out
 
