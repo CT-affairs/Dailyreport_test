@@ -729,7 +729,7 @@ th.sortable-th:hover {
     opacity: 0.75;
 }
 
-/* 日報入力（ネット事業部）: 対象者・対象日（左約40%）+ 右ペイン予約（同じ高さ） */
+/* 日報入力（ネット事業部）: 対象者・対象日（左約30%）+ 右ペイン（前日/翌日・注記） */
 #proxy-target-info .proxy-target-info-bar {
     display: flex;
     flex-direction: row;
@@ -739,8 +739,8 @@ th.sortable-th:hover {
     box-sizing: border-box;
 }
 #proxy-target-info .proxy-target-info-primary {
-    flex: 0 0 40%;
-    max-width: 40%;
+    flex: 0 0 30%;
+    max-width: 30%;
     min-width: 0;
     display: flex;
     align-items: center;
@@ -759,15 +759,19 @@ th.sortable-th:hover {
     min-height: 100%;
     box-sizing: border-box;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 6px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    column-gap: 3em; /* 翌日▶ の右に全角3字程度の空き */
+    row-gap: 6px;
 }
 #proxy-target-info .proxy-target-day-nav {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 10px 16px;
+    flex-shrink: 0;
 }
 #proxy-target-info .proxy-target-day-nav-btn {
     padding: 6px 12px;
@@ -778,4 +782,6 @@ th.sortable-th:hover {
     font-size: 0.75rem;
     color: #666;
     line-height: 1.35;
+    flex: 0 1 auto;
+    min-width: 0;
 }
