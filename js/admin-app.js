@@ -20,20 +20,68 @@ function handleLinkNavigation(event, callback) {
  * 認証情報付きでAPIにリクエストを送信するfetchのラッパー関数
  * (liff-app.jsから複製。後で共通化する)
  */
+const USE_PC_SESSION_AUTH = true; // PC版: セッション(Cookie)優先。スマホLIFFは liff-app.js を維持。
+let pcSessionEnsuringPromise = null;
+
+async function ensurePcSession() {
+    if (!USE_PC_SESSION_AUTH) return;
+    if (pcSessionEnsuringPromise) return pcSessionEnsuringPromise;
+
+    pcSessionEnsuringPromise = (async () => {
+        if (typeof liff === 'undefined') {
+            throw new Error('LIFF SDK が読み込まれていません。');
+        }
+        // main() で init 済み想定だが、環境差の保険
+        try {
+            await liff.init({ liffId: LIFF_ID });
+        } catch {
+            // ignore (already initialized)
+        }
+
+        if (!liff.isLoggedIn()) {
+            // セッションが無い/期限切れ時のみ LINE ログインへ
+            liff.login({ redirectUri: window.location.href });
+            throw new Error('ログインにリダイレクトします。');
+        }
+
+        const idToken = await liff.getIDToken();
+        if (!idToken) throw new Error('IDトークンが取得できませんでした。');
+
+        const res = await fetch(`${API_BASE_URL}/api/pc/session`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${idToken}` },
+            credentials: 'include',
+            cache: 'no-cache',
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.message || `セッション発行に失敗しました (${res.status})`);
+        }
+    })().finally(() => {
+        pcSessionEnsuringPromise = null;
+    });
+
+    return pcSessionEnsuringPromise;
+}
+
 async function fetchWithAuth(url, options = {}) {
-    if (!liff.isLoggedIn()) {
-        throw new Error("ログインしていません。");
-    }
-    const idToken = await liff.getIDToken();
-    
     const headers = {
         ...options.headers,
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`,
     };
     
     // cache: 'no-cache' を追加して、ブラウザキャッシュを無効化する
-    const response = await fetch(url, { ...options, headers, cache: 'no-cache' });
+    let response = await fetch(url, { ...options, headers, cache: 'no-cache', credentials: 'include' });
+
+    // PC版: セッションが無効なら、このタイミングのみLINEログイン→セッション発行→再試行
+    if (USE_PC_SESSION_AUTH && response.status === 401) {
+        try {
+            await ensurePcSession();
+            response = await fetch(url, { ...options, headers, cache: 'no-cache', credentials: 'include' });
+        } catch (e) {
+            console.warn('ensurePcSession failed:', e);
+        }
+    }
 
     // 401エラー（認証エラー）かつトークン期限切れの場合の自動復旧処理
     if (response.status === 401) {
@@ -57,9 +105,12 @@ async function fetchWithAuth(url, options = {}) {
                 saveProxyDraftReport();
             }
 
-            liff.logout();
-            window.location.reload();
-            throw new Error("セッションの有効期限が切れました。再読み込みしています...");
+            // PC版は Cookie セッション優先のため、ここで強制ログアウトしない（必要時のみ ensurePcSession に任せる）
+            if (!USE_PC_SESSION_AUTH) {
+                liff.logout();
+                window.location.reload();
+                throw new Error("セッションの有効期限が切れました。再読み込みしています...");
+            }
         }
     }
     return response;
@@ -96,8 +147,15 @@ async function updateUserInfo() {
     userInfoContainer.textContent = '読込中...';
 
     try {
-        // 1. LINEのプロフィールを取得 (表示名など)
-        const profile = await liff.getProfile();
+        // PCセッション方式では、LINEプロフィール取得は必須にしない（必要時のみログインが発生するため）
+        let profile = null;
+        try {
+            if (typeof liff !== 'undefined' && liff.isLoggedIn && liff.isLoggedIn()) {
+                profile = await liff.getProfile();
+            }
+        } catch {
+            profile = null;
+        }
         
         // 2. 社内システムのユーザー情報を取得 (社員ID、権限など)
         //    ※未登録の場合は404が返る可能性があるためハンドリング
@@ -119,7 +177,8 @@ async function updateUserInfo() {
         }
 
         // 3. 表示の更新
-        let html = `<div style="font-weight:bold; margin-bottom:4px;">${escapeHTML(profile.displayName)}</div>`;
+        const lineName = profile && profile.displayName ? escapeHTML(profile.displayName) : '（未ログイン）';
+        let html = `<div style="font-weight:bold; margin-bottom:4px;">${lineName}</div>`;
         
         if (systemUser && systemUser.employeeId) {
             html += `<div style="font-size:0.8em;">ID: ${systemUser.employeeId}</div>`;
@@ -165,12 +224,22 @@ async function updateUserInfo() {
         userInfoContainer.innerHTML = html;
 
         // ログアウトボタンのイベントリスナー
-        document.getElementById('logout-btn').addEventListener('click', () => {
-            if (liff.isLoggedIn()) {
-                liff.logout();
-                // ページをリロードすることで、main()関数が再度走り、liff.init() -> liff.login() のフローで新しいトークンが取得されます
-                window.location.reload();
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            try {
+                // PCセッション破棄（Cookie削除）
+                await fetch(`${API_BASE_URL}/api/pc/session`, { method: 'DELETE', credentials: 'include', cache: 'no-cache' });
+            } catch (e) {
+                console.warn(e);
             }
+            try {
+                // LINEログイン状態もクリアしたい場合は明示ログアウト
+                if (typeof liff !== 'undefined' && liff.isLoggedIn && liff.isLoggedIn()) {
+                    liff.logout();
+                }
+            } catch (e) {
+                console.warn(e);
+            }
+            window.location.reload();
         });
 
         // --- メニューの表示制御 ---
@@ -1317,15 +1386,16 @@ async function fetchInvoiceOcrWithAuth(path, options = {}) {
 }
 
 function _invoiceStatusLabel(status) {
-    if (status === 'checked') return 'checked';
-    if (status === 'confirming') return 'confirming';
-    return 'pending';
+    if (status === 'checked') return '確認済み';
+    if (status === 'editing') return '編集';
+    return '未確認';
 }
 
 function renderInvoiceOcrInvoicesUI(container) {
     container.innerHTML = `
         <div style="padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #e9ecef; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
             <button type="button" id="invoice-ocr-refresh-btn" class="btn-secondary">再読込</button>
+            <button type="button" id="invoice-ocr-save-btn" class="btn-secondary" style="background-color:#083969; color:#fff;">更新</button>
             <div id="invoice-ocr-status" style="font-size: 0.9em; color: #666;"></div>
         </div>
         <div id="invoice-ocr-content" style="padding: 10px;">
@@ -1334,7 +1404,23 @@ function renderInvoiceOcrInvoicesUI(container) {
     `;
 
     document.getElementById('invoice-ocr-refresh-btn').addEventListener('click', loadAndRenderInvoiceOcrInvoices);
+    document.getElementById('invoice-ocr-save-btn').addEventListener('click', saveInvoiceOcrCurrentDraft);
     loadAndRenderInvoiceOcrInvoices();
+}
+
+// 画面上の編集内容（保存前）
+let invoiceOcrDraftByFileId = {}; // fileId -> draft
+let invoiceOcrActiveFileId = null;
+
+function _statusSelectHtml(value, dataAttrs) {
+    const v = (value === 'checked' || value === 'editing' || value === 'pending') ? value : 'pending';
+    return `
+        <select ${dataAttrs} style="padding: 4px 6px;">
+            <option value="pending" ${v === 'pending' ? 'selected' : ''}>未確認</option>
+            <option value="editing" ${v === 'editing' ? 'selected' : ''}>編集</option>
+            <option value="checked" ${v === 'checked' ? 'selected' : ''}>確認済み</option>
+        </select>
+    `;
 }
 
 async function loadAndRenderInvoiceOcrInvoices() {
@@ -1362,29 +1448,63 @@ async function loadAndRenderInvoiceOcrInvoices() {
 
         // 現状は1件想定。複数あっても上から並べる。
         let html = '';
+        // 今は1件想定：先頭をアクティブ対象とする（複数表示でも「更新」はアクティブに対して動作）
+        invoiceOcrActiveFileId = invoices[0]?.file_id ? String(invoices[0].file_id) : null;
+
         invoices.forEach(inv => {
             const fileId = escapeHTML(String(inv.file_id || ''));
             const fileName = escapeHTML(String(inv.file_name || ''));
             const vendorName = escapeHTML(String(inv.vendor_name || ''));
             const invoiceNumber = escapeHTML(String(inv.invoice_number || ''));
             const invoiceDate = escapeHTML(String(inv.invoice_date || ''));
+            const invoiceOrderNumber = escapeHTML(String(inv.order_number || ''));
             const invoiceStatus = String(inv.status || 'pending');
-            const isInvoiceChecked = invoiceStatus === 'checked';
             const lineItems = Array.isArray(inv.line_items) ? inv.line_items : [];
+
+            // draft 初期化（初回のみ）
+            if (!invoiceOcrDraftByFileId[String(inv.file_id)]) {
+                invoiceOcrDraftByFileId[String(inv.file_id)] = {
+                    invoice: {
+                        order_number: inv.order_number || '',
+                        status: invoiceStatus,
+                    },
+                    line_items: lineItems.map(li => ({
+                        order_number: li?.order_number || '',
+                        status: li?.status || 'pending',
+                        item_name: li?.item_name || '',
+                        quantity: li?.quantity ?? '',
+                        unit: li?.unit ?? '',
+                        unit_price: li?.unit_price ?? '',
+                        amount: li?.amount ?? '',
+                        tax: li?.tax ?? '',
+                        note: li?.note || '',
+                    })),
+                    dirty: false,
+                };
+            }
+
+            const draft = invoiceOcrDraftByFileId[String(inv.file_id)];
+            const invEdit = draft?.invoice?.status === 'editing';
 
             html += `
                 <div class="card" style="background:#fff; padding: 14px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); margin-bottom: 12px;">
                     <div style="display:flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
-                        <label style="display:flex; align-items:center; gap: 6px; font-weight: bold;">
-                            <input type="checkbox" class="invoice-ocr-invoice-checkbox" data-file-id="${fileId}" ${isInvoiceChecked ? 'checked' : ''}>
-                            請求書 status: <span style="font-family: Consolas, monospace;">${_invoiceStatusLabel(invoiceStatus)}</span>
-                        </label>
+                        <div style="display:flex; align-items:center; gap: 8px; font-weight: bold;">
+                            <span>請求書 status</span>
+                            ${_statusSelectHtml(draft.invoice.status, `class="invoice-ocr-invoice-status" data-file-id="${fileId}"`)}
+                        </div>
                         <a href="${INVOICE_OCR_BASE_URL}/view?file_id=${fileId}" target="_blank" rel="noopener" style="margin-left:auto;">/view を開く</a>
                     </div>
                     <div style="font-size: 0.9em; color:#333; line-height: 1.6;">
                         <div><b>file</b>: <span style="font-family: Consolas, monospace;">${fileId}</span> ${fileName ? `(${fileName})` : ''}</div>
                         <div><b>vendor</b>: ${vendorName || '-'}</div>
-                        <div><b>invoice</b>: ${invoiceNumber || '-'} ${invoiceDate ? `(${invoiceDate})` : ''}</div>
+                        <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                            <div><b>invoice</b>: ${invoiceNumber || '-'} ${invoiceDate ? `(${invoiceDate})` : ''}</div>
+                            <div style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+                                <b>order_number</b>
+                                <input type="text" class="invoice-ocr-invoice-order-number" data-file-id="${fileId}" value="${escapeHTML(String(draft.invoice.order_number || ''))}" ${invEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 180px;">
+                            </div>
+                        </div>
                     </div>
 
                     <div style="margin-top: 10px;">
@@ -1393,33 +1513,39 @@ async function loadAndRenderInvoiceOcrInvoices() {
                             <table class="data-table" style="min-width: 900px;">
                                 <thead>
                                     <tr>
-                                        <th style="width: 70px;">status</th>
+                                        <th style="width: 90px;">status</th>
+                                        <th style="width: 180px;">order_number</th>
                                         <th>item_name</th>
                                         <th style="width: 100px;">quantity</th>
+                                        <th style="width: 90px;">unit</th>
                                         <th style="width: 110px;">unit_price</th>
                                         <th style="width: 110px;">amount</th>
                                         <th>note</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${lineItems.map((li, idx) => {
+                                    ${draft.line_items.map((li, idx) => {
                                         const st = (li && li.status) ? String(li.status) : 'pending';
-                                        const checked = st === 'checked';
+                                        const isRowEdit = st === 'editing';
+                                        const orderNo = escapeHTML(String(li?.order_number || ''));
                                         const itemName = escapeHTML(String(li?.item_name || ''));
                                         const qty = escapeHTML(String(li?.quantity ?? ''));
+                                        const unit = escapeHTML(String(li?.unit ?? ''));
                                         const unitPrice = escapeHTML(String(li?.unit_price ?? ''));
                                         const amount = escapeHTML(String(li?.amount ?? ''));
                                         const note = escapeHTML(String(li?.note || ''));
                                         return `
                                             <tr>
                                                 <td style="text-align:center;">
-                                                    <input type="checkbox" class="invoice-ocr-line-checkbox" data-file-id="${fileId}" data-index="${idx}" ${checked ? 'checked' : ''} />
+                                                    ${_statusSelectHtml(st, `class="invoice-ocr-line-status" data-file-id="${fileId}" data-index="${idx}"`)}
                                                 </td>
-                                                <td>${itemName}</td>
-                                                <td>${qty}</td>
-                                                <td>${unitPrice}</td>
-                                                <td>${amount}</td>
-                                                <td>${note}</td>
+                                                <td><input type="text" class="invoice-ocr-line-order-number" data-file-id="${fileId}" data-index="${idx}" value="${orderNo}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 160px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-item-name" data-file-id="${fileId}" data-index="${idx}" value="${itemName}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 100%;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-quantity" data-file-id="${fileId}" data-index="${idx}" value="${qty}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 80px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-unit" data-file-id="${fileId}" data-index="${idx}" value="${unit}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 70px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-unit-price" data-file-id="${fileId}" data-index="${idx}" value="${unitPrice}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 90px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-amount" data-file-id="${fileId}" data-index="${idx}" value="${amount}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 90px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-note" data-file-id="${fileId}" data-index="${idx}" value="${note}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 100%;"></td>
                                             </tr>
                                         `;
                                     }).join('')}
@@ -1427,7 +1553,7 @@ async function loadAndRenderInvoiceOcrInvoices() {
                             </table>
                         </div>
                         <div style="margin-top: 6px; color:#666; font-size: 0.85em;">
-                            ルール: 明細が全て checked → 請求書も checked／一部のみ checked → confirming／全て pending → pending
+                            保存は「更新」ボタンで一括。status=編集 の行だけ編集可能です。
                         </div>
                     </div>
                 </div>
@@ -1437,62 +1563,119 @@ async function loadAndRenderInvoiceOcrInvoices() {
         contentEl.innerHTML = html;
 
         // イベント付与（再描画ごとに付け直し）
-        document.querySelectorAll('.invoice-ocr-line-checkbox').forEach(cb => {
-            cb.addEventListener('change', async (e) => {
+        document.querySelectorAll('.invoice-ocr-invoice-status').forEach(sel => {
+            sel.addEventListener('change', (e) => {
                 const el = e.target;
-                const fileId = el.dataset.fileId;
-                const index = parseInt(el.dataset.index, 10);
-                const checked = !!el.checked;
-                el.disabled = true;
-                try {
-                    const res2 = await fetchInvoiceOcrWithAuth(`/api/invoices/${encodeURIComponent(fileId)}/line-item-status`, {
-                        method: 'POST',
-                        body: JSON.stringify({ index, status: checked ? 'checked' : 'pending' }),
-                    });
-                    if (!res2.ok) {
-                        const err = await res2.json().catch(() => ({}));
-                        throw new Error(err.message || `HTTP ${res2.status}`);
-                    }
-                    await loadAndRenderInvoiceOcrInvoices();
-                } catch (err) {
-                    console.error(err);
-                    showToast(`更新失敗: ${err.message}`, 'error');
-                } finally {
-                    el.disabled = false;
-                }
+                const fileId = String(el.dataset.fileId);
+                const v = el.value;
+                const draft = invoiceOcrDraftByFileId[fileId];
+                if (!draft) return;
+                draft.invoice.status = v;
+                draft.dirty = true;
+                loadAndRenderInvoiceOcrInvoices(); // 編集可否を反映
+            });
+        });
+        document.querySelectorAll('.invoice-ocr-invoice-order-number').forEach(inp => {
+            inp.addEventListener('input', (e) => {
+                const el = e.target;
+                const fileId = String(el.dataset.fileId);
+                const draft = invoiceOcrDraftByFileId[fileId];
+                if (!draft) return;
+                draft.invoice.order_number = el.value;
+                draft.dirty = true;
             });
         });
 
-        document.querySelectorAll('.invoice-ocr-invoice-checkbox').forEach(cb => {
-            cb.addEventListener('change', async (e) => {
+        document.querySelectorAll('.invoice-ocr-line-status').forEach(sel => {
+            sel.addEventListener('change', (e) => {
                 const el = e.target;
-                const fileId = el.dataset.fileId;
-                const checked = !!el.checked;
-                el.disabled = true;
-                try {
-                    const res2 = await fetchInvoiceOcrWithAuth(`/api/invoices/${encodeURIComponent(fileId)}/status`, {
-                        method: 'POST',
-                        body: JSON.stringify({ status: checked ? 'checked' : 'pending' }),
-                    });
-                    if (!res2.ok) {
-                        const err = await res2.json().catch(() => ({}));
-                        throw new Error(err.message || `HTTP ${res2.status}`);
-                    }
-                    await loadAndRenderInvoiceOcrInvoices();
-                } catch (err) {
-                    console.error(err);
-                    showToast(`更新失敗: ${err.message}`, 'error');
-                } finally {
-                    el.disabled = false;
-                }
+                const fileId = String(el.dataset.fileId);
+                const idx = parseInt(el.dataset.index, 10);
+                const draft = invoiceOcrDraftByFileId[fileId];
+                if (!draft || !draft.line_items[idx]) return;
+                draft.line_items[idx].status = el.value;
+                draft.dirty = true;
+                loadAndRenderInvoiceOcrInvoices(); // 行の編集可否を反映
             });
         });
+
+        const bindLineInput = (cls, key) => {
+            document.querySelectorAll(cls).forEach(inp => {
+                inp.addEventListener('input', (e) => {
+                    const el = e.target;
+                    const fileId = String(el.dataset.fileId);
+                    const idx = parseInt(el.dataset.index, 10);
+                    const draft = invoiceOcrDraftByFileId[fileId];
+                    if (!draft || !draft.line_items[idx]) return;
+                    draft.line_items[idx][key] = el.value;
+                    draft.dirty = true;
+                });
+            });
+        };
+        bindLineInput('.invoice-ocr-line-order-number', 'order_number');
+        bindLineInput('.invoice-ocr-line-item-name', 'item_name');
+        bindLineInput('.invoice-ocr-line-quantity', 'quantity');
+        bindLineInput('.invoice-ocr-line-unit', 'unit');
+        bindLineInput('.invoice-ocr-line-unit-price', 'unit_price');
+        bindLineInput('.invoice-ocr-line-amount', 'amount');
+        bindLineInput('.invoice-ocr-line-note', 'note');
 
     } catch (e) {
         console.error(e);
         statusEl.textContent = '';
         contentEl.innerHTML = `<div style="text-align:center; padding: 2em; color:#c0392b;">読み込みに失敗しました: ${escapeHTML(e.message)}</div>
             <div style="text-align:center; color:#666; font-size: 0.9em;">Invoice OCR の API/CORS を確認してください。</div>`;
+    }
+}
+
+async function saveInvoiceOcrCurrentDraft() {
+    if (!invoiceOcrActiveFileId) {
+        showToast('保存対象がありません', 'error');
+        return;
+    }
+    const fileId = String(invoiceOcrActiveFileId);
+    const draft = invoiceOcrDraftByFileId[fileId];
+    if (!draft || !draft.dirty) {
+        showToast('変更がありません', 'info');
+        return;
+    }
+    const btn = document.getElementById('invoice-ocr-save-btn');
+    const statusEl = document.getElementById('invoice-ocr-status');
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = '保存中...';
+    try {
+        const res = await fetchInvoiceOcrWithAuth(`/api/invoices/${encodeURIComponent(fileId)}`, {
+            method: 'POST',
+            body: JSON.stringify({
+                invoice: {
+                    order_number: draft.invoice.order_number,
+                    status: draft.invoice.status,
+                },
+                line_items: draft.line_items.map(li => ({
+                    order_number: li.order_number,
+                    status: li.status,
+                    item_name: li.item_name,
+                    quantity: li.quantity,
+                    unit: li.unit,
+                    unit_price: li.unit_price,
+                    amount: li.amount,
+                    note: li.note,
+                })),
+            }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || `HTTP ${res.status}`);
+        }
+        draft.dirty = false;
+        showToast('保存しました', 'success');
+        await loadAndRenderInvoiceOcrInvoices();
+    } catch (e) {
+        console.error(e);
+        showToast(`保存失敗: ${e.message}`, 'error');
+        if (statusEl) statusEl.textContent = '';
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }
 
@@ -3223,184 +3406,6 @@ async function refreshWorkTimes() {
     showToast('受信リクエスト完了。反映には時間がかかる場合があります。', 'success');
 }
 
-// --- 帳票_一覧: Invoice OCR カレンダー（日報_スタッフ個別と同じ custom-calendar-table 系） ---
-
-function ensureInvoiceCalendarTableStyles() {
-    const styleId = 'invoice-calendar-table-style';
-    if (document.getElementById(styleId)) return;
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = `
-            .custom-calendar-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-            .custom-calendar-table th, .custom-calendar-table td { border: 1px solid #e0e0e0; vertical-align: top; height: 100px; }
-            .custom-calendar-table th { background-color: #f7f7f7; font-weight: normal; color: #333; padding: 4px; text-align: center; }
-            .custom-calendar-table td { transition: background-color 0.2s; }
-            .custom-calendar-table td:not(.other-month):hover { background-color: #f5f5f5; }
-            .custom-calendar-table .day-cell-content { padding: 4px; }
-            .custom-calendar-table .day-number { font-size: 0.9em; }
-            .custom-calendar-table .is-today .day-number {
-                font-weight: bold; color: #000000; background-color: #d4f4dd;
-                border-radius: 50%; width: 1.5em; height: 1.5em; display: inline-block;
-                text-align: center; line-height: 1.5em;
-            }
-            .custom-calendar-table .is-sunday { color: #e74c3c; }
-            .custom-calendar-table .is-saturday { color: #3498db; }
-            .custom-calendar-table .other-month { color: #ccc; background-color: #fafafa; }
-            .invoice-cal-cell-item { font-size: 0.72em; line-height: 1.25; margin-top: 3px; word-break: break-all; }
-            .invoice-cal-cell-item a { color: #0056b3; }
-            .invoice-cal-cell-item.muted { color: #888; font-size: 0.7em; }
-        `;
-    document.head.appendChild(style);
-}
-
-function _invoiceCalYmd(year, month1, dayNum) {
-    const p = (n) => String(n).padStart(2, '0');
-    return `${year}-${p(month1)}-${p(dayNum)}`;
-}
-
-function _invoiceCalJstWeekdaySun0(year, month1, day) {
-    const d = new Date(`${_invoiceCalYmd(year, month1, day)}T12:00:00+09:00`);
-    const wd = d.toLocaleDateString('en-US', { timeZone: 'Asia/Tokyo', weekday: 'short' });
-    const map = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-    return map[wd.slice(0, 3)] ?? 0;
-}
-
-function _invoiceCalDaysInMonth(year, month1) {
-    return new Date(year, month1, 0).getDate();
-}
-
-function buildInvoiceCalendarGridHtml(year, month1, daysMap) {
-    const dim = _invoiceCalDaysInMonth(year, month1);
-    const firstDow = _invoiceCalJstWeekdaySun0(year, month1, 1);
-    const todayJst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' });
-    ensureInvoiceCalendarTableStyles();
-
-    let html = '<table class="data-table custom-calendar-table"><thead><tr>';
-    ['日', '月', '火', '水', '木', '金', '土'].forEach((label) => {
-        html += `<th>${label}</th>`;
-    });
-    html += '</tr></thead><tbody>';
-
-    let cellIndex = 0;
-    while (true) {
-        if (cellIndex % 7 === 0) html += '<tr>';
-        const dayNum = 1 - firstDow + cellIndex;
-        const isCurrentMonth = dayNum >= 1 && dayNum <= dim;
-        const ymdKey = isCurrentMonth ? _invoiceCalYmd(year, month1, dayNum) : '';
-        const col = cellIndex % 7;
-        const isToday = Boolean(ymdKey && ymdKey === todayJst);
-
-        const classes = [];
-        if (!isCurrentMonth) classes.push('other-month');
-        if (isToday) classes.push('is-today');
-        else if (col === 0) classes.push('is-sunday');
-        else if (col === 6) classes.push('is-saturday');
-
-        const items = isCurrentMonth && daysMap[ymdKey] ? daysMap[ymdKey] : [];
-
-        let inner = '<div class="day-cell-content">';
-        inner += `<span class="day-number">${isCurrentMonth ? dayNum : '\u00a0'}</span>`;
-        if (items.length) {
-            inner += '<div class="invoice-cal-items">';
-            const maxShow = 4;
-            items.slice(0, maxShow).forEach((it) => {
-                const raw = (it.file_name || it.vendor_name || it.invoice_number || it.file_id || '').toString();
-                const name = escapeHTML(raw.length > 36 ? `${raw.slice(0, 36)}…` : raw);
-                const fid = escapeHTML(String(it.file_id || ''));
-                inner += `<div class="invoice-cal-cell-item"><a href="${INVOICE_OCR_BASE_URL}/view?file_id=${fid}" target="_blank" rel="noopener">${name}</a></div>`;
-            });
-            if (items.length > maxShow) {
-                inner += `<div class="invoice-cal-cell-item muted">他 ${items.length - maxShow} 件</div>`;
-            }
-            inner += '</div>';
-        }
-        inner += '</div>';
-
-        html += `<td class="${classes.join(' ')}">${inner}</td>`;
-
-        if (cellIndex % 7 === 6) {
-            html += '</tr>';
-            if (dayNum > dim) break;
-        }
-        cellIndex += 1;
-        if (cellIndex > 48) break;
-    }
-
-    html += '</tbody></table>';
-    return html;
-}
-
-function renderInvoiceListCalendarUI(container) {
-    const todayJst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' });
-    const [tjY, tjM] = todayJst.split('-').map((x) => parseInt(x, 10));
-    if (invoiceListCalendarYear == null || invoiceListCalendarMonth == null) {
-        invoiceListCalendarYear = tjY;
-        invoiceListCalendarMonth = tjM;
-    }
-
-    container.innerHTML = `
-        <div class="staff-calendar-controls" style="padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #e9ecef; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
-            <div class="calendar-header" style="display: flex; align-items: center; gap: 10px;">
-                <button type="button" id="invoice-cal-prev-month" class="btn-secondary">&lt; 前月</button>
-                <h3 id="invoice-cal-title" style="margin: 0; font-size: 1.2em; min-width: 220px; text-align: center;"></h3>
-                <button type="button" id="invoice-cal-next-month" class="btn-secondary">次月 &gt;</button>
-                <button type="button" id="invoice-cal-refresh" class="btn-secondary">再読込</button>
-            </div>
-            <p style="margin: 0; font-size: 0.85em; color: #666; flex: 1; min-width: 200px;">
-                Firestore の保存日時（JST）で日付セルに振り分けます。リンクは Invoice OCR の <code>/view</code> を新しいタブで開きます。
-            </p>
-        </div>
-        <div id="invoice-cal-table-wrap" style="padding: 10px;">
-            <p style="text-align:center; padding:2em; color:#666;">読み込み中...</p>
-        </div>
-    `;
-
-    document.getElementById('invoice-cal-prev-month').addEventListener('click', () => {
-        invoiceListCalendarMonth -= 1;
-        if (invoiceListCalendarMonth < 1) {
-            invoiceListCalendarMonth = 12;
-            invoiceListCalendarYear -= 1;
-        }
-        loadInvoiceListCalendarAndRender();
-    });
-    document.getElementById('invoice-cal-next-month').addEventListener('click', () => {
-        invoiceListCalendarMonth += 1;
-        if (invoiceListCalendarMonth > 12) {
-            invoiceListCalendarMonth = 1;
-            invoiceListCalendarYear += 1;
-        }
-        loadInvoiceListCalendarAndRender();
-    });
-    document.getElementById('invoice-cal-refresh').addEventListener('click', loadInvoiceListCalendarAndRender);
-
-    loadInvoiceListCalendarAndRender();
-}
-
-async function loadInvoiceListCalendarAndRender() {
-    const titleEl = document.getElementById('invoice-cal-title');
-    const wrap = document.getElementById('invoice-cal-table-wrap');
-    if (!titleEl || !wrap) return;
-
-    titleEl.textContent = `${invoiceListCalendarYear}年${invoiceListCalendarMonth}月`;
-    wrap.innerHTML = '<p style="text-align:center; padding:2em; color:#666;">読み込み中...</p>';
-
-    try {
-        const url = `${INVOICE_OCR_BASE_URL}/api/invoices/calendar?year=${invoiceListCalendarYear}&month=${invoiceListCalendarMonth}`;
-        const res = await fetch(url, { cache: 'no-cache' });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.message || `HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        const daysMap = data.days || {};
-        wrap.innerHTML = buildInvoiceCalendarGridHtml(invoiceListCalendarYear, invoiceListCalendarMonth, daysMap);
-    } catch (e) {
-        console.error(e);
-        wrap.innerHTML = `<p style="text-align:center; padding:2em; color:#c0392b;">読み込みに失敗しました: ${escapeHTML(e.message)}</p>
-            <p style="text-align:center; font-size:0.9em; color:#666;">Invoice OCR のデプロイと CORS（環境変数 <code>INVOICE_OCR_CORS_ORIGIN</code>）を確認してください。</p>`;
-    }
-}
-
 // --- スタッフ別カレンダー機能 (liff-app.jsの出勤簿機能を参考に実装) ---
 
 /**
@@ -4070,12 +4075,8 @@ async function main() {
     try {
         await liff.init({ liffId: LIFF_ID });
 
-        // PCブラウザで未ログインの場合はログイン画面へリダイレクト
-        if (!liff.isLoggedIn()) {
-            // エンドポイントURLと異なるページでログインする場合、戻り先(redirectUri)を明示しないとエンドポイント(index.html)に飛ばされます
-            liff.login({ redirectUri: window.location.href });
-            return;
-        }
+        // PC版はセッション(Cookie)優先にするため、未ログインでも即リダイレクトしない。
+        // APIが401を返したときだけ ensurePcSession() が必要に応じてログインへ誘導する。
 
         // 日付マッピングを生成 (liff-app.jsから移植)
         const todayForMap = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));

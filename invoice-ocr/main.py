@@ -772,15 +772,18 @@ def _compute_invoice_status_from_line_items(line_items: list) -> str:
     if not line_items:
         return "pending"
     checked = 0
+    editing = 0
     for li in line_items:
         st = (li or {}).get("status") or "pending"
         if st == "checked":
             checked += 1
+        elif st == "editing":
+            editing += 1
     if checked == 0:
-        return "pending"
+        return "editing" if editing > 0 else "pending"
     if checked == len(line_items):
         return "checked"
-    return "confirming"
+    return "editing"
 
 
 def _normalize_line_items_status(line_items: list) -> list:
@@ -789,7 +792,10 @@ def _normalize_line_items_status(line_items: list) -> list:
         if not isinstance(li, dict):
             continue
         li2 = dict(li)
-        li2["status"] = li2.get("status") or "pending"
+        st = li2.get("status") or "pending"
+        if st not in ("pending", "editing", "checked"):
+            st = "pending"
+        li2["status"] = st
         out.append(li2)
     return out
 
@@ -839,6 +845,7 @@ def api_invoices_list():
                 "file_name": d.get("file_name"),
                 "vendor_name": vendor.get("vendor_name"),
                 "invoice_number": invoice.get("invoice_number"),
+                "order_number": invoice.get("order_number"),
                 "invoice_date": invoice.get("date"),
                 "status": status,
                 "line_items": line_items,
@@ -848,23 +855,31 @@ def api_invoices_list():
     return jsonify({"invoices": invoices}), 200
 
 
-@app.route("/api/invoices/<file_id>/line-item-status", methods=["POST"])
-def api_invoice_line_item_status(file_id: str):
+@app.route("/api/invoices/<file_id>", methods=["POST"])
+def api_invoice_update(file_id: str):
     """
-    明細1行の status を更新し、請求書 status も派生更新する。
-    body: { index: number, status: "pending"|"checked" }
+    画面の「更新」ボタン用：ドキュメント単位でまとめて保存する。
+    body:
+      {
+        "invoice": { "order_number": "...", "status": "pending|editing|checked" },
+        "line_items": [
+          { "order_number": "...", "status": "...", "item_name": "...", "quantity": ..., "unit_price": ..., "amount": ..., "note": "..." },
+          ...
+        ]
+      }
     """
     if not FIRESTORE_SAVE_ENABLED:
         return jsonify({"message": "firestore disabled"}), 503
 
     body = request.get_json(silent=True) or {}
-    try:
-        index = int(body.get("index"))
-    except Exception:
-        return jsonify({"message": "index is required"}), 400
-    status = body.get("status")
-    if status not in ("pending", "checked"):
-        return jsonify({"message": "status must be pending or checked"}), 400
+    inv_in = body.get("invoice") or {}
+    li_in = body.get("line_items") or []
+    if not isinstance(inv_in, dict) or not isinstance(li_in, list):
+        return jsonify({"message": "invalid payload"}), 400
+
+    inv_status = inv_in.get("status") or "pending"
+    if inv_status not in ("pending", "editing", "checked"):
+        return jsonify({"message": "invalid invoice.status"}), 400
 
     db = firestore.Client()
     ref = db.collection(FIRESTORE_COLLECTION).document(str(file_id))
@@ -873,46 +888,47 @@ def api_invoice_line_item_status(file_id: str):
         return jsonify({"message": "invoice not found"}), 404
 
     d = snap.to_dict() or {}
-    line_items = _normalize_line_items_status(d.get("line_items") or [])
-    if index < 0 or index >= len(line_items):
-        return jsonify({"message": "index out of range"}), 400
+    current_line_items = _normalize_line_items_status(d.get("line_items") or [])
+    if len(li_in) != len(current_line_items):
+        # まずは「同じ件数」のみ許可（並び替え/追加削除は後で）
+        return jsonify({"message": "line_items length mismatch"}), 400
 
-    line_items[index]["status"] = status
-    inv_status = _compute_invoice_status_from_line_items(line_items)
-    ref.set({"line_items": line_items, "status": inv_status}, merge=True)
-    return jsonify({"message": "ok", "file_id": file_id, "status": inv_status}), 200
+    next_line_items: list[dict] = []
+    for i, cur in enumerate(current_line_items):
+        incoming = li_in[i]
+        if not isinstance(incoming, dict):
+            return jsonify({"message": f"line_items[{i}] must be object"}), 400
 
+        st = incoming.get("status") or cur.get("status") or "pending"
+        if st not in ("pending", "editing", "checked"):
+            st = "pending"
 
-@app.route("/api/invoices/<file_id>/status", methods=["POST"])
-def api_invoice_status(file_id: str):
-    """
-    請求書チェックボックス用。
-    - checked: 全明細を checked にする
-    - pending: 全明細を pending にする
-    body: { status: "pending"|"checked" }
-    """
-    if not FIRESTORE_SAVE_ENABLED:
-        return jsonify({"message": "firestore disabled"}), 503
+        li2 = dict(cur)
+        # 編集許可はフロント側で制御するが、サーバ側も一応そのまま受ける
+        for k in ("order_number", "item_name", "quantity", "unit", "unit_price", "amount", "tax", "note"):
+            if k in incoming:
+                li2[k] = incoming.get(k)
+        li2["status"] = st
+        next_line_items.append(li2)
 
-    body = request.get_json(silent=True) or {}
-    status = body.get("status")
-    if status not in ("pending", "checked"):
-        return jsonify({"message": "status must be pending or checked"}), 400
+    # 請求書 status は、明細状況に合わせて保存（3値に揃える）
+    derived = _compute_invoice_status_from_line_items(next_line_items)
+    # 手動指定が checked の場合のみ優先（全明細チェック済みのはず、という運用想定）
+    final_status = inv_status if inv_status == "checked" else derived
 
-    db = firestore.Client()
-    ref = db.collection(FIRESTORE_COLLECTION).document(str(file_id))
-    snap = ref.get()
-    if not snap.exists:
-        return jsonify({"message": "invoice not found"}), 404
+    next_invoice = dict(d.get("invoice") or {})
+    if "order_number" in inv_in:
+        next_invoice["order_number"] = inv_in.get("order_number")
 
-    d = snap.to_dict() or {}
-    line_items = _normalize_line_items_status(d.get("line_items") or [])
-    for li in line_items:
-        li["status"] = status
-
-    inv_status = _compute_invoice_status_from_line_items(line_items)
-    ref.set({"line_items": line_items, "status": inv_status}, merge=True)
-    return jsonify({"message": "ok", "file_id": file_id, "status": inv_status}), 200
+    ref.set(
+        {
+            "invoice": next_invoice,
+            "line_items": next_line_items,
+            "status": final_status,
+        },
+        merge=True,
+    )
+    return jsonify({"message": "ok", "file_id": file_id, "status": final_status}), 200
 
 
 @app.route("/debug")

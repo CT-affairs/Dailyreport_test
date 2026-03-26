@@ -23,7 +23,8 @@ steps:
         'gcloud', 'run', 'deploy', 'dailyreport-service',
         '--image', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/dailyreport/app',
         '--region', 'asia-northeast1',
-        '--allow-unauthenticated'
+        '--allow-unauthenticated',
+        '--set-secrets', 'PC_SESSION_JWT_SECRET=PC_SESSION_JWT_SECRET:latest'        
       ]
 
 images:

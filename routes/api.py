@@ -1,7 +1,7 @@
 """
 LIFFアプリからのAPIリクエストを処理するBlueprint
 """
-from flask import Blueprint, request, abort, jsonify, g, current_app, Response
+from flask import Blueprint, request, abort, jsonify, g, current_app, Response, make_response
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 import os
@@ -27,7 +27,7 @@ from flask_cors import CORS
 
 # --- Blueprintの作成 ---
 api_bp = Blueprint('api', __name__)
-CORS(api_bp)
+CORS(api_bp, supports_credentials=True)
 
 # --- クライアントと定数の初期化 ---
 db = firestore.Client()
@@ -64,21 +64,116 @@ def verify_line_id_token(id_token: str) -> dict:
         # 予期せぬエラーは500として処理
         abort(500, f"An unexpected error occurred during token verification: {e}")
 
-def token_required(f):
-    """LINE IDトークンを検証するデコレータ"""
+PC_SESSION_COOKIE_NAME = "dr_pc_session"
+PC_SESSION_TTL_DAYS = 30
+# NOTE: Cookie で使うため Secure は必須（SameSite=None の要件）
+PC_SESSION_COOKIE_SAMESITE = "None"
+
+def _get_pc_session_secret() -> str:
+    secret = os.environ.get("PC_SESSION_JWT_SECRET")
+    if not secret:
+        current_app.logger.critical("PC_SESSION_JWT_SECRET environment variable is not set!")
+        abort(500, "Server configuration error: PC session secret is not set.")
+    return secret
+
+def _minimize_user_info_for_session(user_info: dict) -> dict:
+    """
+    Cookie サイズを抑えるため、認証・識別に必要な最小限のみ保持する。
+    history などの肥大要素はセッションに入れない（必要時は別APIで取得）。
+    """
+    if not user_info or not isinstance(user_info, dict):
+        return {}
+    allowed_keys = [
+        "company_employee_id",
+        "jobcan_employee_id",
+        "main_group_id",
+        "name",
+        "is_manager",
+        "is_executive",
+        "is_system_admin",
+        "main_group_name",
+        "mail",
+        "work_kind_id",
+    ]
+    return {k: user_info.get(k) for k in allowed_keys}
+
+def _encode_pc_session_jwt(line_user_id: str, user_info: dict) -> str:
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(days=PC_SESSION_TTL_DAYS)
+    payload = {
+        "typ": "dr_pc_session",
+        "sub": str(line_user_id),
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+        "user": _minimize_user_info_for_session(user_info),
+    }
+    return jwt.encode(payload, _get_pc_session_secret(), algorithm="HS256")
+
+def _decode_pc_session_jwt(token: str) -> dict:
+    try:
+        payload = jwt.decode(
+            token,
+            _get_pc_session_secret(),
+            algorithms=["HS256"],
+            options={"require": ["exp", "iat", "sub"]},
+        )
+        if not isinstance(payload, dict) or payload.get("typ") != "dr_pc_session":
+            abort(401, "セッションが無効です。")
+        return payload
+    except jwt.ExpiredSignatureError:
+        abort(401, "セッションの有効期限が切れています。")
+    except jwt.InvalidTokenError as e:
+        abort(401, f"セッションが無効です: {e}")
+
+def _try_authenticate_from_pc_session_cookie() -> bool:
+    """
+    PC用のセッションCookieがあれば検証して g に格納する。
+    成功: True / Cookie無し or 失敗: False
+    """
+    token = request.cookies.get(PC_SESSION_COOKIE_NAME)
+    if not token:
+        return False
+    payload = _decode_pc_session_jwt(token)
+    line_user_id = payload.get("sub")
+    user_info = payload.get("user")
+    if not line_user_id or not isinstance(user_info, dict):
+        abort(401, "セッションが無効です。")
+    g.line_user_id = str(line_user_id)
+    g.user_info = user_info
+    g.auth_via_pc_session = True
+    return True
+
+def _authenticate_from_line_id_token_header() -> None:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        abort(401, "Authorization header is missing or invalid.")
+    try:
+        id_token = auth_header.split(" ")[1]
+        payload = verify_line_id_token(id_token)
+        g.line_user_id = payload["sub"]
+        g.auth_via_pc_session = False
+    except (ValueError, IndexError, KeyError):
+        abort(401, "ID token is invalid.")
+
+def line_token_required(f):
+    """LINE IDトークン（Authorization: Bearer ...）のみを検証する（PCセッションCookieは使わない）"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            abort(401, "Authorization header is missing or invalid.")
-        
-        try:
-            id_token = auth_header.split(" ")[1]
-            payload = verify_line_id_token(id_token)
-            # gはリクエスト内でデータを共有するためのFlaskのグローバルオブジェクト
-            g.line_user_id = payload["sub"]
-        except (ValueError, IndexError, KeyError):
-            abort(401, "ID token is invalid.")
+        _authenticate_from_line_id_token_header()
+        return f(*args, **kwargs)
+    return decorated_function
+
+def token_required(f):
+    """
+    認証デコレータ
+    - PC: セッションCookie（30日）を優先
+    - スマホLIFF等: 従来通り LINE IDトークン（Bearer）
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if _try_authenticate_from_pc_session_cookie():
+            return f(*args, **kwargs)
+        _authenticate_from_line_id_token_header()
         return f(*args, **kwargs)
     return decorated_function
 
@@ -93,7 +188,8 @@ def manager_required(f):
             abort(401, "Authentication token is required before checking manager status.")
         
         try:
-            user_info = get_user_info_by_line_id(g.line_user_id)
+            # PCセッション経由ならDBに触れずに権限判定
+            user_info = g.user_info if hasattr(g, "user_info") and isinstance(g.user_info, dict) else get_user_info_by_line_id(g.line_user_id)
             if not user_info.get('is_manager'):
                 abort(403, "Administrator privileges are required for this operation.")
             
@@ -120,10 +216,10 @@ def login_required(f):
             abort(401, "Authentication token is required.")
         
         try:
-            # ユーザー情報を取得 (未登録なら404エラーでabortされる)
-            user_info = get_user_info_by_line_id(g.line_user_id)
-            # ユーザー情報をgオブジェクトに格納
-            g.user_info = user_info
+            # PCセッション経由ならDBに触れずにユーザー識別
+            if not (hasattr(g, "user_info") and isinstance(g.user_info, dict) and g.user_info.get("company_employee_id")):
+                # ユーザー情報を取得 (未登録なら404エラーでabortされる)
+                g.user_info = get_user_info_by_line_id(g.line_user_id)
         except Exception as e:
             if hasattr(e, 'code'):
                 abort(e.code, e.description)
@@ -131,6 +227,59 @@ def login_required(f):
             
         return f(*args, **kwargs)
     return decorated_function
+
+def get_authenticated_user_info() -> dict:
+    """
+    認証済みユーザー情報を取得する。
+    - PCセッションCookie経由: g.user_info をそのまま使用（DBアクセスなし）
+    - それ以外: Firestore から取得し g.user_info にキャッシュ
+    """
+    if hasattr(g, "user_info") and isinstance(g.user_info, dict) and g.user_info.get("company_employee_id"):
+        return g.user_info
+    if not hasattr(g, "line_user_id"):
+        abort(401, "Authentication token is required.")
+    g.user_info = get_user_info_by_line_id(g.line_user_id)
+    return g.user_info
+
+@api_bp.route("/pc/session", methods=["POST"])
+@line_token_required
+def create_pc_session():
+    """
+    PC初回ログイン用:
+    - LINE IDトークンを検証
+    - Firestore からユーザー情報を1回だけ取得
+    - 30日有効のセッションCookie（署名付きJWT）を発行
+    """
+    line_user_id = g.line_user_id
+    user_info = get_user_info_by_line_id(line_user_id)
+    token = _encode_pc_session_jwt(line_user_id, user_info)
+
+    resp = make_response(jsonify({"status": "ok"}), 200)
+    resp.set_cookie(
+        PC_SESSION_COOKIE_NAME,
+        token,
+        max_age=int(PC_SESSION_TTL_DAYS * 24 * 60 * 60),
+        httponly=True,
+        secure=True,
+        samesite=PC_SESSION_COOKIE_SAMESITE,
+        path="/",
+    )
+    return resp
+
+@api_bp.route("/pc/session", methods=["DELETE"])
+def delete_pc_session():
+    """PCセッションを破棄（ログアウト用）"""
+    resp = make_response(jsonify({"status": "ok"}), 200)
+    resp.set_cookie(
+        PC_SESSION_COOKIE_NAME,
+        "",
+        max_age=0,
+        httponly=True,
+        secure=True,
+        samesite=PC_SESSION_COOKIE_SAMESITE,
+        path="/",
+    )
+    return resp
 
 def scheduler_token_required(f):
     """Cloud Schedulerからのリクエストを認証するデコレータ"""
@@ -446,7 +595,7 @@ def post_net_report():
     date_obj = datetime.strptime(date, '%Y-%m-%d')
 
     # --- 報告者と入力者の情報を決定 (post_reportから流用) ---
-    inputter_info = get_user_info_by_line_id(user_id)
+    inputter_info = get_authenticated_user_info()
     inputter_id = inputter_info["company_employee_id"]
     inputter_name = inputter_info.get("name")
 
@@ -628,7 +777,22 @@ def get_user_info():
     現在のLINEユーザーに紐づく社員情報を返すエンドポイント。
     フロントエンドが報告者名を表示するために使用する。
     """
-    # g.user_infoに依存せず、常にDBから最新の情報を取得する
+    # PCセッション経由ならDBに触れず、セッション内の情報のみで返す
+    if hasattr(g, "auth_via_pc_session") and g.auth_via_pc_session and hasattr(g, "user_info") and isinstance(g.user_info, dict):
+        user_info = g.user_info
+        return jsonify({
+            "employeeId": user_info.get("company_employee_id"),
+            "name": user_info.get("name"),
+            "is_manager": user_info.get("is_manager", False),
+            "is_system_admin": user_info.get("is_system_admin", False),
+            "main_group_name": user_info.get("main_group_name"),
+            "main_group": user_info.get("main_group_id"),
+            "is_executive": user_info.get("is_executive", False),
+            "history": {"catA": [], "catB": []},
+            "work_kind_id": user_info.get("work_kind_id"),
+        }), 200
+
+    # それ以外（スマホLIFF等）は従来通りDBから取得
     user_id = g.line_user_id
     user_info = get_user_info_by_line_id(user_id)
 
@@ -699,7 +863,7 @@ def get_work_time():
         abort(400, "Query parameter 'date' is required.")
 
     # 1. ユーザー情報と、対象となるjobcan_employee_idを取得
-    user_info = get_user_info_by_line_id(user_id)
+    user_info = get_authenticated_user_info()
     jobcan_employee_id = None
     target_company_id = None # Firestore更新用に会社IDを保持
 
@@ -804,7 +968,6 @@ def get_calendar_status_for_month():
     指定された年月（または現在）の勤務状況ステータスを返すエンドポイント。
     フロントエンドがカレンダーの表示を更新するために使用する。
     """
-    user_id = g.line_user_id
     # クエリパラメータから 'start_date' と 'end_date' を取得
     start_date_str = request.args.get("start_date")
     end_date_str = request.args.get("end_date")
@@ -816,7 +979,7 @@ def get_calendar_status_for_month():
     current_app.logger.info(f"[/api/calendar-statuses] endpoint called with start: {start_date_str}, end: {end_date_str}")
 
     # ユーザー情報を取得
-    user_info = get_user_info_by_line_id(user_id)
+    user_info = get_authenticated_user_info()
     jobcan_employee_id = user_info.get("jobcan_employee_id")
     company_employee_id = user_info.get("company_employee_id")
     is_executive = user_info.get("is_executive", False)

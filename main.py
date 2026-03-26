@@ -35,7 +35,7 @@ allowed_origins = [
     "http://localhost:8080",    # ローカル開発サーバー
     "http://127.0.0.1:8080"   # ローカル開発サーバー
 ]
-CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
+CORS(app, resources={r"/api/*": {"origins": allowed_origins}}, supports_credentials=True)
 
 # --- ロガー設定 ---
 # Cloud Runのログは標準出力/エラーに出力されたものが収集される
