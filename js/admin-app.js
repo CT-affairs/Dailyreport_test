@@ -39,8 +39,21 @@ async function fetchWithAuth(url, options = {}) {
         // バックエンドからのエラーメッセージに「有効期限」などが含まれている場合
         if (errorData.message && (errorData.message.includes("有効期限") || errorData.message.includes("トークン"))) {
             console.warn("トークン有効期限切れを検知。再ログインを実行します。");
-            // ★リロード前に代理入力中の下書きを保存
-            saveProxyDraftReport();
+            // ネット事業部: Firestore へ最終同期（下書きは使わない）。工務部: localStorage 下書き。
+            const isNetProxyOpen = document.getElementById('proxy-report-container')
+                && currentProxyTarget
+                && String(currentProxyTarget.groupId) === '3';
+            if (isNetProxyOpen) {
+                try {
+                    await autoSaveProxyNetReport('pre-relogin');
+                } catch (e) {
+                    console.error('pre-relogin auto-save failed', e);
+                }
+                const dk = getProxyDraftKey();
+                if (dk) localStorage.removeItem(dk);
+            } else {
+                saveProxyDraftReport();
+            }
 
             liff.logout();
             window.location.reload();
@@ -3552,6 +3565,13 @@ function getProxyDraftKey() {
  * 代理入力中の工数内容を下書きとしてlocalStorageに保存する
  */
 function saveProxyDraftReport() {
+    // ネット事業部は Firestore 逐次保存が正とする。localStorage 下書きは二重保持・古い復元の原因になるため書かない。
+    if (currentProxyTarget && String(currentProxyTarget.groupId) === '3') {
+        const dk = getProxyDraftKey();
+        if (dk) localStorage.removeItem(dk);
+        return;
+    }
+
     const formWrapper = document.getElementById('proxy-report-form-wrapper');
     // 代理入力フォームが表示されていない、または対象者がいない場合は何もしない
     if (!formWrapper || !currentProxyTarget) {
@@ -3621,6 +3641,10 @@ function saveProxyDraftReport() {
  * localStorageから代理入力の下書きを復元する
  */
 function restoreProxyDraftReport() {
+    if (currentProxyTarget && String(currentProxyTarget.groupId) === '3') {
+        return;
+    }
+
     const draftKey = getProxyDraftKey();
     if (!draftKey) return;
 
@@ -3806,11 +3830,19 @@ async function openProxyReport(employeeId, name, date, groupId, openOptions) {
 async function initializeProxyReportScreen(isNetTemplate) {
     const { employeeId, name, date } = currentProxyTarget;
     
-    // 対象者情報の表示
-    document.getElementById('proxy-target-info').innerHTML = `
-        <div style="display:flex; gap: 28px; align-items: baseline; flex-wrap: wrap;">
+    // 対象者情報の表示（ネット事業部は「対象者 → 対象日」の順）
+    const targetInfoRows = isNetTemplate
+        ? `
+            <div><strong>対象者:</strong> ${escapeHTML(name)} (ID: ${employeeId})</div>
+            <div><strong>対象日:</strong> ${date}</div>
+        `
+        : `
             <div><strong>対象日:</strong> ${date}</div>
             <div><strong>対象者:</strong> ${escapeHTML(name)} (ID: ${employeeId})</div>
+        `;
+    document.getElementById('proxy-target-info').innerHTML = `
+        <div style="display:flex; gap: 28px; align-items: baseline; flex-wrap: wrap;">
+            ${targetInfoRows}
         </div>
     `;
     document.getElementById('proxy-report-date').value = date;
@@ -3924,28 +3956,33 @@ async function initializeProxyReportScreen(isNetTemplate) {
     // 既存データの読み込み
     await loadProxyExistingData();
 
-    // ★下書き復元の確認
-    const draftKey = getProxyDraftKey();
-    if (draftKey) {
-        const draftString = localStorage.getItem(draftKey);
-        if (draftString) {
-            try {
-                const draft = JSON.parse(draftString);
-                const savedDate = new Date(draft.savedAt).toLocaleString();
-                if (confirm(`${savedDate}に保存された代理入力途中のデータがあります。復元しますか？`)) {
-                    restoreProxyDraftReport();
+    if (isNetTemplate) {
+        // ネット: Firestore が正。残っている下書きキーは削除のみ（復元・定期local保存はしない）
+        const dk = getProxyDraftKey();
+        if (dk) localStorage.removeItem(dk);
+        if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
+        proxyAutoSaveTimer = null;
+    } else {
+        // 工務: localStorage 下書きの確認復元 + 10秒ごとの下書き保存
+        const draftKey = getProxyDraftKey();
+        if (draftKey) {
+            const draftString = localStorage.getItem(draftKey);
+            if (draftString) {
+                try {
+                    const draft = JSON.parse(draftString);
+                    const savedDate = new Date(draft.savedAt).toLocaleString();
+                    if (confirm(`${savedDate}に保存された代理入力途中のデータがあります。復元しますか？`)) {
+                        restoreProxyDraftReport();
+                    }
+                    localStorage.removeItem(draftKey);
+                } catch (e) {
+                    localStorage.removeItem(draftKey);
                 }
-                // 復元するしないに関わらず、一度確認したら下書きは削除
-                localStorage.removeItem(draftKey);
-            } catch(e) {
-                localStorage.removeItem(draftKey);
             }
         }
+        if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
+        proxyAutoSaveTimer = setInterval(saveProxyDraftReport, 10000);
     }
-
-    // ★自動保存タイマーを開始
-    if (proxyAutoSaveTimer) clearInterval(proxyAutoSaveTimer);
-    proxyAutoSaveTimer = setInterval(saveProxyDraftReport, 10000);
 }
 
 /**
