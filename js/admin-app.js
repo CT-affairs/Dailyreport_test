@@ -3755,6 +3755,8 @@ let proxyActiveSliderInput = null;
 let currentProxyTarget = null; // { employeeId, name, date, groupId, returnTarget, returnProxyTarget? }
 let currentProxyHistory = { catA: [], catB: [] }; // 代理入力対象者の履歴
 let proxySelectionResolver = null; // 選択パネルのPromise解決用
+/** ネット代理入力: load / 自動保存成功後のフォーム状態（変更検知用 JSON 文字列） */
+let proxyNetSavedSnapshot = null;
 
 /**
  * 代理入力画面を開く
@@ -3849,7 +3851,13 @@ async function initializeProxyReportScreen(isNetTemplate) {
                         ${targetInfoRows}
                     </div>
                 </div>
-                <div class="proxy-target-info-secondary" id="proxy-target-info-secondary" aria-label="補助表示（今後実装）"></div>
+                <div class="proxy-target-info-secondary" id="proxy-target-info-secondary" aria-label="前日・翌日">
+                    <div class="proxy-target-day-nav" role="group" aria-label="対象日の移動">
+                        <button type="button" id="proxy-target-prev-day-btn" class="btn-secondary proxy-target-day-nav-btn">◀前日</button>
+                        <button type="button" id="proxy-target-next-day-btn" class="btn-secondary proxy-target-day-nav-btn">翌日▶</button>
+                    </div>
+                    <p class="proxy-target-day-nav-note">※表示されている日報は、変更がある場合のみ保存してから移動します</p>
+                </div>
             </div>
         `;
     } else {
@@ -3971,6 +3979,18 @@ async function initializeProxyReportScreen(isNetTemplate) {
     await loadProxyExistingData();
 
     if (isNetTemplate) {
+        const prevDayBtn = document.getElementById('proxy-target-prev-day-btn');
+        const nextDayBtn = document.getElementById('proxy-target-next-day-btn');
+        if (prevDayBtn) {
+            prevDayBtn.addEventListener('click', () => {
+                void navigateProxyNetAdjacentDay(-1);
+            });
+        }
+        if (nextDayBtn) {
+            nextDayBtn.addEventListener('click', () => {
+                void navigateProxyNetAdjacentDay(1);
+            });
+        }
         // ネット: Firestore が正。残っている下書きキーは削除のみ（復元・定期local保存はしない）
         const dk = getProxyDraftKey();
         if (dk) localStorage.removeItem(dk);
@@ -4109,9 +4129,19 @@ async function ensureProxyCategoryBOptionsForPastReports(kind) {
 async function loadProxyExistingData() {
     const { employeeId, date, groupId } = currentProxyTarget;
     const messageDiv = document.getElementById('proxy-report-message');
-    
+    const isNetLoad = groupId != null && String(groupId) === '3';
+    let prevDayNavBtn = null;
+    let nextDayNavBtn = null;
+    if (isNetLoad) {
+        prevDayNavBtn = document.getElementById('proxy-target-prev-day-btn');
+        nextDayNavBtn = document.getElementById('proxy-target-next-day-btn');
+        if (prevDayNavBtn) prevDayNavBtn.disabled = true;
+        if (nextDayNavBtn) nextDayNavBtn.disabled = true;
+        proxyNetSavedSnapshot = null;
+    }
+
     messageDiv.textContent = 'データを読み込み中...';
-    
+
     try {
         let reportData = {};
         const [workTimeRes, reportDetailsRes] = await Promise.all([
@@ -4211,6 +4241,11 @@ async function loadProxyExistingData() {
             createDefaultBreakTask();
         }
 
+        if (isNetTemplate) {
+            updateProxyWorkTimeSummary();
+            refreshProxyNetSavedSnapshot();
+        }
+
     } catch (error) {
         console.error("データ読み込みエラー:", error);
         messageDiv.textContent = 'データの読み込みに失敗しました。';
@@ -4222,6 +4257,12 @@ async function loadProxyExistingData() {
                 addProxyTaskEntry();
             }
         }
+        if (currentProxyTarget && String(currentProxyTarget.groupId) === '3') {
+            refreshProxyNetSavedSnapshot();
+        }
+    } finally {
+        if (prevDayNavBtn) prevDayNavBtn.disabled = false;
+        if (nextDayNavBtn) nextDayNavBtn.disabled = false;
     }
 }
 
@@ -5027,6 +5068,119 @@ function collectProxyNetTasksFromTimetable() {
     return tasks;
 }
 
+/**
+ * 比較用にネットタイムテーブル tasks を正規化（時刻ゼロ埋め・安定ソート）
+ */
+function normalizeProxyNetTasksForCompare(tasks) {
+    if (!Array.isArray(tasks)) return [];
+    const rows = tasks.map((t) => ({
+        categoryA_id: String(t.categoryA_id ?? ''),
+        categoryA_label: String(t.categoryA_label ?? ''),
+        categoryB_id: String(t.categoryB_id ?? ''),
+        categoryB_label: String(t.categoryB_label ?? ''),
+        time: Number(t.time) || 0,
+        startTime: normalizeProxyNetTimeStr(t.startTime),
+        endTime: normalizeProxyNetTimeStr(t.endTime),
+        comment: String(t.comment ?? ''),
+    }));
+    rows.sort((a, b) => {
+        const c1 = (a.startTime || '').localeCompare(b.startTime || '');
+        if (c1 !== 0) return c1;
+        const c2 = (a.endTime || '').localeCompare(b.endTime || '');
+        if (c2 !== 0) return c2;
+        return `${a.categoryB_id}:${a.categoryA_id}`.localeCompare(`${b.categoryB_id}:${b.categoryA_id}`);
+    });
+    return rows;
+}
+
+function formatLocalYmdFromProxyDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function addDaysToProxyYmd(ymd, deltaDays) {
+    const base = parseProxyYmdToLocalDate(ymd);
+    base.setDate(base.getDate() + deltaDays);
+    return formatLocalYmdFromProxyDate(base);
+}
+
+/** 同一「21日〜翌月20日」月度か（月度をまたぐ前日/翌日移動を拒否する） */
+function isSameNetFiscalMonthForProxyYmd(ymdA, ymdB) {
+    const da = parseProxyYmdToLocalDate(ymdA);
+    const db = parseProxyYmdToLocalDate(ymdB);
+    const ca = getNetFiscalPastReportsClosingEndForDate(da);
+    const cb = getNetFiscalPastReportsClosingEndForDate(db);
+    return ca.getTime() === cb.getTime();
+}
+
+function snapshotProxyNetFormState() {
+    const workEl = document.getElementById('proxy-report-work');
+    const allocEl = document.getElementById('proxy-allocated-time-display');
+    const workRaw = workEl ? parseInt(workEl.value, 10) : 0;
+    const allocRaw = allocEl ? parseInt(allocEl.textContent, 10) : 0;
+    const work = Number.isFinite(workRaw) ? workRaw : 0;
+    const allocated = Number.isFinite(allocRaw) ? allocRaw : 0;
+    const tasks = normalizeProxyNetTasksForCompare(collectProxyNetTasksFromTimetable());
+    return JSON.stringify({ work, allocated, tasks });
+}
+
+function refreshProxyNetSavedSnapshot() {
+    if (!currentProxyTarget || String(currentProxyTarget.groupId) !== '3') {
+        proxyNetSavedSnapshot = null;
+        return;
+    }
+    try {
+        proxyNetSavedSnapshot = snapshotProxyNetFormState();
+    } catch (e) {
+        console.warn('refreshProxyNetSavedSnapshot:', e);
+        proxyNetSavedSnapshot = null;
+    }
+}
+
+function hasProxyNetUnsavedChanges() {
+    if (!currentProxyTarget || String(currentProxyTarget.groupId) !== '3') return false;
+    if (proxyNetSavedSnapshot === null) return true;
+    try {
+        return snapshotProxyNetFormState() !== proxyNetSavedSnapshot;
+    } catch {
+        return true;
+    }
+}
+
+async function navigateProxyNetAdjacentDay(deltaDays) {
+    if (!currentProxyTarget || String(currentProxyTarget.groupId) !== '3') return;
+    if (isProxySubmitting) {
+        alert('保存処理中です。完了してから再度お試しください。');
+        return;
+    }
+    const curDate = currentProxyTarget.date;
+    if (!curDate || typeof curDate !== 'string') return;
+
+    const newDate = addDaysToProxyYmd(curDate, deltaDays);
+    if (!isSameNetFiscalMonthForProxyYmd(curDate, newDate)) {
+        alert('月度が変わる日付へは、ここから移動できません。一覧またはカレンダーから該当月度を開いてください。');
+        return;
+    }
+
+    if (hasProxyNetUnsavedChanges()) {
+        await autoSaveProxyNetReport('day-nav');
+        if (hasProxyNetUnsavedChanges()) {
+            alert('保存に失敗したため、日付を移動できません。内容を確認してください。');
+            return;
+        }
+    }
+
+    await openProxyReport(
+        String(currentProxyTarget.employeeId),
+        currentProxyTarget.name || '',
+        newDate,
+        String(currentProxyTarget.groupId),
+        { returnTarget: currentProxyTarget.returnTarget, skipProxyStack: true },
+    );
+}
+
 function getProxyNetTaskMinutes(taskEl) {
     const isLocked = taskEl.dataset.lockedTime === '1';
     const storedTime = parseInt(taskEl.dataset.time, 10);
@@ -5066,6 +5220,7 @@ async function processQueuedProxyNetSaveRequests() {
 }
 
 async function executeProxyNetSaveRequest(req) {
+    let saveSucceeded = false;
     try {
         isProxySubmitting = true;
         const response = await fetchWithAuth(`${API_BASE_URL}/api/reports_net`, {
@@ -5076,6 +5231,8 @@ async function executeProxyNetSaveRequest(req) {
             const errorData = await response.json().catch(() => null);
             throw new Error(errorData?.message || `${req.type === 'submit' ? '送信' : '自動保存'}に失敗しました`);
         }
+
+        saveSucceeded = true;
 
         if (req.type === 'submit') {
             // ★送信成功時にタイマー停止と下書き削除
@@ -5098,6 +5255,14 @@ async function executeProxyNetSaveRequest(req) {
         }
     } finally {
         isProxySubmitting = false;
+        if (
+            saveSucceeded
+            && req.type === 'auto'
+            && currentProxyTarget
+            && String(currentProxyTarget.groupId) === '3'
+        ) {
+            refreshProxyNetSavedSnapshot();
+        }
         // 実行中に次の要求が積まれた場合は続けて処理する
         if (proxyPendingSaveRequest) {
             void processQueuedProxyNetSaveRequests();
