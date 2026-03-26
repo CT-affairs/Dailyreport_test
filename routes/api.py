@@ -3513,11 +3513,17 @@ def _extract_paid_use_log_start_end(log: dict) -> tuple[object, object]:
         log,
         log.get("use_days"),
         log.get("detail"),
+        (log.get("detail") or {}).get("holiday") if isinstance(log.get("detail"), dict) else None,
     ]
     key_pairs = [
         ("start", "end"),
         ("start_time", "end_time"),
         ("from", "to"),
+        ("from_time", "to_time"),
+        ("start_at", "end_at"),
+        ("use_start", "use_end"),
+        ("use_start_time", "use_end_time"),
+        ("use_from", "use_to"),
     ]
 
     for c in containers:
@@ -3529,6 +3535,20 @@ def _extract_paid_use_log_start_end(log: dict) -> tuple[object, object]:
             if st and et:
                 return st, et
     return None, None
+
+
+def _infer_net_paid_leave_anchor_start(log: dict) -> str:
+    """
+    ネット事業部の半休で開始/終了が取得できない場合のフォールバック開始時刻を推定する。
+    Jobcan の use-days には「午後」等の文言が入ることがあるため、文字列化して判定する。
+    """
+    try:
+        raw = json.dumps(log, ensure_ascii=False, default=str)
+    except Exception:
+        raw = str(log)
+    if "午後" in raw or "PM" in raw or "pm" in raw:
+        return "13:00"
+    return "09:00"
 
 
 def _normalize_hhmm_pair(start_raw, end_raw) -> tuple[object, object]:
@@ -3752,8 +3772,9 @@ def sync_paid_holidays():
                                     if st and et:
                                         time_src = "holiday_types.holiday"
                                 if not st or not et:
-                                    st, et = default_net_paid_leave_time_slot(minutes)
-                                    time_src = "synthetic_09h00_plus_minutes"
+                                    anchor = _infer_net_paid_leave_anchor_start(log)
+                                    st, et = default_net_paid_leave_time_slot(minutes, anchor_start=anchor)
+                                    time_src = f"synthetic_{anchor.replace(':','')}h00_plus_minutes"
                                 applied = register_paid_holiday_work_report(
                                     target_employee_id=target_company_id,
                                     target_date=use_date,

@@ -342,6 +342,7 @@ def _postprocess_line_items(line_items: List[Dict[str, Any]], invoice_obj: Dict[
 
         item = {
             "item_name": raw.get("item_name"),
+            "document_date": raw.get("document_date"),
             "order_number": _normalize_order_number(raw.get("order_number")),
             "quantity": _to_number(raw.get("quantity")),
             "unit": raw.get("unit"),
@@ -627,6 +628,7 @@ def _build_full_extraction_prompt(ocr_text: str) -> str:
   "line_items": [
     {{
       "item_name": null,
+      "document_date": null,
       "order_number": null,
       "quantity": null,
       "unit": null,
@@ -650,6 +652,7 @@ def _build_full_extraction_prompt(ocr_text: str) -> str:
 以下のように列を推定：
 
 - 品名 → item_name
+- 明細行に書かれた納品日/発送日/作業日/取引日（請求書ヘッダの日付とは別） → document_date（可能なら YYYY-MM-DD。難しければOCRの表記のまま文字列）
 - 数量 → quantity
 - 単位 → unit
 - 単価 → unit_price
@@ -706,6 +709,7 @@ def _build_line_items_only_prompt(ocr_text: str, page_index: int, total_pages: i
   "line_items": [
     {{
       "item_name": null,
+      "document_date": null,
       "order_number": null,
       "quantity": null,
       "unit": null,
