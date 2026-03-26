@@ -745,6 +745,176 @@ def save():
         return jsonify(payload), 500
 
 
+def _api_cors(response):
+    # 管理画面（/liff/admin.html）から別ドメインの invoice-ocr を叩くためのCORS。
+    # 本番は INVOICE_OCR_CORS_ORIGIN に LIFF のオリジンを指定推奨（例: https://xxx）。
+    allow = os.environ.get("INVOICE_OCR_CORS_ORIGIN", "*")
+    response.headers["Access-Control-Allow-Origin"] = allow
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Max-Age"] = "3600"
+    return response
+
+
+@app.after_request
+def _apply_cors(response):
+    if request.path.startswith("/api/"):
+        _api_cors(response)
+    return response
+
+
+@app.route("/api/<path:_sub>", methods=["OPTIONS"])
+def api_options(_sub: str):
+    return _api_cors(app.make_response(("", 204)))
+
+
+def _compute_invoice_status_from_line_items(line_items: list) -> str:
+    if not line_items:
+        return "pending"
+    checked = 0
+    for li in line_items:
+        st = (li or {}).get("status") or "pending"
+        if st == "checked":
+            checked += 1
+    if checked == 0:
+        return "pending"
+    if checked == len(line_items):
+        return "checked"
+    return "confirming"
+
+
+def _normalize_line_items_status(line_items: list) -> list:
+    out = []
+    for li in (line_items or []):
+        if not isinstance(li, dict):
+            continue
+        li2 = dict(li)
+        li2["status"] = li2.get("status") or "pending"
+        out.append(li2)
+    return out
+
+
+@app.route("/api/invoices", methods=["GET"])
+def api_invoices_list():
+    """
+    Firestore invoices コレクションを表示する（試験用）。
+    いずれ絞り込みを入れる前提で、現状は最新から最大 limit 件返す。
+    """
+    if not FIRESTORE_SAVE_ENABLED:
+        return jsonify({"message": "firestore disabled", "invoices": []}), 503
+
+    try:
+        limit = int(request.args.get("limit", "10"))
+    except ValueError:
+        limit = 10
+    limit = max(1, min(limit, 50))
+
+    db = firestore.Client()
+    snaps = list(db.collection(FIRESTORE_COLLECTION).stream())
+
+    def _ts(snap):
+        d = snap.to_dict() or {}
+        sa = d.get("saved_at")
+        try:
+            return sa.timestamp() if sa else 0
+        except Exception:
+            return 0
+
+    snaps.sort(key=_ts, reverse=True)
+    snaps = snaps[:limit]
+
+    invoices = []
+    for snap in snaps:
+        d = snap.to_dict() or {}
+        file_id = d.get("file_id") or snap.id
+        vendor = d.get("vendor") or {}
+        invoice = d.get("invoice") or {}
+        line_items = _normalize_line_items_status(d.get("line_items") or [])
+        status = d.get("status") or _compute_invoice_status_from_line_items(line_items)
+
+        invoices.append(
+            {
+                "id": snap.id,
+                "file_id": file_id,
+                "file_name": d.get("file_name"),
+                "vendor_name": vendor.get("vendor_name"),
+                "invoice_number": invoice.get("invoice_number"),
+                "invoice_date": invoice.get("date"),
+                "status": status,
+                "line_items": line_items,
+            }
+        )
+
+    return jsonify({"invoices": invoices}), 200
+
+
+@app.route("/api/invoices/<file_id>/line-item-status", methods=["POST"])
+def api_invoice_line_item_status(file_id: str):
+    """
+    明細1行の status を更新し、請求書 status も派生更新する。
+    body: { index: number, status: "pending"|"checked" }
+    """
+    if not FIRESTORE_SAVE_ENABLED:
+        return jsonify({"message": "firestore disabled"}), 503
+
+    body = request.get_json(silent=True) or {}
+    try:
+        index = int(body.get("index"))
+    except Exception:
+        return jsonify({"message": "index is required"}), 400
+    status = body.get("status")
+    if status not in ("pending", "checked"):
+        return jsonify({"message": "status must be pending or checked"}), 400
+
+    db = firestore.Client()
+    ref = db.collection(FIRESTORE_COLLECTION).document(str(file_id))
+    snap = ref.get()
+    if not snap.exists:
+        return jsonify({"message": "invoice not found"}), 404
+
+    d = snap.to_dict() or {}
+    line_items = _normalize_line_items_status(d.get("line_items") or [])
+    if index < 0 or index >= len(line_items):
+        return jsonify({"message": "index out of range"}), 400
+
+    line_items[index]["status"] = status
+    inv_status = _compute_invoice_status_from_line_items(line_items)
+    ref.set({"line_items": line_items, "status": inv_status}, merge=True)
+    return jsonify({"message": "ok", "file_id": file_id, "status": inv_status}), 200
+
+
+@app.route("/api/invoices/<file_id>/status", methods=["POST"])
+def api_invoice_status(file_id: str):
+    """
+    請求書チェックボックス用。
+    - checked: 全明細を checked にする
+    - pending: 全明細を pending にする
+    body: { status: "pending"|"checked" }
+    """
+    if not FIRESTORE_SAVE_ENABLED:
+        return jsonify({"message": "firestore disabled"}), 503
+
+    body = request.get_json(silent=True) or {}
+    status = body.get("status")
+    if status not in ("pending", "checked"):
+        return jsonify({"message": "status must be pending or checked"}), 400
+
+    db = firestore.Client()
+    ref = db.collection(FIRESTORE_COLLECTION).document(str(file_id))
+    snap = ref.get()
+    if not snap.exists:
+        return jsonify({"message": "invoice not found"}), 404
+
+    d = snap.to_dict() or {}
+    line_items = _normalize_line_items_status(d.get("line_items") or [])
+    for li in line_items:
+        li["status"] = status
+
+    inv_status = _compute_invoice_status_from_line_items(line_items)
+    ref.set({"line_items": line_items, "status": inv_status}, merge=True)
+    return jsonify({"message": "ok", "file_id": file_id, "status": inv_status}), 200
+
+
 @app.route("/debug")
 def debug():
     """

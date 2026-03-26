@@ -1,6 +1,8 @@
 // --- 設定 (liff-app.jsと同じものを使用) ---
 const LIFF_ID = "2008638177-6GA6Mf63"; // ←ここに実際のLIFF IDを貼り付けてください
 const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
+/** Invoice OCR（Cloud Run）。帳票_一覧カレンダー用。CORS はサービス側 INVOICE_OCR_CORS_ORIGIN で調整 */
+const INVOICE_OCR_BASE_URL = "https://invoice-ocr-1088643883290.asia-northeast1.run.app";
 
 /**
  * リンククリックを処理し、修飾キーが押されている場合はブラウザのデフォルト動作に任せる。
@@ -464,6 +466,10 @@ let currentCalendarEmployeeId = null; // 現在選択中の従業員ID
 let currentCalendarReportMonth = null; // 現在表示している月度
 const closingDay = 20; // 月度締め日 (TODO: liff-app.jsのようにAPIから取得する共通処理にする)
 const dateToMonthMap = {}; // 日付文字列(YYYY-MM-DD) -> 月度(Dateオブジェクト) のマッピング
+
+// --- 帳票一覧（Invoice OCR）カレンダー（日報カレンダーと同系のグリッド） ---
+let invoiceListCalendarYear = null;
+let invoiceListCalendarMonth = null; // 1-12
 
 // --- UI操作・画面描画 ---
 
@@ -1284,14 +1290,209 @@ function handleNavigation(target, params = {}, options = { push: true }) {
             break;
 
         case 'invoice_ocr':
-            pageTitle.textContent = '帳票';
-            contentArea.innerHTML = '<div style="padding:20px;"></div>';
+            pageTitle.textContent = '帳票_一覧';
+            renderInvoiceOcrInvoicesUI(contentArea);
             break;
 
         case 'system_admin':
             pageTitle.textContent = 'システム管理';
             renderSystemAdminUI(contentArea);
             break;
+    }
+}
+
+// --- 帳票_一覧（Invoice OCR / Firestore invoices） ---
+
+async function fetchInvoiceOcrWithAuth(path, options = {}) {
+    if (!liff.isLoggedIn()) {
+        throw new Error("ログインしていません。");
+    }
+    const idToken = await liff.getIDToken();
+    const headers = {
+        ...options.headers,
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+    };
+    return await fetch(`${INVOICE_OCR_BASE_URL}${path}`, { ...options, headers, cache: 'no-cache' });
+}
+
+function _invoiceStatusLabel(status) {
+    if (status === 'checked') return 'checked';
+    if (status === 'confirming') return 'confirming';
+    return 'pending';
+}
+
+function renderInvoiceOcrInvoicesUI(container) {
+    container.innerHTML = `
+        <div style="padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #e9ecef; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <button type="button" id="invoice-ocr-refresh-btn" class="btn-secondary">再読込</button>
+            <div id="invoice-ocr-status" style="font-size: 0.9em; color: #666;"></div>
+        </div>
+        <div id="invoice-ocr-content" style="padding: 10px;">
+            <div style="text-align:center; padding: 2em; color:#666;">読み込み中...</div>
+        </div>
+    `;
+
+    document.getElementById('invoice-ocr-refresh-btn').addEventListener('click', loadAndRenderInvoiceOcrInvoices);
+    loadAndRenderInvoiceOcrInvoices();
+}
+
+async function loadAndRenderInvoiceOcrInvoices() {
+    const statusEl = document.getElementById('invoice-ocr-status');
+    const contentEl = document.getElementById('invoice-ocr-content');
+    if (!statusEl || !contentEl) return;
+
+    statusEl.textContent = '読込中...';
+    contentEl.innerHTML = `<div style="text-align:center; padding: 2em; color:#666;">読み込み中...</div>`;
+
+    try {
+        const res = await fetchInvoiceOcrWithAuth('/api/invoices?limit=5');
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const invoices = Array.isArray(data.invoices) ? data.invoices : [];
+        statusEl.textContent = `表示 ${invoices.length}件`;
+
+        if (invoices.length === 0) {
+            contentEl.innerHTML = `<div style="text-align:center; padding: 2em; color:#666;">データがありません</div>`;
+            return;
+        }
+
+        // 現状は1件想定。複数あっても上から並べる。
+        let html = '';
+        invoices.forEach(inv => {
+            const fileId = escapeHTML(String(inv.file_id || ''));
+            const fileName = escapeHTML(String(inv.file_name || ''));
+            const vendorName = escapeHTML(String(inv.vendor_name || ''));
+            const invoiceNumber = escapeHTML(String(inv.invoice_number || ''));
+            const invoiceDate = escapeHTML(String(inv.invoice_date || ''));
+            const invoiceStatus = String(inv.status || 'pending');
+            const isInvoiceChecked = invoiceStatus === 'checked';
+            const lineItems = Array.isArray(inv.line_items) ? inv.line_items : [];
+
+            html += `
+                <div class="card" style="background:#fff; padding: 14px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); margin-bottom: 12px;">
+                    <div style="display:flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
+                        <label style="display:flex; align-items:center; gap: 6px; font-weight: bold;">
+                            <input type="checkbox" class="invoice-ocr-invoice-checkbox" data-file-id="${fileId}" ${isInvoiceChecked ? 'checked' : ''}>
+                            請求書 status: <span style="font-family: Consolas, monospace;">${_invoiceStatusLabel(invoiceStatus)}</span>
+                        </label>
+                        <a href="${INVOICE_OCR_BASE_URL}/view?file_id=${fileId}" target="_blank" rel="noopener" style="margin-left:auto;">/view を開く</a>
+                    </div>
+                    <div style="font-size: 0.9em; color:#333; line-height: 1.6;">
+                        <div><b>file</b>: <span style="font-family: Consolas, monospace;">${fileId}</span> ${fileName ? `(${fileName})` : ''}</div>
+                        <div><b>vendor</b>: ${vendorName || '-'}</div>
+                        <div><b>invoice</b>: ${invoiceNumber || '-'} ${invoiceDate ? `(${invoiceDate})` : ''}</div>
+                    </div>
+
+                    <div style="margin-top: 10px;">
+                        <h4 style="margin: 0 0 6px 0; font-size: 1.0em;">明細 (${lineItems.length})</h4>
+                        <div style="overflow-x:auto;">
+                            <table class="data-table" style="min-width: 900px;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 70px;">status</th>
+                                        <th>item_name</th>
+                                        <th style="width: 100px;">quantity</th>
+                                        <th style="width: 110px;">unit_price</th>
+                                        <th style="width: 110px;">amount</th>
+                                        <th>note</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${lineItems.map((li, idx) => {
+                                        const st = (li && li.status) ? String(li.status) : 'pending';
+                                        const checked = st === 'checked';
+                                        const itemName = escapeHTML(String(li?.item_name || ''));
+                                        const qty = escapeHTML(String(li?.quantity ?? ''));
+                                        const unitPrice = escapeHTML(String(li?.unit_price ?? ''));
+                                        const amount = escapeHTML(String(li?.amount ?? ''));
+                                        const note = escapeHTML(String(li?.note || ''));
+                                        return `
+                                            <tr>
+                                                <td style="text-align:center;">
+                                                    <input type="checkbox" class="invoice-ocr-line-checkbox" data-file-id="${fileId}" data-index="${idx}" ${checked ? 'checked' : ''} />
+                                                </td>
+                                                <td>${itemName}</td>
+                                                <td>${qty}</td>
+                                                <td>${unitPrice}</td>
+                                                <td>${amount}</td>
+                                                <td>${note}</td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style="margin-top: 6px; color:#666; font-size: 0.85em;">
+                            ルール: 明細が全て checked → 請求書も checked／一部のみ checked → confirming／全て pending → pending
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        contentEl.innerHTML = html;
+
+        // イベント付与（再描画ごとに付け直し）
+        document.querySelectorAll('.invoice-ocr-line-checkbox').forEach(cb => {
+            cb.addEventListener('change', async (e) => {
+                const el = e.target;
+                const fileId = el.dataset.fileId;
+                const index = parseInt(el.dataset.index, 10);
+                const checked = !!el.checked;
+                el.disabled = true;
+                try {
+                    const res2 = await fetchInvoiceOcrWithAuth(`/api/invoices/${encodeURIComponent(fileId)}/line-item-status`, {
+                        method: 'POST',
+                        body: JSON.stringify({ index, status: checked ? 'checked' : 'pending' }),
+                    });
+                    if (!res2.ok) {
+                        const err = await res2.json().catch(() => ({}));
+                        throw new Error(err.message || `HTTP ${res2.status}`);
+                    }
+                    await loadAndRenderInvoiceOcrInvoices();
+                } catch (err) {
+                    console.error(err);
+                    showToast(`更新失敗: ${err.message}`, 'error');
+                } finally {
+                    el.disabled = false;
+                }
+            });
+        });
+
+        document.querySelectorAll('.invoice-ocr-invoice-checkbox').forEach(cb => {
+            cb.addEventListener('change', async (e) => {
+                const el = e.target;
+                const fileId = el.dataset.fileId;
+                const checked = !!el.checked;
+                el.disabled = true;
+                try {
+                    const res2 = await fetchInvoiceOcrWithAuth(`/api/invoices/${encodeURIComponent(fileId)}/status`, {
+                        method: 'POST',
+                        body: JSON.stringify({ status: checked ? 'checked' : 'pending' }),
+                    });
+                    if (!res2.ok) {
+                        const err = await res2.json().catch(() => ({}));
+                        throw new Error(err.message || `HTTP ${res2.status}`);
+                    }
+                    await loadAndRenderInvoiceOcrInvoices();
+                } catch (err) {
+                    console.error(err);
+                    showToast(`更新失敗: ${err.message}`, 'error');
+                } finally {
+                    el.disabled = false;
+                }
+            });
+        });
+
+    } catch (e) {
+        console.error(e);
+        statusEl.textContent = '';
+        contentEl.innerHTML = `<div style="text-align:center; padding: 2em; color:#c0392b;">読み込みに失敗しました: ${escapeHTML(e.message)}</div>
+            <div style="text-align:center; color:#666; font-size: 0.9em;">Invoice OCR の API/CORS を確認してください。</div>`;
     }
 }
 
@@ -3020,6 +3221,184 @@ async function refreshWorkTimes() {
 
     // 処理完了後、トースト通知を表示
     showToast('受信リクエスト完了。反映には時間がかかる場合があります。', 'success');
+}
+
+// --- 帳票_一覧: Invoice OCR カレンダー（日報_スタッフ個別と同じ custom-calendar-table 系） ---
+
+function ensureInvoiceCalendarTableStyles() {
+    const styleId = 'invoice-calendar-table-style';
+    if (document.getElementById(styleId)) return;
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+            .custom-calendar-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            .custom-calendar-table th, .custom-calendar-table td { border: 1px solid #e0e0e0; vertical-align: top; height: 100px; }
+            .custom-calendar-table th { background-color: #f7f7f7; font-weight: normal; color: #333; padding: 4px; text-align: center; }
+            .custom-calendar-table td { transition: background-color 0.2s; }
+            .custom-calendar-table td:not(.other-month):hover { background-color: #f5f5f5; }
+            .custom-calendar-table .day-cell-content { padding: 4px; }
+            .custom-calendar-table .day-number { font-size: 0.9em; }
+            .custom-calendar-table .is-today .day-number {
+                font-weight: bold; color: #000000; background-color: #d4f4dd;
+                border-radius: 50%; width: 1.5em; height: 1.5em; display: inline-block;
+                text-align: center; line-height: 1.5em;
+            }
+            .custom-calendar-table .is-sunday { color: #e74c3c; }
+            .custom-calendar-table .is-saturday { color: #3498db; }
+            .custom-calendar-table .other-month { color: #ccc; background-color: #fafafa; }
+            .invoice-cal-cell-item { font-size: 0.72em; line-height: 1.25; margin-top: 3px; word-break: break-all; }
+            .invoice-cal-cell-item a { color: #0056b3; }
+            .invoice-cal-cell-item.muted { color: #888; font-size: 0.7em; }
+        `;
+    document.head.appendChild(style);
+}
+
+function _invoiceCalYmd(year, month1, dayNum) {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${year}-${p(month1)}-${p(dayNum)}`;
+}
+
+function _invoiceCalJstWeekdaySun0(year, month1, day) {
+    const d = new Date(`${_invoiceCalYmd(year, month1, day)}T12:00:00+09:00`);
+    const wd = d.toLocaleDateString('en-US', { timeZone: 'Asia/Tokyo', weekday: 'short' });
+    const map = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    return map[wd.slice(0, 3)] ?? 0;
+}
+
+function _invoiceCalDaysInMonth(year, month1) {
+    return new Date(year, month1, 0).getDate();
+}
+
+function buildInvoiceCalendarGridHtml(year, month1, daysMap) {
+    const dim = _invoiceCalDaysInMonth(year, month1);
+    const firstDow = _invoiceCalJstWeekdaySun0(year, month1, 1);
+    const todayJst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' });
+    ensureInvoiceCalendarTableStyles();
+
+    let html = '<table class="data-table custom-calendar-table"><thead><tr>';
+    ['日', '月', '火', '水', '木', '金', '土'].forEach((label) => {
+        html += `<th>${label}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    let cellIndex = 0;
+    while (true) {
+        if (cellIndex % 7 === 0) html += '<tr>';
+        const dayNum = 1 - firstDow + cellIndex;
+        const isCurrentMonth = dayNum >= 1 && dayNum <= dim;
+        const ymdKey = isCurrentMonth ? _invoiceCalYmd(year, month1, dayNum) : '';
+        const col = cellIndex % 7;
+        const isToday = Boolean(ymdKey && ymdKey === todayJst);
+
+        const classes = [];
+        if (!isCurrentMonth) classes.push('other-month');
+        if (isToday) classes.push('is-today');
+        else if (col === 0) classes.push('is-sunday');
+        else if (col === 6) classes.push('is-saturday');
+
+        const items = isCurrentMonth && daysMap[ymdKey] ? daysMap[ymdKey] : [];
+
+        let inner = '<div class="day-cell-content">';
+        inner += `<span class="day-number">${isCurrentMonth ? dayNum : '\u00a0'}</span>`;
+        if (items.length) {
+            inner += '<div class="invoice-cal-items">';
+            const maxShow = 4;
+            items.slice(0, maxShow).forEach((it) => {
+                const raw = (it.file_name || it.vendor_name || it.invoice_number || it.file_id || '').toString();
+                const name = escapeHTML(raw.length > 36 ? `${raw.slice(0, 36)}…` : raw);
+                const fid = escapeHTML(String(it.file_id || ''));
+                inner += `<div class="invoice-cal-cell-item"><a href="${INVOICE_OCR_BASE_URL}/view?file_id=${fid}" target="_blank" rel="noopener">${name}</a></div>`;
+            });
+            if (items.length > maxShow) {
+                inner += `<div class="invoice-cal-cell-item muted">他 ${items.length - maxShow} 件</div>`;
+            }
+            inner += '</div>';
+        }
+        inner += '</div>';
+
+        html += `<td class="${classes.join(' ')}">${inner}</td>`;
+
+        if (cellIndex % 7 === 6) {
+            html += '</tr>';
+            if (dayNum > dim) break;
+        }
+        cellIndex += 1;
+        if (cellIndex > 48) break;
+    }
+
+    html += '</tbody></table>';
+    return html;
+}
+
+function renderInvoiceListCalendarUI(container) {
+    const todayJst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' });
+    const [tjY, tjM] = todayJst.split('-').map((x) => parseInt(x, 10));
+    if (invoiceListCalendarYear == null || invoiceListCalendarMonth == null) {
+        invoiceListCalendarYear = tjY;
+        invoiceListCalendarMonth = tjM;
+    }
+
+    container.innerHTML = `
+        <div class="staff-calendar-controls" style="padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #e9ecef; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <div class="calendar-header" style="display: flex; align-items: center; gap: 10px;">
+                <button type="button" id="invoice-cal-prev-month" class="btn-secondary">&lt; 前月</button>
+                <h3 id="invoice-cal-title" style="margin: 0; font-size: 1.2em; min-width: 220px; text-align: center;"></h3>
+                <button type="button" id="invoice-cal-next-month" class="btn-secondary">次月 &gt;</button>
+                <button type="button" id="invoice-cal-refresh" class="btn-secondary">再読込</button>
+            </div>
+            <p style="margin: 0; font-size: 0.85em; color: #666; flex: 1; min-width: 200px;">
+                Firestore の保存日時（JST）で日付セルに振り分けます。リンクは Invoice OCR の <code>/view</code> を新しいタブで開きます。
+            </p>
+        </div>
+        <div id="invoice-cal-table-wrap" style="padding: 10px;">
+            <p style="text-align:center; padding:2em; color:#666;">読み込み中...</p>
+        </div>
+    `;
+
+    document.getElementById('invoice-cal-prev-month').addEventListener('click', () => {
+        invoiceListCalendarMonth -= 1;
+        if (invoiceListCalendarMonth < 1) {
+            invoiceListCalendarMonth = 12;
+            invoiceListCalendarYear -= 1;
+        }
+        loadInvoiceListCalendarAndRender();
+    });
+    document.getElementById('invoice-cal-next-month').addEventListener('click', () => {
+        invoiceListCalendarMonth += 1;
+        if (invoiceListCalendarMonth > 12) {
+            invoiceListCalendarMonth = 1;
+            invoiceListCalendarYear += 1;
+        }
+        loadInvoiceListCalendarAndRender();
+    });
+    document.getElementById('invoice-cal-refresh').addEventListener('click', loadInvoiceListCalendarAndRender);
+
+    loadInvoiceListCalendarAndRender();
+}
+
+async function loadInvoiceListCalendarAndRender() {
+    const titleEl = document.getElementById('invoice-cal-title');
+    const wrap = document.getElementById('invoice-cal-table-wrap');
+    if (!titleEl || !wrap) return;
+
+    titleEl.textContent = `${invoiceListCalendarYear}年${invoiceListCalendarMonth}月`;
+    wrap.innerHTML = '<p style="text-align:center; padding:2em; color:#666;">読み込み中...</p>';
+
+    try {
+        const url = `${INVOICE_OCR_BASE_URL}/api/invoices/calendar?year=${invoiceListCalendarYear}&month=${invoiceListCalendarMonth}`;
+        const res = await fetch(url, { cache: 'no-cache' });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const daysMap = data.days || {};
+        wrap.innerHTML = buildInvoiceCalendarGridHtml(invoiceListCalendarYear, invoiceListCalendarMonth, daysMap);
+    } catch (e) {
+        console.error(e);
+        wrap.innerHTML = `<p style="text-align:center; padding:2em; color:#c0392b;">読み込みに失敗しました: ${escapeHTML(e.message)}</p>
+            <p style="text-align:center; font-size:0.9em; color:#666;">Invoice OCR のデプロイと CORS（環境変数 <code>INVOICE_OCR_CORS_ORIGIN</code>）を確認してください。</p>`;
+    }
 }
 
 // --- スタッフ別カレンダー機能 (liff-app.jsの出勤簿機能を参考に実装) ---
