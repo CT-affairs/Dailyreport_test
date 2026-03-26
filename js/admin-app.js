@@ -3840,11 +3840,25 @@ async function initializeProxyReportScreen(isNetTemplate) {
             <div><strong>対象日:</strong> ${date}</div>
             <div><strong>対象者:</strong> ${escapeHTML(name)} (ID: ${employeeId})</div>
         `;
-    document.getElementById('proxy-target-info').innerHTML = `
-        <div style="display:flex; gap: 28px; align-items: baseline; flex-wrap: wrap;">
-            ${targetInfoRows}
-        </div>
-    `;
+    const targetInfoEl = document.getElementById('proxy-target-info');
+    if (isNetTemplate) {
+        targetInfoEl.innerHTML = `
+            <div class="proxy-target-info-bar">
+                <div class="proxy-target-info-primary">
+                    <div class="proxy-target-info-rows">
+                        ${targetInfoRows}
+                    </div>
+                </div>
+                <div class="proxy-target-info-secondary" id="proxy-target-info-secondary" aria-label="補助表示（今後実装）"></div>
+            </div>
+        `;
+    } else {
+        targetInfoEl.innerHTML = `
+            <div style="display:flex; gap: 28px; align-items: baseline; flex-wrap: wrap;">
+                ${targetInfoRows}
+            </div>
+        `;
+    }
     document.getElementById('proxy-report-date').value = date;
 
     // 共通バッジスタイルを適用

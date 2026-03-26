@@ -1,4 +1,4 @@
-﻿/* ベーススタイル */
+/* ベーススタイル */
 body, html {
     margin: 0;
     padding: 0;
@@ -727,4 +727,35 @@ th.sortable-th:hover {
 }
 .dr-close-button:hover {
     opacity: 0.75;
+}
+
+/* 日報入力（ネット事業部）: 対象者・対象日（左約40%）+ 右ペイン予約（同じ高さ） */
+#proxy-target-info .proxy-target-info-bar {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 12px;
+    width: 100%;
+    box-sizing: border-box;
+}
+#proxy-target-info .proxy-target-info-primary {
+    flex: 0 0 40%;
+    max-width: 40%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+}
+#proxy-target-info .proxy-target-info-rows {
+    display: flex;
+    gap: 28px;
+    align-items: baseline;
+    flex-wrap: wrap;
+    width: 100%;
+}
+#proxy-target-info .proxy-target-info-secondary {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 100%;
+    box-sizing: border-box;
 }
