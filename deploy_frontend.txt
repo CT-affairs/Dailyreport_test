@@ -1,8 +1,11 @@
 admin.html
+invoice.html
 css/admin.css
 js/admin-app.js
+js/invoice.js
 index.html
 liff-app.js
+liff/invoice.html
 
 # "_" から始まるHTML（例: _manager_*.html）を追加デプロイ対象にする
 _*.html

@@ -1359,8 +1359,8 @@ function handleNavigation(target, params = {}, options = { push: true }) {
             break;
 
         case 'invoice_ocr':
-            pageTitle.textContent = '帳票_一覧';
-            renderInvoiceOcrInvoicesUI(contentArea);
+            // 帳票_一覧は専用画面へ分離
+            window.location.href = '/liff/invoice.html';
             break;
 
         case 'system_admin':
