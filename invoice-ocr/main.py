@@ -922,19 +922,25 @@ def api_options(_sub: str):
 
 
 def _compute_invoice_status_from_line_items(line_items: list) -> str:
-    """明細は pending / checked のみ想定。一部のみ checked のときは confirming。"""
+    """明細は pending / checked / deleted を想定。deleted は集計対象外。"""
     if not line_items:
         return "pending"
     checked = 0
+    active = 0
     for li in line_items:
         st = (li or {}).get("status") or "pending"
         if st == "editing":
             st = "pending"
+        if st == "deleted":
+            continue
+        active += 1
         if st == "checked":
             checked += 1
+    if active == 0:
+        return "pending"
     if checked == 0:
         return "pending"
-    if checked == len(line_items):
+    if checked == active:
         return "checked"
     return "confirming"
 
@@ -982,7 +988,7 @@ def _normalize_line_items_status(line_items: list) -> list:
         st = li2.get("status") or "pending"
         if st == "editing":
             st = "pending"
-        if st not in ("pending", "checked"):
+        if st not in ("pending", "checked", "deleted"):
             st = "pending"
         li2["status"] = st
         li2["document_date"] = _normalize_document_date(li2.get("document_date"))
@@ -1088,7 +1094,7 @@ def api_invoice_update(file_id: str):
         st = incoming.get("status") or cur.get("status") or "pending"
         if st == "editing":
             st = "pending"
-        if st not in ("pending", "checked"):
+        if st not in ("pending", "checked", "deleted"):
             st = "pending"
 
         li2 = dict(cur)

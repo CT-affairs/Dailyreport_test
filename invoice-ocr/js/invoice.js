@@ -121,7 +121,36 @@ async function fetchInvoiceOcr(path, options = {}) {
 
 function _normalizeLineItemStatus(st) {
     if (st === 'checked') return 'checked';
+    if (st === 'deleted') return 'deleted';
     return 'pending';
+}
+
+function _nextLineItemStatus(st) {
+    const cur = _normalizeLineItemStatus(st);
+    if (cur === 'pending') return 'checked';
+    if (cur === 'checked') return 'deleted';
+    return 'pending';
+}
+
+function _lineStateLabel(st) {
+    const cur = _normalizeLineItemStatus(st);
+    if (cur === 'checked') return '✓';
+    if (cur === 'deleted') return '×';
+    return ' ';
+}
+
+function _lineStateColor(st) {
+    const cur = _normalizeLineItemStatus(st);
+    if (cur === 'checked') return '#1f5d31';
+    if (cur === 'deleted') return '#b23b3b';
+    return '#777';
+}
+
+function _lineRowBg(st) {
+    const cur = _normalizeLineItemStatus(st);
+    if (cur === 'checked') return '#f3faf3';
+    if (cur === 'deleted') return '#f3f3f3';
+    return '#fff';
 }
 
 function _normalizeDocumentDate(v) {
@@ -139,11 +168,16 @@ function _normalizeDocumentDate(v) {
 function _deriveInvoiceStatusFromDraftLines(lineItems) {
     if (!lineItems || lineItems.length === 0) return 'pending';
     let checked = 0;
+    let active = 0;
     lineItems.forEach((li) => {
-        if (_normalizeLineItemStatus(li && li.status) === 'checked') checked += 1;
+        const st = _normalizeLineItemStatus(li && li.status);
+        if (st === 'deleted') return;
+        active += 1;
+        if (st === 'checked') checked += 1;
     });
+    if (active === 0) return 'pending';
     if (checked === 0) return 'pending';
-    if (checked === lineItems.length) return 'checked';
+    if (checked === active) return 'checked';
     return 'confirming';
 }
 
@@ -171,6 +205,7 @@ function _initInvoiceOcrDraftFromServer(inv) {
             tax: li?.tax ?? '',
             note: li?.note || '',
         })),
+        bulk_state: 'pending',
         dirty: false,
     };
 }
@@ -207,18 +242,17 @@ function renderInvoiceOcrUiFromSnapshot() {
         }
 
         const draft = invoiceOcrDraftByFileId[rawFid];
+        const bulkState = _normalizeLineItemStatus(draft.bulk_state);
         const derived = _deriveInvoiceStatusFromDraftLines(draft.line_items);
-        const nLines = draft.line_items.length;
         const nChecked = draft.line_items.filter((li) => _normalizeLineItemStatus(li.status) === 'checked').length;
-        const invChk = nLines > 0 && nChecked === nLines;
 
         html += `
             <div style="background:#fff; padding: 14px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); margin-bottom: 12px;">
                 <div style="display:flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
-                    <label style="display:flex; align-items:center; gap: 8px; font-weight: bold; cursor: pointer;">
-                        <input type="checkbox" class="invoice-ocr-invoice-check" data-file-id="${fileId}" ${invChk ? 'checked' : ''} />
-                        <span>請求書 確認済み</span>
-                    </label>
+                    <div style="display:flex; align-items:center; gap: 8px; font-weight: bold;">
+                        <button type="button" class="invoice-ocr-bulk-state" data-file-id="${fileId}" data-state="${bulkState}" style="min-width:28px; height:28px; border:1px solid #bbb; border-radius:4px; background:#fff; color:${_lineStateColor(bulkState)}; font-weight:bold; cursor:pointer;">${_lineStateLabel(bulkState)}</button>
+                        <span>請求書 確認</span>
+                    </div>
                     <span style="font-size:0.85em; color:#666;">${_invoiceDerivedStatusLabel(derived)}</span>
                     <div style="display:flex; align-items:center; gap:6px;">
                         <b>order_number</b>
@@ -238,28 +272,30 @@ function renderInvoiceOcrUiFromSnapshot() {
                     <table class="data-table" style="min-width: 1020px;">
                         <thead>
                             <tr>
-                                <th style="width:56px;">確認</th>
-                                <th style="width:180px;">order_number</th>
-                                <th style="width:130px;">document_date</th>
-                                <th>item_name</th>
-                                <th style="width:100px;">quantity</th>
-                                <th style="width:90px;">unit</th>
-                                <th style="width:110px;">unit_price</th>
-                                <th style="width:110px;">amount</th>
-                                <th>note</th>
+                                <th style="width:56px; font-size:11px;">確認</th>
+                                <th style="width:180px; font-size:11px;">order_number</th>
+                                <th style="width:130px; font-size:11px;">document_date</th>
+                                <th style="font-size:11px;">item_name</th>
+                                <th style="width:100px; font-size:11px;">quantity</th>
+                                <th style="width:90px; font-size:11px;">unit</th>
+                                <th style="width:110px; font-size:11px;">unit_price</th>
+                                <th style="width:110px; font-size:11px;">amount</th>
+                                <th style="font-size:11px;">note</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${draft.line_items.map((li, idx) => `
-                                <tr>
-                                    <td style="text-align:center;"><input type="checkbox" class="invoice-ocr-line-check" data-file-id="${fileId}" data-index="${idx}" ${_normalizeLineItemStatus(li?.status) === 'checked' ? 'checked' : ''} /></td>
-                                    <td><input type="text" class="invoice-ocr-line-order-number" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.order_number || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:160px;"></td>
+                                <tr style="background:${_lineRowBg(li?.status)};">
+                                    <td style="text-align:center;">
+                                        <button type="button" class="invoice-ocr-line-state-toggle" data-file-id="${fileId}" data-index="${idx}" data-state="${_normalizeLineItemStatus(li?.status)}" style="min-width:28px; height:28px; border:1px solid #bbb; border-radius:4px; background:#fff; color:${_lineStateColor(li?.status)}; font-weight:bold; cursor:pointer;">${_lineStateLabel(li?.status)}</button>
+                                    </td>
+                                    <td><input type="text" class="invoice-ocr-line-order-number" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.order_number || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:50%;"></td>
                                     <td><input type="text" class="invoice-ocr-line-document-date" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(_normalizeDocumentDate(li?.document_date))}" placeholder="YYYY/MM/DD" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:110px;"></td>
                                     <td><input type="text" class="invoice-ocr-line-item-name" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.item_name || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:100%;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-quantity" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.quantity ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:80px;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-unit" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.unit ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:70px;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-unit-price" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.unit_price ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:90px;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-amount" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.amount ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:90px;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-quantity" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.quantity ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:60%;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-unit" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.unit ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:60%;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-unit-price" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.unit_price ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:60%;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-amount" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.amount ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:60%;"></td>
                                     <td><input type="text" class="invoice-ocr-line-note" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.note || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:100%;"></td>
                                 </tr>
                             `).join('')}
@@ -270,32 +306,27 @@ function renderInvoiceOcrUiFromSnapshot() {
     });
     contentEl.innerHTML = html;
 
-    document.querySelectorAll('.invoice-ocr-invoice-check').forEach((cb) => {
-        const fid = String(cb.dataset.fileId);
-        const d = invoiceOcrDraftByFileId[fid];
-        if (d && d.line_items.length) {
-            const n = d.line_items.filter((li) => _normalizeLineItemStatus(li.status) === 'checked').length;
-            cb.checked = n === d.line_items.length;
-            cb.indeterminate = n > 0 && n < d.line_items.length;
-        }
-        cb.addEventListener('change', (e) => {
+    document.querySelectorAll('.invoice-ocr-bulk-state').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
             const fileId = String(e.target.dataset.fileId);
             const draft = invoiceOcrDraftByFileId[fileId];
             if (!draft || !draft.line_items.length) return;
-            const on = !!e.target.checked;
-            draft.line_items.forEach((li) => { li.status = on ? 'checked' : 'pending'; });
+            const next = _nextLineItemStatus(e.target.dataset.state || 'pending');
+            draft.line_items.forEach((li) => { li.status = next; });
+            draft.bulk_state = next;
             draft.dirty = true;
             renderInvoiceOcrUiFromSnapshot();
         });
     });
 
-    document.querySelectorAll('.invoice-ocr-line-check').forEach((cb) => {
-        cb.addEventListener('change', (e) => {
+    document.querySelectorAll('.invoice-ocr-line-state-toggle').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
             const fileId = String(e.target.dataset.fileId);
             const idx = parseInt(e.target.dataset.index, 10);
             const draft = invoiceOcrDraftByFileId[fileId];
             if (!draft || !draft.line_items[idx]) return;
-            draft.line_items[idx].status = e.target.checked ? 'checked' : 'pending';
+            draft.line_items[idx].status = _nextLineItemStatus(draft.line_items[idx].status);
+            draft.bulk_state = 'pending';
             draft.dirty = true;
             renderInvoiceOcrUiFromSnapshot();
         });
