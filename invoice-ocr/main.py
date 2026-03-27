@@ -11,11 +11,13 @@ import google.auth
 import io
 import json
 import os
+import re
 import time
 import traceback
 import urllib.request
 import urllib.error
 from collections import defaultdict
+from datetime import date, datetime
 from google.protobuf.json_format import MessageToDict
 
 # LLM 抽出（OpenAI）
@@ -562,6 +564,7 @@ def save_invoice_view_to_firestore(resp: dict) -> dict:
         raise ValueError("file_id is missing")
 
     vendor, invoice, line_items, _ = _extract_view_fields(resp)
+    line_items = _normalize_line_items_status(line_items)
     doc = {
         "file_id": file_id,
         "llm_extraction_accepted": bool(resp.get("llm_extraction_accepted", False)),
@@ -677,6 +680,7 @@ def view():
         <th>#</th>
         <th>item_name</th>
         <th>order_number</th>
+        <th>document_date</th>
         <th>quantity</th>
         <th>unit</th>
         <th>unit_price</th>
@@ -693,6 +697,7 @@ def view():
         <td>{{ loop.index }}</td>
         <td>{{ item.item_name }}</td>
         <td>{{ item.order_number }}</td>
+        <td>{{ item.document_date }}</td>
         <td>{{ item.quantity }}</td>
         <td>{{ item.unit }}</td>
         <td>{{ item.unit_price }}</td>
@@ -786,6 +791,40 @@ def _compute_invoice_status_from_line_items(line_items: list) -> str:
     return "confirming"
 
 
+def _normalize_document_date(value):
+    """
+    document_date を YYYY/MM/DD 文字列へ正規化する。
+    - datetime/date は日付部のみ採用
+    - 文字列は YYYY-MM-DD / YYYY/MM/DD / ISO 形式の先頭日付を許容
+    - 不正値は None
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y/%m/%d")
+    if isinstance(value, date):
+        return value.strftime("%Y/%m/%d")
+
+    s = str(value).strip()
+    if not s:
+        return None
+
+    m = re.match(r"^(\d{4})[/-](\d{1,2})[/-](\d{1,2})", s)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        try:
+            return date(y, mo, d).strftime("%Y/%m/%d")
+        except ValueError:
+            return None
+
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.date().strftime("%Y/%m/%d")
+    except Exception:
+        return None
+
+
 def _normalize_line_items_status(line_items: list) -> list:
     out = []
     for li in (line_items or []):
@@ -798,6 +837,7 @@ def _normalize_line_items_status(line_items: list) -> list:
         if st not in ("pending", "checked"):
             st = "pending"
         li2["status"] = st
+        li2["document_date"] = _normalize_document_date(li2.get("document_date"))
         out.append(li2)
     return out
 
@@ -905,9 +945,10 @@ def api_invoice_update(file_id: str):
 
         li2 = dict(cur)
         # 編集許可はフロント側で制御するが、サーバ側も一応そのまま受ける
-        for k in ("order_number", "item_name", "quantity", "unit", "unit_price", "amount", "tax", "note"):
+        for k in ("order_number", "document_date", "item_name", "quantity", "unit", "unit_price", "amount", "tax", "note"):
             if k in incoming:
                 li2[k] = incoming.get(k)
+        li2["document_date"] = _normalize_document_date(li2.get("document_date"))
         li2["status"] = st
         next_line_items.append(li2)
 

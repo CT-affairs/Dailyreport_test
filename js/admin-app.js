@@ -1425,6 +1425,18 @@ function _normalizeLineItemStatus(st) {
     return 'pending';
 }
 
+function _normalizeDocumentDate(v) {
+    if (v === null || v === undefined) return '';
+    const s = String(v).trim();
+    if (!s) return '';
+    const m = s.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+    if (!m) return '';
+    const yyyy = m[1];
+    const mm = String(parseInt(m[2], 10)).padStart(2, '0');
+    const dd = String(parseInt(m[3], 10)).padStart(2, '0');
+    return `${yyyy}/${mm}/${dd}`;
+}
+
 function _deriveInvoiceStatusFromDraftLines(lineItems) {
     if (!lineItems || lineItems.length === 0) return 'pending';
     let checked = 0;
@@ -1471,6 +1483,7 @@ function _initInvoiceOcrDraftFromServer(inv) {
         },
         line_items: lineItems.map((li) => ({
             order_number: li?.order_number || '',
+            document_date: _normalizeDocumentDate(li?.document_date),
             status: _normalizeLineItemStatus(li?.status),
             item_name: li?.item_name || '',
             quantity: li?.quantity ?? '',
@@ -1529,28 +1542,34 @@ function renderInvoiceOcrUiFromSnapshot() {
                             <span>請求書 確認済み</span>
                         </label>
                         <span style="font-size:0.85em; color:#666;">${_invoiceDerivedStatusLabel(derived)}</span>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <b>order_number</b>
+                            <input type="text" class="invoice-ocr-invoice-order-number" data-file-id="${fileId}" value="${escapeHTML(String(draft.invoice.order_number || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 180px;">
+                            <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9em;">
+                                <input type="checkbox" class="invoice-ocr-apply-order-number" data-file-id="${fileId}" />
+                                <span>明細へ反映</span>
+                            </label>
+                        </div>
                         <a href="${INVOICE_OCR_BASE_URL}/view?file_id=${fileId}" target="_blank" rel="noopener" style="margin-left:auto;">/view を開く</a>
                     </div>
                     <div style="font-size: 0.9em; color:#333; line-height: 1.6;">
                         <div><b>file</b>: <span style="font-family: Consolas, monospace;">${fileId}</span> ${fileName ? `(${fileName})` : ''}</div>
                         <div><b>vendor</b>: ${vendorName || '-'}</div>
                         <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                            <div><b>invoice</b>: ${invoiceNumber || '-'} ${invoiceDate ? `(${invoiceDate})` : ''}</div>
-                            <div style="margin-left:auto; display:flex; align-items:center; gap:6px;">
-                                <b>order_number</b>
-                                <input type="text" class="invoice-ocr-invoice-order-number" data-file-id="${fileId}" value="${escapeHTML(String(draft.invoice.order_number || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 180px;">
-                            </div>
+                            <div><b>invoice</b>: ${invoiceNumber || '-'}</div>
+                            <div><b>date</b>: ${invoiceDate || '-'}</div>
                         </div>
                     </div>
 
                     <div style="margin-top: 10px;">
                         <h4 style="margin: 0 0 6px 0; font-size: 1.0em;">明細 (${draft.line_items.length})</h4>
                         <div style="overflow-x:auto;">
-                            <table class="data-table" style="min-width: 900px;">
+                            <table class="data-table" style="min-width: 1020px;">
                                 <thead>
                                     <tr>
                                         <th style="width: 56px;">確認</th>
                                         <th style="width: 180px;">order_number</th>
+                                        <th style="width: 130px;">document_date</th>
                                         <th>item_name</th>
                                         <th style="width: 100px;">quantity</th>
                                         <th style="width: 90px;">unit</th>
@@ -1565,6 +1584,7 @@ function renderInvoiceOcrUiFromSnapshot() {
                                             const st = _normalizeLineItemStatus(li && li.status);
                                             const lineChecked = st === 'checked';
                                             const orderNo = escapeHTML(String(li?.order_number || ''));
+                                            const documentDate = escapeHTML(_normalizeDocumentDate(li?.document_date));
                                             const itemName = escapeHTML(String(li?.item_name || ''));
                                             const qty = escapeHTML(String(li?.quantity ?? ''));
                                             const unit = escapeHTML(String(li?.unit ?? ''));
@@ -1577,6 +1597,7 @@ function renderInvoiceOcrUiFromSnapshot() {
                                                     <input type="checkbox" class="invoice-ocr-line-check" data-file-id="${fileId}" data-index="${idx}" ${lineChecked ? 'checked' : ''} title="確認済み" />
                                                 </td>
                                                 <td><input type="text" class="invoice-ocr-line-order-number" data-file-id="${fileId}" data-index="${idx}" value="${orderNo}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 160px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-document-date" data-file-id="${fileId}" data-index="${idx}" value="${documentDate}" placeholder="YYYY/MM/DD" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 110px;"></td>
                                                 <td><input type="text" class="invoice-ocr-line-item-name" data-file-id="${fileId}" data-index="${idx}" value="${itemName}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 100%;"></td>
                                                 <td><input type="text" class="invoice-ocr-line-quantity" data-file-id="${fileId}" data-index="${idx}" value="${qty}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 80px;"></td>
                                                 <td><input type="text" class="invoice-ocr-line-unit" data-file-id="${fileId}" data-index="${idx}" value="${unit}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 70px;"></td>
@@ -1635,6 +1656,32 @@ function renderInvoiceOcrUiFromSnapshot() {
         });
     });
 
+    const applyInvoiceOrderNumberToLines = (fileId) => {
+        const draft = invoiceOcrDraftByFileId[fileId];
+        if (!draft) return false;
+        const invoiceOrderNumber = String(draft.invoice.order_number || '');
+        if (!invoiceOrderNumber) return false;
+        draft.line_items.forEach((li) => {
+            li.order_number = invoiceOrderNumber;
+        });
+        draft.dirty = true;
+        return true;
+    };
+
+    document.querySelectorAll('.invoice-ocr-apply-order-number').forEach((cb) => {
+        cb.addEventListener('change', (e) => {
+            const el = e.target;
+            const fileId = String(el.dataset.fileId);
+            if (!el.checked) return;
+            const changed = applyInvoiceOrderNumberToLines(fileId);
+            if (!changed) {
+                el.checked = false;
+                return;
+            }
+            renderInvoiceOcrUiFromSnapshot();
+        });
+    });
+
     document.querySelectorAll('.invoice-ocr-invoice-order-number').forEach((inp) => {
         inp.addEventListener('input', (e) => {
             const el = e.target;
@@ -1643,6 +1690,14 @@ function renderInvoiceOcrUiFromSnapshot() {
             if (!draft) return;
             draft.invoice.order_number = el.value;
             draft.dirty = true;
+            const card = el.closest('.card');
+            const applyCb = card ? card.querySelector('.invoice-ocr-apply-order-number') : null;
+            if (applyCb && applyCb.checked) {
+                const changed = applyInvoiceOrderNumberToLines(fileId);
+                if (changed) {
+                    renderInvoiceOcrUiFromSnapshot();
+                }
+            }
         });
     });
 
@@ -1660,6 +1715,7 @@ function renderInvoiceOcrUiFromSnapshot() {
         });
     };
     bindLineInput('.invoice-ocr-line-order-number', 'order_number');
+    bindLineInput('.invoice-ocr-line-document-date', 'document_date');
     bindLineInput('.invoice-ocr-line-item-name', 'item_name');
     bindLineInput('.invoice-ocr-line-quantity', 'quantity');
     bindLineInput('.invoice-ocr-line-unit', 'unit');
@@ -1730,6 +1786,7 @@ async function saveInvoiceOcrCurrentDraft() {
                 },
                 line_items: draft.line_items.map((li) => ({
                     order_number: li.order_number,
+                    document_date: _normalizeDocumentDate(li.document_date),
                     status: _normalizeLineItemStatus(li.status),
                     item_name: li.item_name,
                     quantity: li.quantity,
