@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template_string
+from flask import Flask, jsonify, request, render_template_string, send_from_directory, g
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
@@ -13,11 +13,13 @@ import json
 import os
 import re
 import time
+import jwt
 import traceback
 import urllib.request
 import urllib.error
+import urllib.parse
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from google.protobuf.json_format import MessageToDict
 
 # LLM 抽出（OpenAI）
@@ -26,8 +28,81 @@ LLM_CONFIDENCE_THRESHOLD = float(os.environ.get("LLM_CONFIDENCE_THRESHOLD", "0.7
 APP_DEBUG = os.environ.get("APP_DEBUG", "0") == "1"
 FIRESTORE_SAVE_ENABLED = os.environ.get("FIRESTORE_SAVE_ENABLED", "1") == "1"
 FIRESTORE_COLLECTION = os.environ.get("FIRESTORE_COLLECTION", "invoices")
+LINE_LOGIN_CHANNEL_ID = os.environ.get("LINE_LOGIN_CHANNEL_ID", "")
+INVOICE_INTERNAL_JWT_SECRET = os.environ.get("INVOICE_INTERNAL_JWT_SECRET", "")
+INVOICE_INTERNAL_JWT_DAYS = int(os.environ.get("INVOICE_INTERNAL_JWT_DAYS", "7"))
 
 app = Flask(__name__)
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _now_utc() -> datetime:
+    return datetime.utcnow()
+
+
+def _build_internal_token(line_user_id: str) -> tuple[str, int]:
+    if not INVOICE_INTERNAL_JWT_SECRET:
+        raise RuntimeError("INVOICE_INTERNAL_JWT_SECRET is not set")
+    now = _now_utc()
+    exp_dt = now + timedelta(days=INVOICE_INTERNAL_JWT_DAYS)
+    payload = {
+        "sub": line_user_id,
+        "iat": int(now.timestamp()),
+        "exp": int(exp_dt.timestamp()),
+        "iss": "invoice-ocr",
+        "aud": "invoice-tool",
+    }
+    token = jwt.encode(payload, INVOICE_INTERNAL_JWT_SECRET, algorithm="HS256")
+    return token, int(exp_dt.timestamp())
+
+
+def _decode_internal_token(token: str) -> dict:
+    if not INVOICE_INTERNAL_JWT_SECRET:
+        raise RuntimeError("INVOICE_INTERNAL_JWT_SECRET is not set")
+    return jwt.decode(
+        token,
+        INVOICE_INTERNAL_JWT_SECRET,
+        algorithms=["HS256"],
+        audience="invoice-tool",
+        issuer="invoice-ocr",
+    )
+
+
+def _extract_bearer_token() -> str | None:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token = auth[len("Bearer "):].strip()
+    return token or None
+
+
+def _verify_line_id_token(id_token: str) -> dict:
+    if not LINE_LOGIN_CHANNEL_ID:
+        raise RuntimeError("LINE_LOGIN_CHANNEL_ID is not set")
+    data = urllib.parse.urlencode({
+        "id_token": id_token,
+        "client_id": LINE_LOGIN_CHANNEL_ID,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.line.me/oauth2/v2.1/verify",
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        raw = resp.read().decode("utf-8")
+        payload = json.loads(raw)
+    sub = payload.get("sub")
+    aud = payload.get("aud")
+    exp = payload.get("exp")
+    now_ts = int(_now_utc().timestamp())
+    if not sub:
+        raise ValueError("LINE verify response missing sub")
+    if aud != LINE_LOGIN_CHANNEL_ID:
+        raise ValueError("LINE verify audience mismatch")
+    if isinstance(exp, int) and exp <= now_ts:
+        raise ValueError("LINE id_token expired")
+    return payload
 
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 
@@ -590,6 +665,58 @@ def index():
     return jsonify(resp), status
 
 
+@app.route("/liff/invoice.html")
+def liff_invoice_page():
+    return send_from_directory(os.path.join(APP_DIR, "liff"), "invoice.html")
+
+
+@app.route("/liff/js/invoice.js")
+def liff_invoice_js():
+    return send_from_directory(os.path.join(APP_DIR, "js"), "invoice.js")
+
+
+@app.route("/api/auth/line-login", methods=["POST"])
+def api_auth_line_login():
+    body = request.get_json(silent=True) or {}
+    id_token = body.get("line_id_token")
+    if not id_token:
+        return jsonify({"message": "line_id_token is required"}), 400
+    try:
+        verified = _verify_line_id_token(str(id_token))
+        user_id = str(verified.get("sub"))
+        token, exp = _build_internal_token(user_id)
+        return jsonify({
+            "token": token,
+            "token_type": "Bearer",
+            "expires_at": exp,
+            "line_user_id": user_id,
+        }), 200
+    except Exception as e:
+        app.logger.warning("line-login failed: %s", e)
+        return jsonify({"message": "line login verify failed"}), 401
+
+
+@app.route("/api/auth/refresh", methods=["POST"])
+def api_auth_refresh():
+    token = _extract_bearer_token()
+    if not token:
+        return jsonify({"message": "missing bearer token"}), 401
+    try:
+        payload = _decode_internal_token(token)
+        user_id = str(payload.get("sub") or "")
+        if not user_id:
+            return jsonify({"message": "invalid token subject"}), 401
+        new_token, exp = _build_internal_token(user_id)
+        return jsonify({
+            "token": new_token,
+            "token_type": "Bearer",
+            "expires_at": exp,
+            "line_user_id": user_id,
+        }), 200
+    except Exception:
+        return jsonify({"message": "invalid token"}), 401
+
+
 @app.route("/view")
 def view():
     """
@@ -766,6 +893,27 @@ def _apply_cors(response):
     if request.path.startswith("/api/"):
         _api_cors(response)
     return response
+
+
+@app.before_request
+def _require_internal_token_for_api():
+    if not request.path.startswith("/api/"):
+        return None
+    if request.method == "OPTIONS":
+        return None
+    if request.path.startswith("/api/auth/"):
+        return None
+    token = _extract_bearer_token()
+    if not token:
+        return jsonify({"message": "missing bearer token"}), 401
+    try:
+        payload = _decode_internal_token(token)
+        g.auth_line_user_id = payload.get("sub")
+    except jwt.ExpiredSignatureError:
+        return jsonify({"message": "token expired"}), 401
+    except Exception:
+        return jsonify({"message": "invalid token"}), 401
+    return None
 
 
 @app.route("/api/<path:_sub>", methods=["OPTIONS"])
