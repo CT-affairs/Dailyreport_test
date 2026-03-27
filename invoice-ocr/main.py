@@ -769,21 +769,21 @@ def api_options(_sub: str):
 
 
 def _compute_invoice_status_from_line_items(line_items: list) -> str:
+    """明細は pending / checked のみ想定。一部のみ checked のときは confirming。"""
     if not line_items:
         return "pending"
     checked = 0
-    editing = 0
     for li in line_items:
         st = (li or {}).get("status") or "pending"
+        if st == "editing":
+            st = "pending"
         if st == "checked":
             checked += 1
-        elif st == "editing":
-            editing += 1
     if checked == 0:
-        return "editing" if editing > 0 else "pending"
+        return "pending"
     if checked == len(line_items):
         return "checked"
-    return "editing"
+    return "confirming"
 
 
 def _normalize_line_items_status(line_items: list) -> list:
@@ -793,7 +793,9 @@ def _normalize_line_items_status(line_items: list) -> list:
             continue
         li2 = dict(li)
         st = li2.get("status") or "pending"
-        if st not in ("pending", "editing", "checked"):
+        if st == "editing":
+            st = "pending"
+        if st not in ("pending", "checked"):
             st = "pending"
         li2["status"] = st
         out.append(li2)
@@ -861,7 +863,7 @@ def api_invoice_update(file_id: str):
     画面の「更新」ボタン用：ドキュメント単位でまとめて保存する。
     body:
       {
-        "invoice": { "order_number": "...", "status": "pending|editing|checked" },
+        "invoice": { "order_number": "..." },
         "line_items": [
           { "order_number": "...", "status": "...", "item_name": "...", "quantity": ..., "unit_price": ..., "amount": ..., "note": "..." },
           ...
@@ -876,10 +878,6 @@ def api_invoice_update(file_id: str):
     li_in = body.get("line_items") or []
     if not isinstance(inv_in, dict) or not isinstance(li_in, list):
         return jsonify({"message": "invalid payload"}), 400
-
-    inv_status = inv_in.get("status") or "pending"
-    if inv_status not in ("pending", "editing", "checked"):
-        return jsonify({"message": "invalid invoice.status"}), 400
 
     db = firestore.Client()
     ref = db.collection(FIRESTORE_COLLECTION).document(str(file_id))
@@ -900,7 +898,9 @@ def api_invoice_update(file_id: str):
             return jsonify({"message": f"line_items[{i}] must be object"}), 400
 
         st = incoming.get("status") or cur.get("status") or "pending"
-        if st not in ("pending", "editing", "checked"):
+        if st == "editing":
+            st = "pending"
+        if st not in ("pending", "checked"):
             st = "pending"
 
         li2 = dict(cur)
@@ -911,10 +911,7 @@ def api_invoice_update(file_id: str):
         li2["status"] = st
         next_line_items.append(li2)
 
-    # 請求書 status は、明細状況に合わせて保存（3値に揃える）
-    derived = _compute_invoice_status_from_line_items(next_line_items)
-    # 手動指定が checked の場合のみ優先（全明細チェック済みのはず、という運用想定）
-    final_status = inv_status if inv_status == "checked" else derived
+    final_status = _compute_invoice_status_from_line_items(next_line_items)
 
     next_invoice = dict(d.get("invoice") or {})
     if "order_number" in inv_in:

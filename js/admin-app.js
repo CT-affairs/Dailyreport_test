@@ -1372,11 +1372,43 @@ function handleNavigation(target, params = {}, options = { push: true }) {
 
 // --- 帳票_一覧（Invoice OCR / Firestore invoices） ---
 
+/**
+ * Invoice OCR は別オリジンのため Cookie セッションは送れず、Bearer が必要。
+ * PC版は dailyreport 側が Cookie セッションでも、ここは LIFF の ID トークンが必要。
+ * main() が「未ログインでも即リダイレクトしない」ため、帳票画面だけ先に ensurePcSession() で揃える。
+ */
 async function fetchInvoiceOcrWithAuth(path, options = {}) {
-    if (!liff.isLoggedIn()) {
-        throw new Error("ログインしていません。");
+    if (typeof liff === 'undefined') {
+        throw new Error('LIFF SDK が読み込まれていません。');
     }
+    try {
+        await liff.init({ liffId: LIFF_ID });
+    } catch {
+        // 既に init 済み
+    }
+
+    if (USE_PC_SESSION_AUTH) {
+        try {
+            await ensurePcSession();
+        } catch (e) {
+            if (e && e.message && String(e.message).includes('リダイレクト')) {
+                throw e;
+            }
+            console.warn('ensurePcSession (invoice-ocr):', e);
+        }
+    }
+
+    if (!liff.isLoggedIn()) {
+        throw new Error(
+            'LINE のログインが必要です。画面を再読み込みするか、再度ログインしてください。',
+        );
+    }
+
     const idToken = await liff.getIDToken();
+    if (!idToken) {
+        throw new Error('IDトークンが取得できませんでした。');
+    }
+
     const headers = {
         ...options.headers,
         'Content-Type': 'application/json',
@@ -1385,9 +1417,28 @@ async function fetchInvoiceOcrWithAuth(path, options = {}) {
     return await fetch(`${INVOICE_OCR_BASE_URL}${path}`, { ...options, headers, cache: 'no-cache' });
 }
 
-function _invoiceStatusLabel(status) {
-    if (status === 'checked') return '確認済み';
-    if (status === 'editing') return '編集';
+/** GET /api/invoices の直近結果（チェック変更時は再フェッチせずこれ＋draftで再描画） */
+let invoiceOcrListSnapshot = null;
+
+function _normalizeLineItemStatus(st) {
+    if (st === 'checked') return 'checked';
+    return 'pending';
+}
+
+function _deriveInvoiceStatusFromDraftLines(lineItems) {
+    if (!lineItems || lineItems.length === 0) return 'pending';
+    let checked = 0;
+    lineItems.forEach((li) => {
+        if (_normalizeLineItemStatus(li && li.status) === 'checked') checked += 1;
+    });
+    if (checked === 0) return 'pending';
+    if (checked === lineItems.length) return 'checked';
+    return 'confirming';
+}
+
+function _invoiceDerivedStatusLabel(derived) {
+    if (derived === 'checked') return '確認済み（全明細）';
+    if (derived === 'confirming') return '一部確認済み';
     return '未確認';
 }
 
@@ -1412,15 +1463,209 @@ function renderInvoiceOcrInvoicesUI(container) {
 let invoiceOcrDraftByFileId = {}; // fileId -> draft
 let invoiceOcrActiveFileId = null;
 
-function _statusSelectHtml(value, dataAttrs) {
-    const v = (value === 'checked' || value === 'editing' || value === 'pending') ? value : 'pending';
-    return `
-        <select ${dataAttrs} style="padding: 4px 6px;">
-            <option value="pending" ${v === 'pending' ? 'selected' : ''}>未確認</option>
-            <option value="editing" ${v === 'editing' ? 'selected' : ''}>編集</option>
-            <option value="checked" ${v === 'checked' ? 'selected' : ''}>確認済み</option>
-        </select>
-    `;
+function _initInvoiceOcrDraftFromServer(inv) {
+    const lineItems = Array.isArray(inv.line_items) ? inv.line_items : [];
+    return {
+        invoice: {
+            order_number: inv.order_number || '',
+        },
+        line_items: lineItems.map((li) => ({
+            order_number: li?.order_number || '',
+            status: _normalizeLineItemStatus(li?.status),
+            item_name: li?.item_name || '',
+            quantity: li?.quantity ?? '',
+            unit: li?.unit ?? '',
+            unit_price: li?.unit_price ?? '',
+            amount: li?.amount ?? '',
+            tax: li?.tax ?? '',
+            note: li?.note || '',
+        })),
+        dirty: false,
+    };
+}
+
+/**
+ * スナップショット＋draft からカードを描画（API再取得なし）
+ */
+function renderInvoiceOcrUiFromSnapshot() {
+    const statusEl = document.getElementById('invoice-ocr-status');
+    const contentEl = document.getElementById('invoice-ocr-content');
+    if (!contentEl) return;
+
+    const invoices = Array.isArray(invoiceOcrListSnapshot) ? invoiceOcrListSnapshot : [];
+    if (statusEl) statusEl.textContent = `表示 ${invoices.length}件`;
+
+    if (invoices.length === 0) {
+        contentEl.innerHTML = `<div style="text-align:center; padding: 2em; color:#666;">データがありません</div>`;
+        return;
+    }
+
+    invoiceOcrActiveFileId = invoices[0]?.file_id ? String(invoices[0].file_id) : null;
+
+    let html = '';
+    invoices.forEach((inv) => {
+        const rawFid = String(inv.file_id || '');
+        const fileId = escapeHTML(rawFid);
+        const fileName = escapeHTML(String(inv.file_name || ''));
+        const vendorName = escapeHTML(String(inv.vendor_name || ''));
+        const invoiceNumber = escapeHTML(String(inv.invoice_number || ''));
+        const invoiceDate = escapeHTML(String(inv.invoice_date || ''));
+
+        if (!invoiceOcrDraftByFileId[rawFid]) {
+            invoiceOcrDraftByFileId[rawFid] = _initInvoiceOcrDraftFromServer(inv);
+        }
+
+        const draft = invoiceOcrDraftByFileId[rawFid];
+        const derived = _deriveInvoiceStatusFromDraftLines(draft.line_items);
+        const nLines = draft.line_items.length;
+        const nChecked = draft.line_items.filter((li) => _normalizeLineItemStatus(li.status) === 'checked').length;
+        const invChk = nLines > 0 && nChecked === nLines;
+
+        html += `
+                <div class="card" style="background:#fff; padding: 14px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); margin-bottom: 12px;">
+                    <div style="display:flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
+                        <label style="display:flex; align-items:center; gap: 8px; font-weight: bold; cursor: pointer;">
+                            <input type="checkbox" class="invoice-ocr-invoice-check" data-file-id="${fileId}" ${invChk ? 'checked' : ''} title="全明細を一括で確認済み/未確認にします" />
+                            <span>請求書 確認済み</span>
+                        </label>
+                        <span style="font-size:0.85em; color:#666;">${_invoiceDerivedStatusLabel(derived)}</span>
+                        <a href="${INVOICE_OCR_BASE_URL}/view?file_id=${fileId}" target="_blank" rel="noopener" style="margin-left:auto;">/view を開く</a>
+                    </div>
+                    <div style="font-size: 0.9em; color:#333; line-height: 1.6;">
+                        <div><b>file</b>: <span style="font-family: Consolas, monospace;">${fileId}</span> ${fileName ? `(${fileName})` : ''}</div>
+                        <div><b>vendor</b>: ${vendorName || '-'}</div>
+                        <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                            <div><b>invoice</b>: ${invoiceNumber || '-'} ${invoiceDate ? `(${invoiceDate})` : ''}</div>
+                            <div style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+                                <b>order_number</b>
+                                <input type="text" class="invoice-ocr-invoice-order-number" data-file-id="${fileId}" value="${escapeHTML(String(draft.invoice.order_number || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 180px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 10px;">
+                        <h4 style="margin: 0 0 6px 0; font-size: 1.0em;">明細 (${draft.line_items.length})</h4>
+                        <div style="overflow-x:auto;">
+                            <table class="data-table" style="min-width: 900px;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 56px;">確認</th>
+                                        <th style="width: 180px;">order_number</th>
+                                        <th>item_name</th>
+                                        <th style="width: 100px;">quantity</th>
+                                        <th style="width: 90px;">unit</th>
+                                        <th style="width: 110px;">unit_price</th>
+                                        <th style="width: 110px;">amount</th>
+                                        <th>note</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${draft.line_items
+                                        .map((li, idx) => {
+                                            const st = _normalizeLineItemStatus(li && li.status);
+                                            const lineChecked = st === 'checked';
+                                            const orderNo = escapeHTML(String(li?.order_number || ''));
+                                            const itemName = escapeHTML(String(li?.item_name || ''));
+                                            const qty = escapeHTML(String(li?.quantity ?? ''));
+                                            const unit = escapeHTML(String(li?.unit ?? ''));
+                                            const unitPrice = escapeHTML(String(li?.unit_price ?? ''));
+                                            const amount = escapeHTML(String(li?.amount ?? ''));
+                                            const note = escapeHTML(String(li?.note || ''));
+                                            return `
+                                            <tr>
+                                                <td style="text-align:center;">
+                                                    <input type="checkbox" class="invoice-ocr-line-check" data-file-id="${fileId}" data-index="${idx}" ${lineChecked ? 'checked' : ''} title="確認済み" />
+                                                </td>
+                                                <td><input type="text" class="invoice-ocr-line-order-number" data-file-id="${fileId}" data-index="${idx}" value="${orderNo}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 160px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-item-name" data-file-id="${fileId}" data-index="${idx}" value="${itemName}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 100%;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-quantity" data-file-id="${fileId}" data-index="${idx}" value="${qty}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 80px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-unit" data-file-id="${fileId}" data-index="${idx}" value="${unit}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 70px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-unit-price" data-file-id="${fileId}" data-index="${idx}" value="${unitPrice}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 90px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-amount" data-file-id="${fileId}" data-index="${idx}" value="${amount}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 90px;"></td>
+                                                <td><input type="text" class="invoice-ocr-line-note" data-file-id="${fileId}" data-index="${idx}" value="${note}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 100%;"></td>
+                                            </tr>
+                                        `;
+                                        })
+                                        .join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style="margin-top: 6px; color:#666; font-size: 0.85em;">
+                            各項目はいつでも編集できます。確認状態はチェックボックスのみ。保存は「更新」で請求書単位の一括保存です。
+                        </div>
+                    </div>
+                </div>
+            `;
+    });
+
+    contentEl.innerHTML = html;
+
+    document.querySelectorAll('.invoice-ocr-invoice-check').forEach((cb) => {
+        const fid = String(cb.dataset.fileId);
+        const draft = invoiceOcrDraftByFileId[fid];
+        if (draft && draft.line_items.length) {
+            const n = draft.line_items.filter((li) => _normalizeLineItemStatus(li.status) === 'checked').length;
+            cb.checked = n === draft.line_items.length;
+            cb.indeterminate = n > 0 && n < draft.line_items.length;
+        }
+        cb.addEventListener('change', (e) => {
+            const el = e.target;
+            const fileId = String(el.dataset.fileId);
+            const draft = invoiceOcrDraftByFileId[fileId];
+            if (!draft || !draft.line_items.length) return;
+            const on = !!el.checked;
+            draft.line_items.forEach((li) => {
+                li.status = on ? 'checked' : 'pending';
+            });
+            draft.dirty = true;
+            renderInvoiceOcrUiFromSnapshot();
+        });
+    });
+
+    document.querySelectorAll('.invoice-ocr-line-check').forEach((cb) => {
+        cb.addEventListener('change', (e) => {
+            const el = e.target;
+            const fileId = String(el.dataset.fileId);
+            const idx = parseInt(el.dataset.index, 10);
+            const draft = invoiceOcrDraftByFileId[fileId];
+            if (!draft || !draft.line_items[idx]) return;
+            draft.line_items[idx].status = el.checked ? 'checked' : 'pending';
+            draft.dirty = true;
+            renderInvoiceOcrUiFromSnapshot();
+        });
+    });
+
+    document.querySelectorAll('.invoice-ocr-invoice-order-number').forEach((inp) => {
+        inp.addEventListener('input', (e) => {
+            const el = e.target;
+            const fileId = String(el.dataset.fileId);
+            const draft = invoiceOcrDraftByFileId[fileId];
+            if (!draft) return;
+            draft.invoice.order_number = el.value;
+            draft.dirty = true;
+        });
+    });
+
+    const bindLineInput = (cls, key) => {
+        document.querySelectorAll(cls).forEach((inp) => {
+            inp.addEventListener('input', (e) => {
+                const el = e.target;
+                const fileId = String(el.dataset.fileId);
+                const idx = parseInt(el.dataset.index, 10);
+                const draft = invoiceOcrDraftByFileId[fileId];
+                if (!draft || !draft.line_items[idx]) return;
+                draft.line_items[idx][key] = el.value;
+                draft.dirty = true;
+            });
+        });
+    };
+    bindLineInput('.invoice-ocr-line-order-number', 'order_number');
+    bindLineInput('.invoice-ocr-line-item-name', 'item_name');
+    bindLineInput('.invoice-ocr-line-quantity', 'quantity');
+    bindLineInput('.invoice-ocr-line-unit', 'unit');
+    bindLineInput('.invoice-ocr-line-unit-price', 'unit_price');
+    bindLineInput('.invoice-ocr-line-amount', 'amount');
+    bindLineInput('.invoice-ocr-line-note', 'note');
 }
 
 async function loadAndRenderInvoiceOcrInvoices() {
@@ -1439,192 +1684,25 @@ async function loadAndRenderInvoiceOcrInvoices() {
         }
         const data = await res.json();
         const invoices = Array.isArray(data.invoices) ? data.invoices : [];
-        statusEl.textContent = `表示 ${invoices.length}件`;
+        invoiceOcrListSnapshot = invoices;
 
-        if (invoices.length === 0) {
-            contentEl.innerHTML = `<div style="text-align:center; padding: 2em; color:#666;">データがありません</div>`;
-            return;
-        }
-
-        // 現状は1件想定。複数あっても上から並べる。
-        let html = '';
-        // 今は1件想定：先頭をアクティブ対象とする（複数表示でも「更新」はアクティブに対して動作）
-        invoiceOcrActiveFileId = invoices[0]?.file_id ? String(invoices[0].file_id) : null;
-
-        invoices.forEach(inv => {
-            const fileId = escapeHTML(String(inv.file_id || ''));
-            const fileName = escapeHTML(String(inv.file_name || ''));
-            const vendorName = escapeHTML(String(inv.vendor_name || ''));
-            const invoiceNumber = escapeHTML(String(inv.invoice_number || ''));
-            const invoiceDate = escapeHTML(String(inv.invoice_date || ''));
-            const invoiceOrderNumber = escapeHTML(String(inv.order_number || ''));
-            const invoiceStatus = String(inv.status || 'pending');
-            const lineItems = Array.isArray(inv.line_items) ? inv.line_items : [];
-
-            // draft 初期化（初回のみ）
-            if (!invoiceOcrDraftByFileId[String(inv.file_id)]) {
-                invoiceOcrDraftByFileId[String(inv.file_id)] = {
-                    invoice: {
-                        order_number: inv.order_number || '',
-                        status: invoiceStatus,
-                    },
-                    line_items: lineItems.map(li => ({
-                        order_number: li?.order_number || '',
-                        status: li?.status || 'pending',
-                        item_name: li?.item_name || '',
-                        quantity: li?.quantity ?? '',
-                        unit: li?.unit ?? '',
-                        unit_price: li?.unit_price ?? '',
-                        amount: li?.amount ?? '',
-                        tax: li?.tax ?? '',
-                        note: li?.note || '',
-                    })),
-                    dirty: false,
-                };
+        invoices.forEach((inv) => {
+            const fid = String(inv.file_id || '');
+            if (fid) {
+                invoiceOcrDraftByFileId[fid] = _initInvoiceOcrDraftFromServer(inv);
             }
-
-            const draft = invoiceOcrDraftByFileId[String(inv.file_id)];
-            const invEdit = draft?.invoice?.status === 'editing';
-
-            html += `
-                <div class="card" style="background:#fff; padding: 14px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); margin-bottom: 12px;">
-                    <div style="display:flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
-                        <div style="display:flex; align-items:center; gap: 8px; font-weight: bold;">
-                            <span>請求書 status</span>
-                            ${_statusSelectHtml(draft.invoice.status, `class="invoice-ocr-invoice-status" data-file-id="${fileId}"`)}
-                        </div>
-                        <a href="${INVOICE_OCR_BASE_URL}/view?file_id=${fileId}" target="_blank" rel="noopener" style="margin-left:auto;">/view を開く</a>
-                    </div>
-                    <div style="font-size: 0.9em; color:#333; line-height: 1.6;">
-                        <div><b>file</b>: <span style="font-family: Consolas, monospace;">${fileId}</span> ${fileName ? `(${fileName})` : ''}</div>
-                        <div><b>vendor</b>: ${vendorName || '-'}</div>
-                        <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                            <div><b>invoice</b>: ${invoiceNumber || '-'} ${invoiceDate ? `(${invoiceDate})` : ''}</div>
-                            <div style="margin-left:auto; display:flex; align-items:center; gap:6px;">
-                                <b>order_number</b>
-                                <input type="text" class="invoice-ocr-invoice-order-number" data-file-id="${fileId}" value="${escapeHTML(String(draft.invoice.order_number || ''))}" ${invEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 180px;">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style="margin-top: 10px;">
-                        <h4 style="margin: 0 0 6px 0; font-size: 1.0em;">明細 (${lineItems.length})</h4>
-                        <div style="overflow-x:auto;">
-                            <table class="data-table" style="min-width: 900px;">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 90px;">status</th>
-                                        <th style="width: 180px;">order_number</th>
-                                        <th>item_name</th>
-                                        <th style="width: 100px;">quantity</th>
-                                        <th style="width: 90px;">unit</th>
-                                        <th style="width: 110px;">unit_price</th>
-                                        <th style="width: 110px;">amount</th>
-                                        <th>note</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${draft.line_items.map((li, idx) => {
-                                        const st = (li && li.status) ? String(li.status) : 'pending';
-                                        const isRowEdit = st === 'editing';
-                                        const orderNo = escapeHTML(String(li?.order_number || ''));
-                                        const itemName = escapeHTML(String(li?.item_name || ''));
-                                        const qty = escapeHTML(String(li?.quantity ?? ''));
-                                        const unit = escapeHTML(String(li?.unit ?? ''));
-                                        const unitPrice = escapeHTML(String(li?.unit_price ?? ''));
-                                        const amount = escapeHTML(String(li?.amount ?? ''));
-                                        const note = escapeHTML(String(li?.note || ''));
-                                        return `
-                                            <tr>
-                                                <td style="text-align:center;">
-                                                    ${_statusSelectHtml(st, `class="invoice-ocr-line-status" data-file-id="${fileId}" data-index="${idx}"`)}
-                                                </td>
-                                                <td><input type="text" class="invoice-ocr-line-order-number" data-file-id="${fileId}" data-index="${idx}" value="${orderNo}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 160px;"></td>
-                                                <td><input type="text" class="invoice-ocr-line-item-name" data-file-id="${fileId}" data-index="${idx}" value="${itemName}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 100%;"></td>
-                                                <td><input type="text" class="invoice-ocr-line-quantity" data-file-id="${fileId}" data-index="${idx}" value="${qty}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 80px;"></td>
-                                                <td><input type="text" class="invoice-ocr-line-unit" data-file-id="${fileId}" data-index="${idx}" value="${unit}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 70px;"></td>
-                                                <td><input type="text" class="invoice-ocr-line-unit-price" data-file-id="${fileId}" data-index="${idx}" value="${unitPrice}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 90px;"></td>
-                                                <td><input type="text" class="invoice-ocr-line-amount" data-file-id="${fileId}" data-index="${idx}" value="${amount}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 90px;"></td>
-                                                <td><input type="text" class="invoice-ocr-line-note" data-file-id="${fileId}" data-index="${idx}" value="${note}" ${isRowEdit ? '' : 'disabled'} style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 100%;"></td>
-                                            </tr>
-                                        `;
-                                    }).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                        <div style="margin-top: 6px; color:#666; font-size: 0.85em;">
-                            保存は「更新」ボタンで一括。status=編集 の行だけ編集可能です。
-                        </div>
-                    </div>
-                </div>
-            `;
         });
 
-        contentEl.innerHTML = html;
-
-        // イベント付与（再描画ごとに付け直し）
-        document.querySelectorAll('.invoice-ocr-invoice-status').forEach(sel => {
-            sel.addEventListener('change', (e) => {
-                const el = e.target;
-                const fileId = String(el.dataset.fileId);
-                const v = el.value;
-                const draft = invoiceOcrDraftByFileId[fileId];
-                if (!draft) return;
-                draft.invoice.status = v;
-                draft.dirty = true;
-                loadAndRenderInvoiceOcrInvoices(); // 編集可否を反映
-            });
-        });
-        document.querySelectorAll('.invoice-ocr-invoice-order-number').forEach(inp => {
-            inp.addEventListener('input', (e) => {
-                const el = e.target;
-                const fileId = String(el.dataset.fileId);
-                const draft = invoiceOcrDraftByFileId[fileId];
-                if (!draft) return;
-                draft.invoice.order_number = el.value;
-                draft.dirty = true;
-            });
-        });
-
-        document.querySelectorAll('.invoice-ocr-line-status').forEach(sel => {
-            sel.addEventListener('change', (e) => {
-                const el = e.target;
-                const fileId = String(el.dataset.fileId);
-                const idx = parseInt(el.dataset.index, 10);
-                const draft = invoiceOcrDraftByFileId[fileId];
-                if (!draft || !draft.line_items[idx]) return;
-                draft.line_items[idx].status = el.value;
-                draft.dirty = true;
-                loadAndRenderInvoiceOcrInvoices(); // 行の編集可否を反映
-            });
-        });
-
-        const bindLineInput = (cls, key) => {
-            document.querySelectorAll(cls).forEach(inp => {
-                inp.addEventListener('input', (e) => {
-                    const el = e.target;
-                    const fileId = String(el.dataset.fileId);
-                    const idx = parseInt(el.dataset.index, 10);
-                    const draft = invoiceOcrDraftByFileId[fileId];
-                    if (!draft || !draft.line_items[idx]) return;
-                    draft.line_items[idx][key] = el.value;
-                    draft.dirty = true;
-                });
-            });
-        };
-        bindLineInput('.invoice-ocr-line-order-number', 'order_number');
-        bindLineInput('.invoice-ocr-line-item-name', 'item_name');
-        bindLineInput('.invoice-ocr-line-quantity', 'quantity');
-        bindLineInput('.invoice-ocr-line-unit', 'unit');
-        bindLineInput('.invoice-ocr-line-unit-price', 'unit_price');
-        bindLineInput('.invoice-ocr-line-amount', 'amount');
-        bindLineInput('.invoice-ocr-line-note', 'note');
-
+        renderInvoiceOcrUiFromSnapshot();
     } catch (e) {
         console.error(e);
         statusEl.textContent = '';
+        const hint =
+            e && e.message && String(e.message).includes('リダイレクト')
+                ? 'LINEログインへ移動します。完了後にもう一度「再読込」を押してください。'
+                : 'PC版は帳票API用に LINE のログイン状態が別途必要です。再読み込みやログインし直しを試してください。通信・CORSの問題の場合は Invoice OCR 側の設定も確認してください。';
         contentEl.innerHTML = `<div style="text-align:center; padding: 2em; color:#c0392b;">読み込みに失敗しました: ${escapeHTML(e.message)}</div>
-            <div style="text-align:center; color:#666; font-size: 0.9em;">Invoice OCR の API/CORS を確認してください。</div>`;
+            <div style="text-align:center; color:#666; font-size: 0.9em;">${escapeHTML(hint)}</div>`;
     }
 }
 
@@ -1649,16 +1727,16 @@ async function saveInvoiceOcrCurrentDraft() {
             body: JSON.stringify({
                 invoice: {
                     order_number: draft.invoice.order_number,
-                    status: draft.invoice.status,
                 },
-                line_items: draft.line_items.map(li => ({
+                line_items: draft.line_items.map((li) => ({
                     order_number: li.order_number,
-                    status: li.status,
+                    status: _normalizeLineItemStatus(li.status),
                     item_name: li.item_name,
                     quantity: li.quantity,
                     unit: li.unit,
                     unit_price: li.unit_price,
                     amount: li.amount,
+                    tax: li.tax,
                     note: li.note,
                 })),
             }),
