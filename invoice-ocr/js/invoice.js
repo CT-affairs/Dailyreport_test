@@ -248,13 +248,13 @@ function renderInvoiceOcrUiFromSnapshot() {
 
         html += `
             <div style="background:#fff; padding: 14px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); margin-bottom: 12px;">
-                <div style="display:flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
+                <div style="position:relative; display:flex; align-items:center; gap: 12px; margin-bottom: 8px; min-height: 34px;">
                     <div style="display:flex; align-items:center; gap: 8px; font-weight: bold;">
                         <button type="button" class="invoice-ocr-bulk-state" data-file-id="${fileId}" data-state="${bulkState}" style="min-width:28px; height:28px; border:1px solid #bbb; border-radius:4px; background:#fff; color:${_lineStateColor(bulkState)}; font-weight:bold; cursor:pointer;">${_lineStateLabel(bulkState)}</button>
                         <span>請求書 確認</span>
+                        <span style="font-size:0.85em; color:#666; font-weight:normal; min-width: 110px;">${_invoiceDerivedStatusLabel(derived)}</span>
                     </div>
-                    <span style="font-size:0.85em; color:#666;">${_invoiceDerivedStatusLabel(derived)}</span>
-                    <div style="display:flex; align-items:center; gap:6px;">
+                    <div style="position:absolute; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:6px;">
                         <b>order_number</b>
                         <input type="text" class="invoice-ocr-invoice-order-number" data-file-id="${fileId}" value="${escapeHTML(String(draft.invoice.order_number || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width: 180px;">
                         <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9em;">
@@ -274,12 +274,12 @@ function renderInvoiceOcrUiFromSnapshot() {
                             <tr>
                                 <th style="width:56px; font-size:11px;">確認</th>
                                 <th style="width:180px; font-size:11px;">order_number</th>
-                                <th style="width:130px; font-size:11px;">document_date</th>
+                                <th style="width:80px; font-size:11px;">document_date</th>
                                 <th style="font-size:11px;">item_name</th>
-                                <th style="width:100px; font-size:11px;">quantity</th>
-                                <th style="width:90px; font-size:11px;">unit</th>
-                                <th style="width:110px; font-size:11px;">unit_price</th>
-                                <th style="width:110px; font-size:11px;">amount</th>
+                                <th style="width:80px; font-size:11px;">quantity</th>
+                                <th style="width:80px; font-size:11px;">unit</th>
+                                <th style="width:80px; font-size:11px;">unit_price</th>
+                                <th style="width:80px; font-size:11px;">amount</th>
                                 <th style="font-size:11px;">note</th>
                             </tr>
                         </thead>
@@ -289,14 +289,14 @@ function renderInvoiceOcrUiFromSnapshot() {
                                     <td style="text-align:center;">
                                         <button type="button" class="invoice-ocr-line-state-toggle" data-file-id="${fileId}" data-index="${idx}" data-state="${_normalizeLineItemStatus(li?.status)}" style="min-width:28px; height:28px; border:1px solid #bbb; border-radius:4px; background:#fff; color:${_lineStateColor(li?.status)}; font-weight:bold; cursor:pointer;">${_lineStateLabel(li?.status)}</button>
                                     </td>
-                                    <td><input type="text" class="invoice-ocr-line-order-number" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.order_number || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:50%;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-document-date" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(_normalizeDocumentDate(li?.document_date))}" placeholder="YYYY/MM/DD" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:110px;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-order-number" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.order_number || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:70%;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-document-date" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(_normalizeDocumentDate(li?.document_date))}" placeholder="YYYY/MM/DD" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:80%;"></td>
                                     <td><input type="text" class="invoice-ocr-line-item-name" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.item_name || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:100%;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-quantity" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.quantity ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:60%;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-unit" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.unit ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:60%;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-unit-price" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.unit_price ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:60%;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-amount" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.amount ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:60%;"></td>
-                                    <td><input type="text" class="invoice-ocr-line-note" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.note || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:100%;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-quantity" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.quantity ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:80%;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-unit" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.unit ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:80%;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-unit-price" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.unit_price ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:80%;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-amount" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.amount ?? ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:80%;"></td>
+                                    <td><input type="text" class="invoice-ocr-line-note" data-file-id="${fileId}" data-index="${idx}" value="${escapeHTML(String(li?.note || ''))}" style="padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:90%;"></td>
                                 </tr>
                             `).join('')}
                         </tbody>
