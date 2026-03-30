@@ -1,4 +1,4 @@
-// --- 設定 (liff-app.jsと同じものを使用) ---
+﻿// --- 設定 (liff-app.jsと同じものを使用) ---
 const LIFF_ID = "2008638177-6GA6Mf63"; // ←ここに実際のLIFF IDを貼り付けてください
 const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
 /** Invoice OCR（Cloud Run）。帳票_一覧カレンダー用。CORS はサービス側 INVOICE_OCR_CORS_ORIGIN で調整 */
@@ -1360,7 +1360,7 @@ function handleNavigation(target, params = {}, options = { push: true }) {
 
         case 'invoice_ocr':
             // 帳票_一覧は専用画面へ分離
-            window.location.href = `${INVOICE_OCR_BASE_URL}/liff/invoice.html`;
+            window.location.href = `${INVOICE_OCR_BASE_URL}/liff2/invoice.html`;
             break;
 
         case 'system_admin':
