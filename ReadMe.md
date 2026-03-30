@@ -1,2 +1,5 @@
 ## Development note
 Local environment verified on 2025-12-09
+
+デプロイテスト
+2026/06/30
