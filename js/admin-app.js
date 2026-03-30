@@ -3876,18 +3876,18 @@ function formatStaffCalendarNetTimeLine(label, totalMinutes) {
  * ネット個別カレンダー: 勤務／日報行の色分け用スタイル（初回のみ head に追加）
  */
 function ensureStaffCalendarNetTimeRowStyles() {
-    const sid = 'staff-calendar-net-time-rows-v2';
+    const sid = 'staff-calendar-net-time-rows-v3';
     if (document.getElementById(sid)) return;
     const style = document.createElement('style');
     style.id = sid;
     style.textContent = `
         .custom-calendar-table .staff-cal-time--net-work {
-            color: #14532d;
+            color: #4b5563;
             margin-bottom: 3px;
             font-weight: 500;
         }
         .custom-calendar-table .staff-cal-time--net-report {
-            color: #4a148c;
+            color: #14532d;
             font-weight: 500;
         }
     `;
