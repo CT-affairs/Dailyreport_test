@@ -1,4 +1,4 @@
-﻿// --- 設定 (liff-app.jsと同じものを使用) ---
+// --- 設定 (liff-app.jsと同じものを使用) ---
 const LIFF_ID = "2008638177-6GA6Mf63"; // ←ここに実際のLIFF IDを貼り付けてください
 const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
 /** Invoice OCR（Cloud Run）。帳票_一覧カレンダー用。CORS はサービス側 INVOICE_OCR_CORS_ORIGIN で調整 */
@@ -3860,6 +3860,41 @@ async function handleSyncPaidHolidaysForStaff() {
 }
 
 /**
+ * ネット個別カレンダー用: 「ラベル:分数（単位なし）＋全角スペース2＋X時間Y分」
+ * @param {string} label - 例: 勤務時間 / 日報入力
+ * @param {number|string} totalMinutes
+ */
+function formatStaffCalendarNetTimeLine(label, totalMinutes) {
+    const m = Math.max(0, parseInt(totalMinutes, 10) || 0);
+    const h = Math.floor(m / 60);
+    const minRem = m % 60;
+    const gap = '\u3000\u3000';
+    return `${label}:${m}${gap}${h}時間${minRem}分`;
+}
+
+/**
+ * ネット個別カレンダー: 勤務／日報行の色分け用スタイル（初回のみ head に追加）
+ */
+function ensureStaffCalendarNetTimeRowStyles() {
+    const sid = 'staff-calendar-net-time-rows-v2';
+    if (document.getElementById(sid)) return;
+    const style = document.createElement('style');
+    style.id = sid;
+    style.textContent = `
+        .custom-calendar-table .staff-cal-time--net-work {
+            color: #14532d;
+            margin-bottom: 3px;
+            font-weight: 500;
+        }
+        .custom-calendar-table .staff-cal-time--net-report {
+            color: #4a148c;
+            font-weight: 500;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+/**
  * スタッフ別カレンダーのHTMLテーブルを生成する
  */
 function renderStaffCalendar() {
@@ -3974,8 +4009,17 @@ function renderStaffCalendar() {
 
                 const jobcanMinutes = statusData?.jobcan_minutes ?? 0;
                 const reportedMinutes = statusData?.reported_minutes ?? 0;
-                if (jobcanMinutes > 0) workTimeHtml = `<div class="time-display work-time">勤務時間:${jobcanMinutes}</div>`;
-                if (reportedMinutes > 0) reportedTimeHtml = `<div class="time-display reported-time">日報入力:${reportedMinutes}</div>`;
+                if (dashboardListMode === 'net') {
+                    if (jobcanMinutes > 0) {
+                        workTimeHtml = `<div class="time-display work-time staff-cal-time--net-work">${formatStaffCalendarNetTimeLine('勤務時間', jobcanMinutes)}</div>`;
+                    }
+                    if (reportedMinutes > 0) {
+                        reportedTimeHtml = `<div class="time-display reported-time staff-cal-time--net-report">${formatStaffCalendarNetTimeLine('日報入力', reportedMinutes)}</div>`;
+                    }
+                } else {
+                    if (jobcanMinutes > 0) workTimeHtml = `<div class="time-display work-time">勤務時間:${jobcanMinutes}</div>`;
+                    if (reportedMinutes > 0) reportedTimeHtml = `<div class="time-display reported-time">日報入力:${reportedMinutes}</div>`;
+                }
             }
 
             let cellClasses = [];
@@ -4011,6 +4055,10 @@ function renderStaffCalendar() {
     html += '</tbody></table>';
 
     const styleId = 'staff-calendar-style';
+    if (dashboardListMode === 'net') {
+        ensureStaffCalendarNetTimeRowStyles();
+    }
+
     if (!document.getElementById(styleId)) {
         const style = document.createElement('style');
         style.id = styleId;
