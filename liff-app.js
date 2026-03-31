@@ -507,6 +507,27 @@ function addTaskEntry(task = null) {
             }, 10);
         }
     });
+    return entryDiv;
+}
+
+/**
+ * 追加したタスク行を見える位置へ移動し、最初に操作する入力へフォーカスする。
+ * 工務: 業務種別、ネット: 集計 を優先。
+ * @param {HTMLElement|null} entry
+ */
+function focusAndRevealNewTaskEntry(entry) {
+    if (!entry) return;
+    entry.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    const primarySelector = isReportNetPage ? '.task-category-minor' : '.task-category-major';
+    const focusTarget = entry.querySelector(primarySelector) || entry.querySelector('.task-time');
+    if (!focusTarget) return;
+    setTimeout(() => {
+        try {
+            focusTarget.focus({ preventScroll: true });
+        } catch {
+            focusTarget.focus();
+        }
+    }, 80);
 }
 
 function hideSliderModal() {
@@ -2738,9 +2759,10 @@ async function showReportPage(urlParams) {
     }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
-        addTaskEntry(lastDeletedTask);
+        const newEntry = addTaskEntry(lastDeletedTask);
         lastDeletedTask = null;
         updateWorkTimeSummary();
+        focusAndRevealNewTaskEntry(newEntry);
     });
 
     const addTaskButton = document.getElementById('add-task-button');
@@ -2916,8 +2938,9 @@ async function showReportPageNet(urlParams) {
     }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
+        let newEntry = null;
         if (lastDeletedTask) {
-            addTaskEntry(lastDeletedTask);
+            newEntry = addTaskEntry(lastDeletedTask);
             lastDeletedTask = null;
         } else {
             const entries = document.querySelectorAll('#task-entries-container .task-entry');
@@ -2931,9 +2954,10 @@ async function showReportPageNet(urlParams) {
                     break;
                 }
             }
-            addTaskEntry(prevEnd ? { startTime: prevEnd } : null);
+            newEntry = addTaskEntry(prevEnd ? { startTime: prevEnd } : null);
         }
         updateWorkTimeSummary();
+        focusAndRevealNewTaskEntry(newEntry);
     });
 
     const addTaskButton = document.getElementById('add-task-button');
@@ -2956,7 +2980,7 @@ async function showReportPageNet(urlParams) {
         lunchButton.textContent = '昼';
         lunchButton.title = '昼休憩の行を追加';
         lunchButton.addEventListener('click', () => {
-            addTaskEntry({
+            const newEntry = addTaskEntry({
                 categoryA_id: 'N99',
                 categoryA_label: '昼休憩',
                 categoryB_id: 'n_break',
@@ -2967,6 +2991,7 @@ async function showReportPageNet(urlParams) {
                 time: 0
             });
             updateWorkTimeSummary();
+            focusAndRevealNewTaskEntry(newEntry);
         });
         addTaskButton.parentNode.insertBefore(lunchButton, addTaskButton);
     }
