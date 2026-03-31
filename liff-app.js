@@ -527,7 +527,7 @@ function focusAndRevealNewTaskEntry(entry) {
         } catch {
             focusTarget.focus();
         }
-    }, 40);
+    }, 20);
 }
 
 function hideSliderModal() {
