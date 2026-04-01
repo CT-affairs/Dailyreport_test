@@ -2724,45 +2724,49 @@ async function showReportPage(urlParams) {
     document.getElementById('report-form').addEventListener('submit', handleReportSubmit);
     document.getElementById('get-work-time-button').addEventListener('click', handleGetWorkTime);
 
-    // 「出勤簿へ戻る」ボタンは一時的に非表示（要望によりコメントアウト）
-    // const submitBtn = document.getElementById('submit-button');
-    // if (submitBtn) {
-    //     const backBtnContainer = document.createElement('div');
-    //     backBtnContainer.style.display = 'flex';
-    //     backBtnContainer.style.width = '100%';
-    //     backBtnContainer.style.justifyContent = 'center';
-    //     backBtnContainer.style.marginTop = '5px';
-    //
-    //     const backBtn = document.createElement('button');
-    //     backBtn.type = 'button';
-    //     backBtn.textContent = '出勤簿へ戻る';
-    //     backBtn.className = submitBtn.className;
-    //     backBtn.style.backgroundColor = '#777';
-    //     backBtn.style.borderColor = '#777';
-    //     backBtn.style.color = 'white';
-    //     backBtn.style.width = '45%';
-    //     backBtn.style.paddingLeft = '15px';
-    //     backBtn.style.paddingRight = '15px';
-    //     backBtn.style.whiteSpace = 'nowrap';
-    //     backBtn.style.writingMode = 'horizontal-tb';
-    //     backBtn.style.textOrientation = 'mixed';
-    //
-    //     backBtn.onclick = () => {
-    //         const reportedDateStr = document.getElementById('report-date').value;
-    //         let targetMonthStr = '';
-    //         if (reportedDateStr && dateToMonthMap[reportedDateStr]) {
-    //             targetMonthStr = toUTCDateString(dateToMonthMap[reportedDateStr]);
-    //         }
-    //         const url = targetMonthStr ? `?page=calendar&month=${targetMonthStr}` : '?page=calendar';
-    //         window.location.href = url;
-    //     };
-    //
-    //     backBtnContainer.appendChild(backBtn);
-    //     const formWrapper = document.getElementById('report-form-wrapper');
-    //     if (formWrapper) {
-    //         formWrapper.appendChild(backBtnContainer);
-    //     }
-    // }
+    const submitBtn = document.getElementById('submit-button');
+    if (submitBtn) {
+        const backBtnContainer = document.createElement('div');
+        backBtnContainer.style.display = 'flex';
+        backBtnContainer.style.width = '100%';
+        backBtnContainer.style.justifyContent = 'flex-end';
+        backBtnContainer.style.marginTop = '5px';
+
+        const backBtn = document.createElement('button');
+        backBtn.type = 'button';
+        backBtn.textContent = '出勤簿へ戻る';
+        backBtn.className = submitBtn.className;
+        backBtn.style.backgroundColor = '#777';
+        backBtn.style.borderColor = '#777';
+        backBtn.style.color = 'white';
+        backBtn.style.width = '60%';
+        backBtn.style.height = '38px';
+        backBtn.style.paddingLeft = '15px';
+        backBtn.style.paddingRight = '15px';
+        backBtn.style.whiteSpace = 'nowrap';
+        backBtn.style.writingMode = 'horizontal-tb';
+        backBtn.style.textOrientation = 'mixed';
+        backBtn.style.display = 'flex';
+        backBtn.style.alignItems = 'center';
+        backBtn.style.justifyContent = 'center';
+        backBtn.style.lineHeight = '1';
+
+        backBtn.onclick = () => {
+            const reportedDateStr = document.getElementById('report-date').value;
+            let targetMonthStr = '';
+            if (reportedDateStr && dateToMonthMap[reportedDateStr]) {
+                targetMonthStr = toUTCDateString(dateToMonthMap[reportedDateStr]);
+            }
+            const url = targetMonthStr ? `?page=calendar&month=${targetMonthStr}` : '?page=calendar';
+            window.location.href = url;
+        };
+
+        backBtnContainer.appendChild(backBtn);
+        const formWrapper = document.getElementById('report-form-wrapper');
+        if (formWrapper) {
+            formWrapper.appendChild(backBtnContainer);
+        }
+    }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
         const newEntry = addTaskEntry(lastDeletedTask);
@@ -2917,45 +2921,49 @@ async function showReportPageNet(urlParams) {
     document.getElementById('report-form').addEventListener('submit', handleReportSubmit);
     document.getElementById('get-work-time-button').addEventListener('click', handleGetWorkTime);
 
-    // 「出勤簿へ戻る」ボタンは一時的に非表示（要望によりコメントアウト）
-    // const submitBtn = document.getElementById('submit-button');
-    // if (submitBtn) {
-    //     const backBtnContainer = document.createElement('div');
-    //     backBtnContainer.style.display = 'flex';
-    //     backBtnContainer.style.width = '100%';
-    //     backBtnContainer.style.justifyContent = 'center';
-    //     backBtnContainer.style.marginTop = '5px';
-    //
-    //     const backBtn = document.createElement('button');
-    //     backBtn.type = 'button';
-    //     backBtn.textContent = '出勤簿へ戻る';
-    //     backBtn.className = submitBtn.className;
-    //     backBtn.style.backgroundColor = '#777';
-    //     backBtn.style.borderColor = '#777';
-    //     backBtn.style.color = 'white';
-    //     backBtn.style.width = '45%';
-    //     backBtn.style.paddingLeft = '15px';
-    //     backBtn.style.paddingRight = '15px';
-    //     backBtn.style.whiteSpace = 'nowrap';
-    //     backBtn.style.writingMode = 'horizontal-tb';
-    //     backBtn.style.textOrientation = 'mixed';
-    //
-    //     backBtn.onclick = () => {
-    //         const reportedDateStr = document.getElementById('report-date').value;
-    //         let targetMonthStr = '';
-    //         if (reportedDateStr && dateToMonthMap[reportedDateStr]) {
-    //             targetMonthStr = toUTCDateString(dateToMonthMap[reportedDateStr]);
-    //         }
-    //         const url = targetMonthStr ? `?page=calendar&month=${targetMonthStr}` : '?page=calendar';
-    //         window.location.href = url;
-    //     };
-    //
-    //     backBtnContainer.appendChild(backBtn);
-    //     const formWrapper = document.getElementById('report-form-wrapper');
-    //     if (formWrapper) {
-    //         formWrapper.appendChild(backBtnContainer);
-    //     }
-    // }
+    const submitBtn = document.getElementById('submit-button');
+    if (submitBtn) {
+        const backBtnContainer = document.createElement('div');
+        backBtnContainer.style.display = 'flex';
+        backBtnContainer.style.width = '100%';
+        backBtnContainer.style.justifyContent = 'flex-end';
+        backBtnContainer.style.marginTop = '5px';
+
+        const backBtn = document.createElement('button');
+        backBtn.type = 'button';
+        backBtn.textContent = '出勤簿へ戻る';
+        backBtn.className = submitBtn.className;
+        backBtn.style.backgroundColor = '#777';
+        backBtn.style.borderColor = '#777';
+        backBtn.style.color = 'white';
+        backBtn.style.width = '60%';
+        backBtn.style.height = '38px';
+        backBtn.style.paddingLeft = '15px';
+        backBtn.style.paddingRight = '15px';
+        backBtn.style.whiteSpace = 'nowrap';
+        backBtn.style.writingMode = 'horizontal-tb';
+        backBtn.style.textOrientation = 'mixed';
+        backBtn.style.display = 'flex';
+        backBtn.style.alignItems = 'center';
+        backBtn.style.justifyContent = 'center';
+        backBtn.style.lineHeight = '1';
+
+        backBtn.onclick = () => {
+            const reportedDateStr = document.getElementById('report-date').value;
+            let targetMonthStr = '';
+            if (reportedDateStr && dateToMonthMap[reportedDateStr]) {
+                targetMonthStr = toUTCDateString(dateToMonthMap[reportedDateStr]);
+            }
+            const url = targetMonthStr ? `?page=calendar&month=${targetMonthStr}` : '?page=calendar';
+            window.location.href = url;
+        };
+
+        backBtnContainer.appendChild(backBtn);
+        const formWrapper = document.getElementById('report-form-wrapper');
+        if (formWrapper) {
+            formWrapper.appendChild(backBtnContainer);
+        }
+    }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
         let newEntry = null;
