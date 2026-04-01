@@ -2964,6 +2964,16 @@ def _safe_int_minutes(v) -> int | None:
         return None
 
 
+def _net_task_comment_for_csv(task: dict) -> str:
+    """ネット日報タスクの comment を CSV 用に正規化（空は空文字）。"""
+    if not isinstance(task, dict):
+        return ""
+    c = task.get("comment")
+    if c is None:
+        return ""
+    return str(c).strip()
+
+
 def _is_net_daily_report_group(group_id) -> bool:
     """ネット事業部の日報（group_id=3）のみ。"""
     if group_id is None:
@@ -2978,6 +2988,7 @@ def download_net_task_summary_csv():
     """
     ネット事業部の日報データを月度単位で集計し、ピボット用の縦持ちCSVを返す。
     集計キー: (company_employee_id, date, categoryA_id, categoryB_id) ／ time は分で合算。
+    comment は同一キーに複数タスクがある場合、重複を除き「 | 」で連結する。
     """
     try:
         data = request.get_json() or {}
@@ -3003,7 +3014,7 @@ def download_net_task_summary_csv():
         docs = query.stream()
 
         # key: (emp_id, date_str, cat_a_id, cat_b_id)
-        # value: { time, categoryA_label, categoryB_label, employee_name }
+        # value: { time, categoryA_label, categoryB_label, employee_name, comments(list[str]) }
         agg: dict = {}
 
         for doc in docs:
@@ -3033,6 +3044,7 @@ def download_net_task_summary_csv():
                 if not cat_a or not cat_b:
                     continue
 
+                cmt = _net_task_comment_for_csv(task)
                 key = (emp_id, date_str, cat_a, cat_b)
                 if key not in agg:
                     agg[key] = {
@@ -3040,15 +3052,19 @@ def download_net_task_summary_csv():
                         "categoryA_label": str(task.get("categoryA_label") or ""),
                         "categoryB_label": str(task.get("categoryB_label") or ""),
                         "employee_name": employee_name,
+                        "comments": [cmt] if cmt else [],
                     }
                 else:
                     agg[key]["time"] += tmin
+                    if cmt and cmt not in agg[key]["comments"]:
+                        agg[key]["comments"].append(cmt)
 
         # 出力行のソート（安定したピボット向け）
         rows = []
         for (emp_id, date_str, cat_a, cat_b), v in sorted(
             agg.items(), key=lambda x: (x[0][0], x[0][1], x[0][2], x[0][3])
         ):
+            comment_cell = " | ".join(v["comments"]) if v.get("comments") else ""
             rows.append(
                 [
                     emp_id,
@@ -3059,6 +3075,7 @@ def download_net_task_summary_csv():
                     cat_b,
                     v["categoryB_label"],
                     int(v["time"]),
+                    comment_cell,
                 ]
             )
 
@@ -3074,6 +3091,7 @@ def download_net_task_summary_csv():
                 "categoryB_id",
                 "categoryB_label",
                 "time",
+                "comment",
             ]
         )
         writer.writerows(rows)
