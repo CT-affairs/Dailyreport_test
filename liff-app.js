@@ -2729,6 +2729,7 @@ async function showReportPage(urlParams) {
     if (submitBtn) {
         const backBtnContainer = document.createElement('div');
         backBtnContainer.style.display = 'flex';
+        backBtnContainer.style.width = '100%';
         backBtnContainer.style.justifyContent = 'flex-end'; // 右寄せ
         backBtnContainer.style.marginTop = '5px';
 
@@ -2755,8 +2756,10 @@ async function showReportPage(urlParams) {
         };
 
         backBtnContainer.appendChild(backBtn);
-        const submitRow = submitBtn.parentNode;
-        submitRow.parentNode.insertBefore(backBtnContainer, submitRow.nextSibling);
+        const formWrapper = document.getElementById('report-form-wrapper');
+        if (formWrapper) {
+            formWrapper.appendChild(backBtnContainer);
+        }
     }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
@@ -2916,6 +2919,7 @@ async function showReportPageNet(urlParams) {
     if (submitBtn) {
         const backBtnContainer = document.createElement('div');
         backBtnContainer.style.display = 'flex';
+        backBtnContainer.style.width = '100%';
         backBtnContainer.style.justifyContent = 'flex-end';
         backBtnContainer.style.marginTop = '5px';
 
@@ -2941,8 +2945,10 @@ async function showReportPageNet(urlParams) {
         };
 
         backBtnContainer.appendChild(backBtn);
-        const submitRow = submitBtn.parentNode;
-        submitRow.parentNode.insertBefore(backBtnContainer, submitRow.nextSibling);
+        const formWrapper = document.getElementById('report-form-wrapper');
+        if (formWrapper) {
+            formWrapper.appendChild(backBtnContainer);
+        }
     }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
