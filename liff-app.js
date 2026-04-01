@@ -2724,34 +2724,9 @@ async function showReportPage(urlParams) {
     document.getElementById('report-form').addEventListener('submit', handleReportSubmit);
     document.getElementById('get-work-time-button').addEventListener('click', handleGetWorkTime);
 
-    const submitBtn = document.getElementById('submit-button');
-    if (submitBtn) {
-        const backBtnContainer = document.createElement('div');
-        backBtnContainer.style.display = 'flex';
-        backBtnContainer.style.width = '100%';
-        backBtnContainer.style.justifyContent = 'flex-end';
-        backBtnContainer.style.marginTop = '5px';
-
-        const backBtn = document.createElement('button');
-        backBtn.type = 'button';
-        backBtn.textContent = '出勤簿へ戻る';
-        backBtn.className = submitBtn.className;
-        backBtn.style.backgroundColor = '#777';
-        backBtn.style.borderColor = '#777';
-        backBtn.style.color = 'white';
-        backBtn.style.width = '60%';
-        backBtn.style.height = '38px';
-        backBtn.style.paddingLeft = '15px';
-        backBtn.style.paddingRight = '15px';
-        backBtn.style.whiteSpace = 'nowrap';
-        backBtn.style.writingMode = 'horizontal-tb';
-        backBtn.style.textOrientation = 'mixed';
-        backBtn.style.display = 'flex';
-        backBtn.style.alignItems = 'center';
-        backBtn.style.justifyContent = 'center';
-        backBtn.style.lineHeight = '1';
-
-        backBtn.onclick = () => {
+    const backToCalendarBtn = document.getElementById('back-to-calendar-button');
+    if (backToCalendarBtn) {
+        backToCalendarBtn.addEventListener('click', () => {
             const reportedDateStr = document.getElementById('report-date').value;
             let targetMonthStr = '';
             if (reportedDateStr && dateToMonthMap[reportedDateStr]) {
@@ -2759,13 +2734,7 @@ async function showReportPage(urlParams) {
             }
             const url = targetMonthStr ? `?page=calendar&month=${targetMonthStr}` : '?page=calendar';
             window.location.href = url;
-        };
-
-        backBtnContainer.appendChild(backBtn);
-        const formWrapper = document.getElementById('report-form-wrapper');
-        if (formWrapper) {
-            formWrapper.appendChild(backBtnContainer);
-        }
+        });
     }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
@@ -2921,34 +2890,9 @@ async function showReportPageNet(urlParams) {
     document.getElementById('report-form').addEventListener('submit', handleReportSubmit);
     document.getElementById('get-work-time-button').addEventListener('click', handleGetWorkTime);
 
-    const submitBtn = document.getElementById('submit-button');
-    if (submitBtn) {
-        const backBtnContainer = document.createElement('div');
-        backBtnContainer.style.display = 'flex';
-        backBtnContainer.style.width = '100%';
-        backBtnContainer.style.justifyContent = 'flex-end';
-        backBtnContainer.style.marginTop = '5px';
-
-        const backBtn = document.createElement('button');
-        backBtn.type = 'button';
-        backBtn.textContent = '出勤簿へ戻る';
-        backBtn.className = submitBtn.className;
-        backBtn.style.backgroundColor = '#777';
-        backBtn.style.borderColor = '#777';
-        backBtn.style.color = 'white';
-        backBtn.style.width = '60%';
-        backBtn.style.height = '38px';
-        backBtn.style.paddingLeft = '15px';
-        backBtn.style.paddingRight = '15px';
-        backBtn.style.whiteSpace = 'nowrap';
-        backBtn.style.writingMode = 'horizontal-tb';
-        backBtn.style.textOrientation = 'mixed';
-        backBtn.style.display = 'flex';
-        backBtn.style.alignItems = 'center';
-        backBtn.style.justifyContent = 'center';
-        backBtn.style.lineHeight = '1';
-
-        backBtn.onclick = () => {
+    const backToCalendarBtn = document.getElementById('back-to-calendar-button');
+    if (backToCalendarBtn) {
+        backToCalendarBtn.addEventListener('click', () => {
             const reportedDateStr = document.getElementById('report-date').value;
             let targetMonthStr = '';
             if (reportedDateStr && dateToMonthMap[reportedDateStr]) {
@@ -2956,13 +2900,7 @@ async function showReportPageNet(urlParams) {
             }
             const url = targetMonthStr ? `?page=calendar&month=${targetMonthStr}` : '?page=calendar';
             window.location.href = url;
-        };
-
-        backBtnContainer.appendChild(backBtn);
-        const formWrapper = document.getElementById('report-form-wrapper');
-        if (formWrapper) {
-            formWrapper.appendChild(backBtnContainer);
-        }
+        });
     }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
