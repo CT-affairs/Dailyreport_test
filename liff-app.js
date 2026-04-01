@@ -2755,7 +2755,8 @@ async function showReportPage(urlParams) {
         };
 
         backBtnContainer.appendChild(backBtn);
-        submitBtn.parentNode.insertBefore(backBtnContainer, submitBtn.nextSibling);
+        const submitRow = submitBtn.parentNode;
+        submitRow.parentNode.insertBefore(backBtnContainer, submitRow.nextSibling);
     }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
@@ -2940,7 +2941,8 @@ async function showReportPageNet(urlParams) {
         };
 
         backBtnContainer.appendChild(backBtn);
-        submitBtn.parentNode.insertBefore(backBtnContainer, submitBtn.nextSibling);
+        const submitRow = submitBtn.parentNode;
+        submitRow.parentNode.insertBefore(backBtnContainer, submitRow.nextSibling);
     }
 
     document.getElementById('add-task-button').addEventListener('click', () => {
