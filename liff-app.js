@@ -2730,7 +2730,7 @@ async function showReportPage(urlParams) {
         const backBtnContainer = document.createElement('div');
         backBtnContainer.style.display = 'flex';
         backBtnContainer.style.width = '100%';
-        backBtnContainer.style.justifyContent = 'flex-end'; // 右寄せ
+        backBtnContainer.style.justifyContent = 'center'; // 中央寄せ
         backBtnContainer.style.marginTop = '5px';
 
         const backBtn = document.createElement('button');
@@ -2743,6 +2743,9 @@ async function showReportPage(urlParams) {
         backBtn.style.width = '45%'; 
         backBtn.style.paddingLeft = '15px';
         backBtn.style.paddingRight = '15px';
+        backBtn.style.whiteSpace = 'nowrap';
+        backBtn.style.writingMode = 'horizontal-tb';
+        backBtn.style.textOrientation = 'mixed';
 
         backBtn.onclick = () => {
             // カレンダーに戻る処理（「続けて入力」と同様のロジック）
@@ -2920,7 +2923,7 @@ async function showReportPageNet(urlParams) {
         const backBtnContainer = document.createElement('div');
         backBtnContainer.style.display = 'flex';
         backBtnContainer.style.width = '100%';
-        backBtnContainer.style.justifyContent = 'flex-end';
+        backBtnContainer.style.justifyContent = 'center';
         backBtnContainer.style.marginTop = '5px';
 
         const backBtn = document.createElement('button');
@@ -2933,6 +2936,9 @@ async function showReportPageNet(urlParams) {
         backBtn.style.width = '45%';
         backBtn.style.paddingLeft = '15px';
         backBtn.style.paddingRight = '15px';
+        backBtn.style.whiteSpace = 'nowrap';
+        backBtn.style.writingMode = 'horizontal-tb';
+        backBtn.style.textOrientation = 'mixed';
 
         backBtn.onclick = () => {
             const reportedDateStr = document.getElementById('report-date').value;
