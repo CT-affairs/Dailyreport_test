@@ -2764,6 +2764,12 @@ async function showReportPage(urlParams) {
         updateWorkTimeSummary();
         focusAndRevealNewTaskEntry(newEntry);
     });
+    const submitAddTaskButton = document.getElementById('submit-add-task-button');
+    if (submitAddTaskButton) {
+        submitAddTaskButton.addEventListener('click', () => {
+            document.getElementById('add-task-button').click();
+        });
+    }
 
     const addTaskButton = document.getElementById('add-task-button');
     if (addTaskButton && !document.getElementById('ui-toggle-button')) {
@@ -2959,6 +2965,12 @@ async function showReportPageNet(urlParams) {
         updateWorkTimeSummary();
         focusAndRevealNewTaskEntry(newEntry);
     });
+    const submitAddTaskButton = document.getElementById('submit-add-task-button');
+    if (submitAddTaskButton) {
+        submitAddTaskButton.addEventListener('click', () => {
+            document.getElementById('add-task-button').click();
+        });
+    }
 
     const addTaskButton = document.getElementById('add-task-button');
     if (addTaskButton && !document.getElementById('ui-toggle-button')) {
