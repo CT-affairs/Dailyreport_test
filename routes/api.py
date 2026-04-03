@@ -3666,13 +3666,6 @@ def sync_paid_holidays():
     from_str = start_date.strftime('%Y-%m-%d')
     to_str = end_date.strftime('%Y-%m-%d')
 
-    # --- デバッグ用: 同期待ち対象の概要をログ出力 ---
-    current_app.logger.info(
-        f"[sync_paid_holidays] target_company_id={target_company_id}, "
-        f"jobcan_employee_id={target_jobcan_id}, period={from_str}–{to_str}, "
-        f"mapping_status={mapping_status}, work_kind_id={target_work_kind_id}, main_group={target_main_group}"
-    )
-
     # Jobcan ID が実質ない（None/空文字のみ）、または status が active_officer の場合は
     # JOBCAN にIDが無い前提のため、エラーにせず当月の全日付で勤務時間を 0 に設定して成功で返す。
     # 0 や '0' は「IDあり」と扱い誤ゼロ化を防ぐ。
@@ -3725,6 +3718,13 @@ def sync_paid_holidays():
         target_work_kind_id = target_user_data.get("work_kind_id")
     is_net_sync_target = is_net_main_group(target_main_group)
     work_kind_profile = _load_work_kind_profile(target_work_kind_id)
+
+    # --- デバッグ用: 同期待ち対象の概要をログ出力 ---
+    current_app.logger.info(
+        f"[sync_paid_holidays] target_company_id={target_company_id}, "
+        f"jobcan_employee_id={target_jobcan_id}, period={from_str}–{to_str}, "
+        f"mapping_status={mapping_status}, work_kind_id={target_work_kind_id}, main_group={target_main_group}"
+    )
 
     # --- A. 有休情報の取得と反映 ---
     holidays_data = jobcan_service.get_paid_holidays(target_jobcan_id, from_str, to_str, "paid")
