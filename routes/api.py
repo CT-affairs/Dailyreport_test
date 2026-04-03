@@ -3666,6 +3666,13 @@ def sync_paid_holidays():
     from_str = start_date.strftime('%Y-%m-%d')
     to_str = end_date.strftime('%Y-%m-%d')
 
+    # --- デバッグ用: 同期待ち対象の概要をログ出力 ---
+    current_app.logger.info(
+        f"[sync_paid_holidays] target_company_id={target_company_id}, "
+        f"jobcan_employee_id={target_jobcan_id}, period={from_str}–{to_str}, "
+        f"mapping_status={mapping_status}, work_kind_id={target_work_kind_id}, main_group={target_main_group}"
+    )
+
     # Jobcan ID が実質ない（None/空文字のみ）、または status が active_officer の場合は
     # JOBCAN にIDが無い前提のため、エラーにせず当月の全日付で勤務時間を 0 に設定して成功で返す。
     # 0 や '0' は「IDあり」と扱い誤ゼロ化を防ぐ。
@@ -3732,6 +3739,30 @@ def sync_paid_holidays():
         to_str,
     )
 
+    # --- デバッグ用: use_days の要約をログ出力（対象ユーザー・期間のみに限定） ---
+    if holidays_data and holidays_data.get("use_days"):
+        try:
+            summary_logs = []
+            for emp in holidays_data.get("use_days", []):
+                for log in emp.get("use_logs", []):
+                    detail = log.get("detail", {}) or {}
+                    use_days_obj = log.get("use_days", {}) or {}
+                    summary_logs.append({
+                        "use_date": log.get("use_date"),
+                        "type": detail.get("type"),
+                        "use_id": log.get("use_id"),
+                        "days": use_days_obj.get("days"),
+                    })
+            current_app.logger.info(
+                f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} use_logs_summary "
+                f"company_emp={target_company_id} jobcan_id={target_jobcan_id} "
+                f"count={len(summary_logs)} logs={summary_logs}"
+            )
+        except Exception as e:
+            current_app.logger.warning(
+                f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} failed to summarize use_logs for logging: {e}"
+            )
+
     if holidays_data and holidays_data.get("use_days"):
         for employee_data in holidays_data["use_days"]:
              if employee_data.get("use_logs"):
@@ -3755,6 +3786,14 @@ def sync_paid_holidays():
                             holiday_type = 'half'
                         
                         if holiday_type:
+                            # デバッグ用: 判定直後の情報をログ出力（minutes 決定前）
+                            current_app.logger.info(
+                                f\"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} candidate "
+                                f"company_emp={target_company_id} date={use_date_str} "
+                                f"use_id={log.get('use_id')!r} days={days} "
+                                f"holiday_bucket={holiday_type} work_kind_id={target_work_kind_id!r}\"
+                            )
+
                             # 工務: holiday_types.minutes（Firestore）を優先。use_id は work_kind_id または
                             # holiday_type_id（doc id）と照合。無ければ 480/240。
                             # ネット事業部: 同一照合で start/end を取り、タスクに startTime/endTime を付与（/api/reports_net と整合）。
