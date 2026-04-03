@@ -1201,17 +1201,16 @@ def resolve_paid_leave_for_sync(use_id, holiday_bucket: str) -> dict:
 
     candidates = list(_iter_holiday_types_doc_candidates_for_use_id(use_id))
 
+    # 複数候補がある場合は「最後に見つかった」有効値を優先する。
     for d in candidates:
         st, et = _normalized_holiday_start_end_strings(d.get("holiday"))
         if st and et:
             start_s, end_s = st, et
-            break
 
     for d in candidates:
         m_doc = _minutes_from_holiday_types_doc(d)
         if m_doc is not None:
             minutes = m_doc
-            break
 
     if minutes == fallback and start_s and end_s:
         cm = compute_holiday_minutes_from_holiday_map({"start": start_s, "end": end_s})
