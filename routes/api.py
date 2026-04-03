@@ -18,7 +18,7 @@ import requests
 import json
 
 from datetime import datetime, timezone, timedelta
-from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes, resolve_paid_leave_minutes_engineering, resolve_paid_leave_for_sync, is_net_main_group, default_net_paid_leave_time_slot
+from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes, resolve_paid_leave_minutes_engineering, resolve_paid_leave_for_sync, resolve_paid_leave_for_sync_by_work_kind, is_net_main_group, default_net_paid_leave_time_slot
 from app_core.utils import send_push_message, activate_download_link
 # from app_core.utils import send_quick_report_email # 【実装保留】のためコメントアウト
 from app_core.config import COLLECTION_DAILY_REPORTS, COLLECTION_JOBCAN_RAW_RESPONSES
@@ -3799,7 +3799,12 @@ def sync_paid_holidays():
                             # ネット事業部: 同一照合で start/end を取り、タスクに startTime/endTime を付与（/api/reports_net と整合）。
                             use_id = log.get("use_id")
                             if is_net_sync_target:
-                                pl = resolve_paid_leave_for_sync(use_id, holiday_type)
+                                # half は target_work_kind_id 紐づきの holiday_types を優先。
+                                # full は従来どおり use_id ベースで解決する。
+                                if holiday_type == "half" and target_work_kind_id is not None:
+                                    pl = resolve_paid_leave_for_sync_by_work_kind(target_work_kind_id, holiday_type)
+                                else:
+                                    pl = resolve_paid_leave_for_sync(use_id, holiday_type)
                                 minutes = pl["minutes"]
                                 minutes_src = "holiday_types_or_fallback"
                                 # use_id=1 の work_kind.minutes 優先は full の場合のみ適用。
@@ -3817,22 +3822,37 @@ def sync_paid_holidays():
                                 st, et = _normalize_hhmm_pair(st_raw, et_raw)
                                 time_src = "use_days_log"
 
-                                # use-days に時刻が無い場合:
-                                # use_id=1 は work_kind.start/end で補完
+                                # use-days に時刻が無い場合の補完順:
+                                # - half: holiday_types.holiday を優先
+                                # - full: use_id=1 の場合は work_kind.start/end を優先
                                 if not st or not et:
-                                    if str(use_id).strip() == "1":
-                                        st, et = _normalize_hhmm_pair(
-                                            work_kind_profile.get("start"),
-                                            work_kind_profile.get("end"),
-                                        )
+                                    if holiday_type == "half":
+                                        st, et = _normalize_hhmm_pair(pl.get("startTime"), pl.get("endTime"))
                                         if st and et:
-                                            time_src = "work_kind.start_end"
+                                            time_src = "holiday_types.holiday"
+                                    else:
+                                        if str(use_id).strip() == "1":
+                                            st, et = _normalize_hhmm_pair(
+                                                work_kind_profile.get("start"),
+                                                work_kind_profile.get("end"),
+                                            )
+                                            if st and et:
+                                                time_src = "work_kind.start_end"
 
-                                # 既存挙動の保険: さらに取れない場合は従来のソース→固定時刻
+                                # 既存挙動の保険: まだ未決定なら残り候補を試す
                                 if not st or not et:
-                                    st, et = _normalize_hhmm_pair(pl.get("startTime"), pl.get("endTime"))
-                                    if st and et:
-                                        time_src = "holiday_types.holiday"
+                                    if holiday_type == "half":
+                                        if str(use_id).strip() == "1":
+                                            st, et = _normalize_hhmm_pair(
+                                                work_kind_profile.get("start"),
+                                                work_kind_profile.get("end"),
+                                            )
+                                            if st and et:
+                                                time_src = "work_kind.start_end"
+                                    else:
+                                        st, et = _normalize_hhmm_pair(pl.get("startTime"), pl.get("endTime"))
+                                        if st and et:
+                                            time_src = "holiday_types.holiday"
                                 if not st or not et:
                                     anchor = _infer_net_paid_leave_anchor_start(log)
                                     st, et = default_net_paid_leave_time_slot(minutes, anchor_start=anchor)

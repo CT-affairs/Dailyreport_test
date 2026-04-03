@@ -1221,6 +1221,65 @@ def resolve_paid_leave_for_sync(use_id, holiday_bucket: str) -> dict:
     return {"minutes": minutes, "startTime": start_s, "endTime": end_s}
 
 
+def resolve_paid_leave_for_sync_by_work_kind(work_kind_id, holiday_bucket: str) -> dict:
+    """
+    有休同期用（work_kind_id 指定）:
+    holiday_types.work_kind_id = work_kind_id のドキュメントから minutes / holiday.start,end を解決する。
+
+    - minutes: holiday_types.minutes 優先。無ければ holiday.start/end から算出。
+    - startTime / endTime: holiday.start / holiday.end を返す（有効時）。
+    - 取得できない場合は full=480 / half=240 にフォールバック。
+    """
+    fallback = 480 if holiday_bucket == "full" else 240
+    minutes = fallback
+    start_s: Optional[str] = None
+    end_s: Optional[str] = None
+
+    if work_kind_id is None:
+        return {"minutes": minutes, "startTime": start_s, "endTime": end_s}
+
+    candidates = []
+    try:
+        wk_int = int(work_kind_id)
+    except (TypeError, ValueError):
+        wk_int = None
+
+    col = db.collection(COLLECTION_HOLIDAY_TYPES)
+    if wk_int is not None:
+        try:
+            q = col.where(filter=FieldFilter("work_kind_id", "==", wk_int))
+            for snap in q.stream():
+                d = snap.to_dict()
+                if isinstance(d, dict):
+                    candidates.append(d)
+        except Exception as e:
+            try:
+                current_app.logger.warning(
+                    f"resolve_paid_leave_for_sync_by_work_kind: query work_kind_id={wk_int} failed: {e}"
+                )
+            except Exception:
+                pass
+
+    for d in candidates:
+        st, et = _normalized_holiday_start_end_strings(d.get("holiday"))
+        if st and et:
+            start_s, end_s = st, et
+            break
+
+    for d in candidates:
+        m_doc = _minutes_from_holiday_types_doc(d)
+        if m_doc is not None:
+            minutes = m_doc
+            break
+
+    if minutes == fallback and start_s and end_s:
+        cm = compute_holiday_minutes_from_holiday_map({"start": start_s, "end": end_s})
+        if cm is not None:
+            minutes = cm
+
+    return {"minutes": minutes, "startTime": start_s, "endTime": end_s}
+
+
 def is_net_main_group(main_group) -> bool:
     """ネット事業部: users.main_group が 3 または '3'（LIFF / 管理画面と同一判定）。"""
     if main_group is None:
