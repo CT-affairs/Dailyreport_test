@@ -3802,8 +3802,13 @@ def sync_paid_holidays():
                                 pl = resolve_paid_leave_for_sync(use_id, holiday_type)
                                 minutes = pl["minutes"]
                                 minutes_src = "holiday_types_or_fallback"
-                                # use_id=1（全日有休）は work_kind.minutes を優先
-                                if str(use_id).strip() == "1" and work_kind_profile.get("minutes") is not None:
+                                # use_id=1 の work_kind.minutes 優先は full の場合のみ適用。
+                                # half は holiday_types（または fallback=240）を優先する。
+                                if (
+                                    str(use_id).strip() == "1"
+                                    and holiday_type == "full"
+                                    and work_kind_profile.get("minutes") is not None
+                                ):
                                     minutes = int(work_kind_profile.get("minutes"))
                                     minutes_src = "work_kind.minutes"
 
@@ -3851,8 +3856,13 @@ def sync_paid_holidays():
                             else:
                                 minutes = resolve_paid_leave_minutes_engineering(use_id, holiday_type)
                                 minutes_src = "holiday_types_or_fallback"
-                                # use_id=1（全日有休）は work_kind.minutes を優先
-                                if str(use_id).strip() == "1" and work_kind_profile.get("minutes") is not None:
+                                # use_id=1 の work_kind.minutes 優先は full の場合のみ適用。
+                                # half は holiday_types（または fallback=240）を優先する。
+                                if (
+                                    str(use_id).strip() == "1"
+                                    and holiday_type == "full"
+                                    and work_kind_profile.get("minutes") is not None
+                                ):
                                     minutes = int(work_kind_profile.get("minutes"))
                                     minutes_src = "work_kind.minutes"
                                 applied = register_paid_holiday_work_report(
