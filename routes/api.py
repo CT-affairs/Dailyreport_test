@@ -3788,10 +3788,10 @@ def sync_paid_holidays():
                         if holiday_type:
                             # デバッグ用: 判定直後の情報をログ出力（minutes 決定前）
                             current_app.logger.info(
-                                f\"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} candidate "
+                                f"{_TEMP_PAID_HOLIDAY_SYNC_LOG_TAG} candidate "
                                 f"company_emp={target_company_id} date={use_date_str} "
                                 f"use_id={log.get('use_id')!r} days={days} "
-                                f"holiday_bucket={holiday_type} work_kind_id={target_work_kind_id!r}\"
+                                f"holiday_bucket={holiday_type} work_kind_id={target_work_kind_id!r}"
                             )
 
                             # 工務: holiday_types.minutes（Firestore）を優先。use_id は work_kind_id または
