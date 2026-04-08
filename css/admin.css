@@ -356,12 +356,11 @@ th.sortable-th:hover {
     align-items: stretch !important;
 }
 #net-fiscal-past-reports-modal .net-fiscal-past-reports-modal-pane.dr-modal-content.dr-modal-left-pane {
-    width: 120% !important;
+    width: 100% !important;
     max-width: none !important;
     flex: 1 1 auto !important;
     min-width: 0 !important;
     border-radius: 0 !important;
-    margin-left: -10% !important;
 }
 /* 月度モーダル: 上部ナビ＋タイムテーブル＋下部詳細 */
 #net-fiscal-past-reports-modal .dr-modal-body {
@@ -370,7 +369,6 @@ th.sortable-th:hover {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    gap: 1px;
 }
 /* 月度モーダル: 見出しを小さく・余白を詰め、タイムテーブル領域を広げる */
 #net-fiscal-past-reports-modal .net-fiscal-past-reports-modal-header.dr-modal-header {
@@ -415,10 +413,10 @@ th.sortable-th:hover {
     padding: 6px 8px;
 }
 #net-fiscal-past-reports-modal .past-reports-layout {
-    min-height: min(102vh, 936px);
+    min-height: min(78vh, 720px);
 }
 #net-fiscal-past-reports-modal .past-day-timetable {
-    min-height: min(81vh, 780px);
+    min-height: min(62vh, 600px);
 }
 #net-fiscal-past-reports-modal .net-fiscal-past-task-detail {
     max-height: 22vh;
@@ -476,7 +474,7 @@ th.sortable-th:hover {
     line-height: 1.3;
 }
 .net-fiscal-past-task-detail-comment-block {
-    margin-top: 1px;
+    margin-top: 2px;
 }
 .net-fiscal-past-task-detail-heading {
     font-size: 0.68em;
@@ -495,7 +493,6 @@ th.sortable-th:hover {
     min-width: 0;
 }
 .net-fiscal-past-task-detail-value--multiline {
-    font-size: 0.68em;
     white-space: pre-wrap;
     max-height: 14em;
     overflow-y: auto;
