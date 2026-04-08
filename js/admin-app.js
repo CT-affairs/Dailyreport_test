@@ -1360,7 +1360,7 @@ function handleNavigation(target, params = {}, options = { push: true }) {
 
         case 'invoice_ocr':
             // 帳票_一覧は専用画面へ分離
-            window.location.href = `https://clean-techno.com/liff2/invoice.html`;
+            window.location.href = 'https://clean-techno.com/liff2/expenses-by-order.html';
             break;
 
         case 'system_admin':

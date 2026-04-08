@@ -1,6 +1,6 @@
 /**
- * js/admin-sidebar-user-info.js と同一実装（別リポジトリへ単体コピー用）。
- * 本番の管理画面は js/admin-sidebar-user-info.js を読み込む。
+ * 別ツール用のサイドバーユーザー表示モジュール（単体コピー用）。
+ * 日報ツールの管理画面では読み込まない。ユーザー表示は js/admin-app.js の updateUserInfo のみ。
  */
 (function (global) {
     'use strict';
