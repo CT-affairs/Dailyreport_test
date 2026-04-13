@@ -7916,10 +7916,11 @@ function shiftNetFiscalPastReportsClosingEnd(closingEndDate, deltaMonths) {
  * @returns {{ employeeId: string, name: string, date: string, groupId?: string, returnTarget?: string }|null}
  */
 function getNetFiscalPastReportsTargetContext() {
-    if (currentProxyTarget && currentProxyTarget.employeeId && currentProxyTarget.date) {
-        return currentProxyTarget;
-    }
-    if (dashboardListMode === 'net' && currentCalendarEmployeeId) {
+    const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
+    const isStaffCalendarNetView = activeTarget === 'staff_calendar_net';
+
+    // 日報_個別（ネット）画面では、現在表示中の社員を必ず優先する
+    if (isStaffCalendarNetView && dashboardListMode === 'net' && currentCalendarEmployeeId) {
         const selectedStaff = staffList.find((s) => String(s.employeeId) === String(currentCalendarEmployeeId));
         const cm = currentCalendarReportMonth || new Date();
         const y = cm.getUTCFullYear();
@@ -7932,6 +7933,9 @@ function getNetFiscalPastReportsTargetContext() {
             groupId: selectedStaff != null && selectedStaff.groupId != null ? String(selectedStaff.groupId) : '3',
             returnTarget: 'staff_calendar_net',
         };
+    }
+    if (currentProxyTarget && currentProxyTarget.employeeId && currentProxyTarget.date) {
+        return currentProxyTarget;
     }
     return null;
 }
