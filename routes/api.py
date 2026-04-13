@@ -2161,11 +2161,11 @@ def get_manager_calendar_statuses():
 
 @api_bp.route("/manager/past-reports", methods=["GET"])
 @token_required
-@manager_required
+@login_required
 def get_past_reports():
     """
     指定された従業員・期間の過去の日報データを取得する。
-    ネット事業部の代理入力画面での参照に使用。
+    ネット事業部の日報_個別・代理入力など、登録ユーザー全員が参照できるようにする。
     """
     employee_id = request.args.get('employee_id')
     start_date_str = request.args.get('start_date')
@@ -2193,11 +2193,10 @@ def get_past_reports():
 def get_past_reports_for_user():
     """
     一般ユーザー向け過去日報取得。
-    employee_id 未指定時は本人のみ。指定時は本人IDか管理者のみ許可。
+    employee_id 未指定時は本人。指定時も登録ユーザーであれば任意の従業員を参照可能（権限による制限なし）。
     """
     user_info = get_user_info_by_line_id(g.line_user_id)
     self_employee_id = user_info.get("company_employee_id")
-    is_manager = bool(user_info.get("is_manager"))
 
     employee_id = request.args.get('employee_id') or self_employee_id
     start_date_str = request.args.get('start_date')
@@ -2205,9 +2204,6 @@ def get_past_reports_for_user():
 
     if not all([employee_id, start_date_str, end_date_str]):
         abort(400, "employee_id, start_date, end_date are required.")
-
-    if (not is_manager) and str(employee_id) != str(self_employee_id):
-        abort(403, "他ユーザーの過去日報参照には管理者権限が必要です。")
 
     try:
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d')

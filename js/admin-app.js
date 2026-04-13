@@ -4663,7 +4663,10 @@ async function ensureProxyCategoryBOptionsForPastReports(kind) {
         return;
     }
     try {
-        const responseB = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/b?kind=${kind}`);
+        let responseB = await fetchWithAuth(`${API_BASE_URL}/api/manager/categories/b?kind=${kind}`);
+        if (!responseB.ok && (responseB.status === 401 || responseB.status === 403)) {
+            responseB = await fetchWithAuth(`${API_BASE_URL}/api/categories/b?kind=${kind}`);
+        }
         if (!responseB.ok) return;
         const categories = await responseB.json();
         const activeCategories = categories.filter((cat) => cat.active !== false);
