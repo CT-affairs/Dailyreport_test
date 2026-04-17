@@ -940,7 +940,12 @@ def get_accommodation_notes_for_employees(employee_ids: list[str], start_date: d
 
     return all_notes
 
-def get_on_site_status_for_employees(employee_ids: list[str], start_date: datetime, end_date: datetime) -> dict:
+def get_on_site_status_for_employees(
+    employee_ids: list[str],
+    start_date: datetime,
+    end_date: datetime,
+    collection_name: str = COLLECTION_DAILY_REPORTS,
+) -> dict:
     """
     指定された期間と従業員リストについて、現場作業ステータス（終日/半日）を取得する。
     日報のタスク(categoryA_id='A01' または 'A12')の合計時間から判定する。
@@ -960,7 +965,7 @@ def get_on_site_status_for_employees(employee_ids: list[str], start_date: dateti
     for i in range(0, len(employee_ids), chunk_size):
         id_chunk = employee_ids[i:i + chunk_size]
         
-        query = db.collection(COLLECTION_DAILY_REPORTS) \
+        query = db.collection(collection_name) \
             .where(filter=FieldFilter("company_employee_id", "in", id_chunk)) \
             .where(filter=FieldFilter("date", ">=", start_date)) \
             .where(filter=FieldFilter("date", "<=", end_date))

@@ -31,6 +31,8 @@ CORS(api_bp, supports_credentials=True)
 
 # --- クライアントと定数の初期化 ---
 db = firestore.Client()
+MONTHLY_CLOSINGS_COLLECTION = "monthly_closings"
+DAILY_REPORTS_SNAPSHOT_COLLECTION = "daily_reports_snapshot"
 import jwt
 LINE_LOGIN_CHANNEL_ID = os.environ.get("LINE_LOGIN_CHANNEL_ID")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
@@ -75,6 +77,57 @@ def _get_pc_session_secret() -> str:
         current_app.logger.critical("PC_SESSION_JWT_SECRET environment variable is not set!")
         abort(500, "Server configuration error: PC session secret is not set.")
     return secret
+
+
+def _build_period_key(start_date: datetime, end_date: datetime) -> str:
+    return f"{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}"
+
+
+def _load_monthly_closing_doc(period_key: str, division: str) -> dict | None:
+    doc_id = f"{period_key}_{division}"
+    doc = db.collection(MONTHLY_CLOSINGS_COLLECTION).document(doc_id).get()
+    if not doc.exists:
+        return None
+    data = doc.to_dict() or {}
+    data["_doc_id"] = doc_id
+    return data
+
+
+def _is_monthly_closing_completed(period_key: str, division: str) -> tuple[bool, str]:
+    data = _load_monthly_closing_doc(period_key, division)
+    if not data:
+        return False, DAILY_REPORTS_SNAPSHOT_COLLECTION
+
+    raw_status = data.get("status", "")
+    status = str(raw_status).strip().lower()
+    snapshot_collection = str(data.get("snapshot_collection") or DAILY_REPORTS_SNAPSHOT_COLLECTION).strip() or DAILY_REPORTS_SNAPSHOT_COLLECTION
+    return status == "completed", snapshot_collection
+
+
+def _resolve_summary_source_collection(target_month: str, start_date: datetime, end_date: datetime, division: str) -> str:
+    """
+    前月度のみ管理ドキュメントを参照して日報ソースを切り替える。
+    - current: 常に daily_reports
+    - previous:
+      - enj/net: 該当divisionが completed のときのみ snapshot
+      - all: enj/net の両方 completed のときのみ snapshot
+    """
+    if target_month != "previous":
+        return COLLECTION_DAILY_REPORTS
+
+    period_key = _build_period_key(start_date, end_date)
+    if division in ("enj", "net"):
+        completed, snapshot_collection = _is_monthly_closing_completed(period_key, division)
+        return snapshot_collection if completed else COLLECTION_DAILY_REPORTS
+
+    if division == "all":
+        enj_completed, enj_snapshot_collection = _is_monthly_closing_completed(period_key, "enj")
+        net_completed, net_snapshot_collection = _is_monthly_closing_completed(period_key, "net")
+        if enj_completed and net_completed:
+            return enj_snapshot_collection or net_snapshot_collection or DAILY_REPORTS_SNAPSHOT_COLLECTION
+        return COLLECTION_DAILY_REPORTS
+
+    return COLLECTION_DAILY_REPORTS
 
 def _minimize_user_info_for_session(user_info: dict) -> dict:
     """
@@ -2454,7 +2507,11 @@ def download_project_summary_excel():
             current_app.logger.error(f"Failed to load category_a work_types: {e}")
 
         # --- 2. 期間内の日報データを取得し、集計 ---
-        query = db.collection(COLLECTION_DAILY_REPORTS).where(filter=FieldFilter("date", ">=", start_date)).where(filter=FieldFilter("date", "<=", end_date))
+        source_collection = _resolve_summary_source_collection(target_month, start_date, end_date, "enj")
+        current_app.logger.info(
+            f"project-summary/excel source collection for '{target_month}': {source_collection}"
+        )
+        query = db.collection(source_collection).where(filter=FieldFilter("date", ">=", start_date)).where(filter=FieldFilter("date", "<=", end_date))
         docs = list(query.stream()) # リスト化して保持
 
         unique_kouban_ids = set()
@@ -2770,7 +2827,11 @@ def download_staff_summary_excel():
         employees.sort(key=lambda x: x['id']) # ID順
 
         # 3. 日報データを取得
-        query = db.collection(COLLECTION_DAILY_REPORTS).where(filter=FieldFilter("date", ">=", start_date)).where(filter=FieldFilter("date", "<=", end_date))
+        source_collection = _resolve_summary_source_collection(target_month, start_date, end_date, "enj")
+        current_app.logger.info(
+            f"staff-summary/excel source collection for '{target_month}': {source_collection}"
+        )
+        query = db.collection(source_collection).where(filter=FieldFilter("date", ">=", start_date)).where(filter=FieldFilter("date", "<=", end_date))
         docs = query.stream()
 
         # data_map[employee_id][date_str][category_a_id] = minutes
@@ -3002,8 +3063,13 @@ def download_net_task_summary_csv():
             f"Net task summary CSV period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
         )
 
+        source_collection = _resolve_summary_source_collection(target_month, start_date, end_date, "net")
+        current_app.logger.info(
+            f"net-task-summary/csv source collection for '{target_month}': {source_collection}"
+        )
+
         query = (
-            db.collection(COLLECTION_DAILY_REPORTS)
+            db.collection(source_collection)
             .where(filter=FieldFilter("date", ">=", start_date))
             .where(filter=FieldFilter("date", "<=", end_date))
         )
@@ -3169,9 +3235,19 @@ def download_allowance_excel():
         employee_ids = [e[0] for e in all_employees]
         id_to_name = {e[0]: e[1] for e in all_employees}
 
+        source_collection = _resolve_summary_source_collection(target_month, start_date, end_date, "all")
+        current_app.logger.info(
+            f"allowance/excel source collection for '{target_month}': {source_collection}"
+        )
+
         # 宿泊・現場データ取得
         accommodation = get_accommodation_notes_for_employees(employee_ids, start_date, end_date)
-        on_site = get_on_site_status_for_employees(employee_ids, start_date, end_date)
+        on_site = get_on_site_status_for_employees(
+            employee_ids,
+            start_date,
+            end_date,
+            collection_name=source_collection,
+        )
 
         # 宿泊が1件以上ある社員のみ
         accommodation_employees = [eid for eid in employee_ids if accommodation.get(eid)]
