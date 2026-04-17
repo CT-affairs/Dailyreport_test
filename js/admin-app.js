@@ -1814,6 +1814,68 @@ async function saveInvoiceOcrCurrentDraft() {
     }
 }
 
+/** ダッシュボード締め処理: 月度締め日（20日）基準で、直近に完了した締め日時（ローカル日付の終端） */
+function getDashboardLastCompletedShimeClosingEnd() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const d = now.getDate();
+    if (d > 20) {
+        return new Date(y, m, 20, 23, 59, 59, 999);
+    }
+    return new Date(y, m - 1, 20, 23, 59, 59, 999);
+}
+
+function formatElapsedDaysHoursFromEndToNow(endDate) {
+    const now = Date.now();
+    const t = endDate.getTime();
+    if (!Number.isFinite(t) || now <= t) return { days: 0, hours: 0 };
+    let diff = now - t;
+    const days = Math.floor(diff / 86400000);
+    diff -= days * 86400000;
+    const hours = Math.floor(diff / 3600000);
+    return { days, hours };
+}
+
+/** API 未接続時は localStorage で表示トグル（'1'=完了）。キーは将来 API に置き換え可能 */
+function isDashboardShimeComplete(kind) {
+    try {
+        return localStorage.getItem(`dashboard_shime_${kind}_complete`) === '1';
+    } catch (e) {
+        return false;
+    }
+}
+
+function updateDashboardShimePanel() {
+    const endAt = getDashboardLastCompletedShimeClosingEnd();
+    const { days, hours } = formatElapsedDaysHoursFromEndToNow(endAt);
+    const elapsedLine = `前月度が終わってから${days}日${hours}時間経過`;
+    const kDone = isDashboardShimeComplete('koumu');
+    const nDone = isDashboardShimeComplete('net');
+    const line = (done) => (done ? '締め処理は完了しています' : '締め処理が未完了です');
+
+    const kStatus = document.getElementById('dashboard-shime-koumu-status');
+    const kElapsed = document.getElementById('dashboard-shime-koumu-elapsed');
+    const nStatus = document.getElementById('dashboard-shime-net-status');
+    const nElapsed = document.getElementById('dashboard-shime-net-elapsed');
+    if (kStatus) {
+        kStatus.textContent = line(kDone);
+        kStatus.style.color = kDone ? '#2e7d32' : '#c0392b';
+    }
+    if (kElapsed) {
+        kElapsed.textContent = kDone ? '' : elapsedLine;
+        kElapsed.style.display = kDone ? 'none' : 'block';
+    }
+    if (nStatus) {
+        nStatus.textContent = line(nDone);
+        nStatus.style.color = nDone ? '#2e7d32' : '#c0392b';
+    }
+    if (nElapsed) {
+        nElapsed.textContent = nDone ? '' : elapsedLine;
+        nElapsed.style.display = nDone ? 'none' : 'block';
+    }
+}
+
 /**
  * ダッシュボード（ホーム）画面の描画
  */
@@ -1830,6 +1892,8 @@ async function renderDashboardHome(container) {
 
     container.innerHTML = `
         <div class="dashboard-container" style="padding: 20px; max-width: 1000px;">
+            <div class="dashboard-home-two-col">
+                <div class="dashboard-home-col-left">
 
             <!-- 上部: 改修情報 -->
             <div class="card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; position: relative;">
@@ -1918,22 +1982,36 @@ async function renderDashboardHome(container) {
                 </p>
             </div>
 
-            <!-- 締め処理（レイアウト枠のみ・処理未実装） -->
-            <div class="card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                </div>
+                <div class="dashboard-home-col-right">
+
+            <!-- 締め処理（右列・処理は今後接続） -->
+            <div class="card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;">
                 <h3 style="margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; font-size: 1.2em; color: #2c3e50;">締め処理</h3>
-                <div style="min-height: 300px; display: flex; flex-direction: column;">
+                <div style="display: flex; flex-direction: column; gap: 0;">
                     <div style="margin-top: 15px; margin-bottom: 20px;">
                         <h4 style="margin: 0 0 8px 0; font-size: 1em; color: ${navyColor};">工務</h4>
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button type="button" id="dashboard-shime-koumu-btn" class="btn-dashboard-action" disabled title="準備中" aria-disabled="true" style="opacity: 0.55; cursor: not-allowed; background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">工務の締め</button>
+                        <div style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px;">
+                            <button type="button" id="dashboard-shime-koumu-btn" class="btn-dashboard-action" title="準備中（クリックで案内）" style="flex-shrink: 0; background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">締め処理実行</button>
+                            <div style="flex: 1; min-width: 0; font-size: 0.9em; line-height: 1.55; color: #555;">
+                                <div id="dashboard-shime-koumu-status" style="font-weight: 600;">締め処理が未完了です</div>
+                                <div id="dashboard-shime-koumu-elapsed" style="margin-top: 4px; color: #666;"></div>
+                            </div>
                         </div>
                     </div>
-                    <div style="margin-top: auto; padding-top: 16px; border-top: 1px solid #f0f0f0;">
+                    <div style="padding-top: 16px; border-top: 1px solid #f0f0f0;">
                         <h4 style="margin: 0 0 8px 0; font-size: 1em; color: ${navyColor};">ネット事業部</h4>
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button type="button" id="dashboard-shime-net-btn" class="btn-dashboard-action" disabled title="準備中" aria-disabled="true" style="opacity: 0.55; cursor: not-allowed; background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">ネットの締め</button>
+                        <div style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px;">
+                            <button type="button" id="dashboard-shime-net-btn" class="btn-dashboard-action" title="準備中（クリックで案内）" style="flex-shrink: 0; background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">締め処理実行</button>
+                            <div style="flex: 1; min-width: 0; font-size: 0.9em; line-height: 1.55; color: #555;">
+                                <div id="dashboard-shime-net-status" style="font-weight: 600;">締め処理が未完了です</div>
+                                <div id="dashboard-shime-net-elapsed" style="margin-top: 4px; color: #666;"></div>
+                            </div>
                         </div>
                     </div>
+                </div>
+            </div>
+
                 </div>
             </div>
 
@@ -1962,6 +2040,20 @@ async function renderDashboardHome(container) {
     document.getElementById('goto-sys-admin-btn').addEventListener('click', () => {
         handleNavigation('system_admin');
     });
+
+    updateDashboardShimePanel();
+    const shimeKBtn = document.getElementById('dashboard-shime-koumu-btn');
+    const shimeNBtn = document.getElementById('dashboard-shime-net-btn');
+    if (shimeKBtn) {
+        shimeKBtn.addEventListener('click', () => {
+            showToast('締め処理は今後実装予定です。', 'info');
+        });
+    }
+    if (shimeNBtn) {
+        shimeNBtn.addEventListener('click', () => {
+            showToast('締め処理は今後実装予定です。', 'info');
+        });
+    }
 
     // Excelダウンロードボタン（API経由）
     const handleExcelDownload = async (targetMonth, btnId) => {

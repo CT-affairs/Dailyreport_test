@@ -327,6 +327,27 @@ th.sortable-th:hover {
     background-color: #2980b9;
 }
 
+/* ダッシュボード（ホーム）: 左 40% / 右 60%（既存コンテナ幅に対する比率） */
+.dashboard-home-two-col {
+    display: grid;
+    grid-template-columns: minmax(0, 40fr) minmax(0, 60fr);
+    gap: 20px;
+    align-items: start;
+    box-sizing: border-box;
+}
+
+.dashboard-home-col-left,
+.dashboard-home-col-right {
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+@media (max-width: 900px) {
+    .dashboard-home-two-col {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 /* --- 過去日報一覧（月度）モーダル: admin シェルに配置（日報_個別ネットの「一覧」から開く） --- */
 .dr-modal {
     display: none !important;
