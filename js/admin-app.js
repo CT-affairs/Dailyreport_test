@@ -1918,6 +1918,25 @@ async function renderDashboardHome(container) {
                 </p>
             </div>
 
+            <!-- 締め処理（レイアウト枠のみ・処理未実装） -->
+            <div class="card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                <h3 style="margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; font-size: 1.2em; color: #2c3e50;">締め処理</h3>
+                <div style="min-height: 300px; display: flex; flex-direction: column;">
+                    <div style="margin-top: 15px; margin-bottom: 20px;">
+                        <h4 style="margin: 0 0 8px 0; font-size: 1em; color: ${navyColor};">工務</h4>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button type="button" id="dashboard-shime-koumu-btn" class="btn-dashboard-action" disabled title="準備中" aria-disabled="true" style="opacity: 0.55; cursor: not-allowed; background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">工務の締め</button>
+                        </div>
+                    </div>
+                    <div style="margin-top: auto; padding-top: 16px; border-top: 1px solid #f0f0f0;">
+                        <h4 style="margin: 0 0 8px 0; font-size: 1em; color: ${navyColor};">ネット事業部</h4>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button type="button" id="dashboard-shime-net-btn" class="btn-dashboard-action" disabled title="準備中" aria-disabled="true" style="opacity: 0.55; cursor: not-allowed; background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">ネットの締め</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 全社連絡 (非表示) -->
             <!--
             <div class="company-announcement-section"> ... </div>
