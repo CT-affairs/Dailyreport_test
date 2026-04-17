@@ -1847,6 +1847,8 @@ function isDashboardShimeComplete(kind) {
 }
 
 function updateDashboardShimePanel() {
+    const featureEnabledAt = new Date(2026, 3, 20, 0, 0, 0, 0); // 2026/04/20 00:00 (local)
+    const isFeatureEnabled = Date.now() >= featureEnabledAt.getTime();
     const endAt = getDashboardLastCompletedShimeClosingEnd();
     const { days, hours } = formatElapsedDaysHoursFromEndToNow(endAt);
     const elapsedLine = `前月度が終わってから${days}日${hours}時間経過`;
@@ -1858,6 +1860,42 @@ function updateDashboardShimePanel() {
     const kElapsed = document.getElementById('dashboard-shime-koumu-elapsed');
     const nStatus = document.getElementById('dashboard-shime-net-status');
     const nElapsed = document.getElementById('dashboard-shime-net-elapsed');
+    const kBtn = document.getElementById('dashboard-shime-koumu-btn');
+    const nBtn = document.getElementById('dashboard-shime-net-btn');
+
+    if (kBtn) {
+        kBtn.disabled = !isFeatureEnabled;
+        kBtn.style.opacity = isFeatureEnabled ? '1' : '0.55';
+        kBtn.style.cursor = isFeatureEnabled ? 'pointer' : 'not-allowed';
+        kBtn.title = isFeatureEnabled ? '準備中（クリックで案内）' : '2026/04/20 以降に有効';
+    }
+    if (nBtn) {
+        nBtn.disabled = !isFeatureEnabled;
+        nBtn.style.opacity = isFeatureEnabled ? '1' : '0.55';
+        nBtn.style.cursor = isFeatureEnabled ? 'pointer' : 'not-allowed';
+        nBtn.title = isFeatureEnabled ? '準備中（クリックで案内）' : '2026/04/20 以降に有効';
+    }
+
+    if (!isFeatureEnabled) {
+        if (kStatus) {
+            kStatus.textContent = '2026/04/20 以降に判定開始';
+            kStatus.style.color = '#7f8c8d';
+        }
+        if (kElapsed) {
+            kElapsed.textContent = '';
+            kElapsed.style.display = 'none';
+        }
+        if (nStatus) {
+            nStatus.textContent = '2026/04/20 以降に判定開始';
+            nStatus.style.color = '#7f8c8d';
+        }
+        if (nElapsed) {
+            nElapsed.textContent = '';
+            nElapsed.style.display = 'none';
+        }
+        return;
+    }
+
     if (kStatus) {
         kStatus.textContent = line(kDone);
         kStatus.style.color = kDone ? '#2e7d32' : '#c0392b';
@@ -1889,10 +1927,13 @@ async function renderDashboardHome(container) {
     const grayColor = '#6c757d'; // 全社ボタン
     const grayBorderColor = '#5a6268';
     const buttonSizeStyle = 'padding: 4px 10px; font-size: 0.9em;';
+    const DASHBOARD_BASE_WIDTH_PX = 1000;
+    const SHIME_COLUMN_WIDTH_PX = Math.round(DASHBOARD_BASE_WIDTH_PX * 0.6);
+    const DASHBOARD_TWO_COL_WIDTH_PX = DASHBOARD_BASE_WIDTH_PX + SHIME_COLUMN_WIDTH_PX + 20; // +gap
 
     container.innerHTML = `
-        <div class="dashboard-container" style="padding: 20px; max-width: 1000px;">
-            <div class="dashboard-home-two-col">
+        <div class="dashboard-container" style="padding: 20px; max-width: ${DASHBOARD_TWO_COL_WIDTH_PX}px;">
+            <div class="dashboard-home-two-col" style="--dashboard-left-col-width: ${DASHBOARD_BASE_WIDTH_PX}px; --dashboard-right-col-width: ${SHIME_COLUMN_WIDTH_PX}px;">
                 <div class="dashboard-home-col-left">
 
             <!-- 上部: 改修情報 -->
@@ -2046,11 +2087,13 @@ async function renderDashboardHome(container) {
     const shimeNBtn = document.getElementById('dashboard-shime-net-btn');
     if (shimeKBtn) {
         shimeKBtn.addEventListener('click', () => {
+            if (shimeKBtn.disabled) return;
             showToast('締め処理は今後実装予定です。', 'info');
         });
     }
     if (shimeNBtn) {
         shimeNBtn.addEventListener('click', () => {
+            if (shimeNBtn.disabled) return;
             showToast('締め処理は今後実装予定です。', 'info');
         });
     }

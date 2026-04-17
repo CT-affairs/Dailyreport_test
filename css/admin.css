@@ -327,10 +327,10 @@ th.sortable-th:hover {
     background-color: #2980b9;
 }
 
-/* ダッシュボード（ホーム）: 左 40% / 右 60%（既存コンテナ幅に対する比率） */
+/* ダッシュボード（ホーム）: 左=既存幅、右=既存幅の60% */
 .dashboard-home-two-col {
     display: grid;
-    grid-template-columns: minmax(0, 40fr) minmax(0, 60fr);
+    grid-template-columns: minmax(0, var(--dashboard-left-col-width, 1000px)) minmax(0, var(--dashboard-right-col-width, 600px));
     gap: 20px;
     align-items: start;
     box-sizing: border-box;
