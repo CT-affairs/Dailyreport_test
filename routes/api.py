@@ -173,54 +173,6 @@ def execute_monthly_closing_stub(division: str, started_by: str | None = None) -
     }
 
 
-@api_bp.route("/manager/monthly-closing", methods=["POST"])
-@token_required
-@login_required
-@manager_required
-def post_manager_monthly_closing():
-    """
-    前月度の締め処理 API（第一段階）。
-    管理ドキュメント上で当該 `period_key` + `division` が **completed** のときは 409 を返す。
-    未完了のときは仮 stub 応答（スナップショット本体は未実行）。
-    """
-    data = request.get_json() or {}
-    division = str(data.get("division", "")).strip().lower()
-    if division not in ("enj", "net"):
-        abort(400, "division は 'enj' または 'net' を指定してください。")
-
-    period_start, period_end = compute_previous_monthly_period()
-    period_key = _build_period_key(period_start, period_end)
-
-    closings_coll = monthly_closings_collection_for_closing_run()
-    default_snap = default_snapshot_collection_for_closing_run()
-    completed, snapshot_collection = _is_monthly_closing_completed(
-        period_key,
-        division,
-        closings_collection=closings_coll,
-        default_snapshot_collection=default_snap,
-    )
-    if completed:
-        abort(409, "この前月度・部署の締め処理はすでに完了しています。")
-
-    if is_monthly_closing_test_mode():
-        current_app.logger.warning(
-            "MONTHLY_CLOSING_TEST_MODE is enabled: closing run uses "
-            f"closings_collection={closings_coll!r} snapshot_collection={snapshot_collection!r}"
-        )
-
-    started_by = ""
-    if hasattr(g, "user_info") and isinstance(g.user_info, dict):
-        started_by = str(g.user_info.get("company_employee_id") or "").strip()
-
-    payload = execute_monthly_closing_stub(division, started_by=started_by)
-    payload["period_key"] = period_key
-    payload["period_start"] = period_start.isoformat()
-    payload["period_end"] = period_end.isoformat()
-    payload["test_mode"] = is_monthly_closing_test_mode()
-    payload["monthly_closings_collection"] = closings_coll
-    payload["snapshot_collection"] = snapshot_collection
-    return jsonify(payload), 200
-
 def _minimize_user_info_for_session(user_info: dict) -> dict:
     """
     Cookie サイズを抑えるため、認証・識別に必要な最小限のみ保持する。
@@ -372,6 +324,56 @@ def login_required(f):
             
         return f(*args, **kwargs)
     return decorated_function
+
+
+@api_bp.route("/manager/monthly-closing", methods=["POST"])
+@token_required
+@login_required
+@manager_required
+def post_manager_monthly_closing():
+    """
+    前月度の締め処理 API（第一段階）。
+    管理ドキュメント上で当該 `period_key` + `division` が **completed** のときは 409 を返す。
+    未完了のときは仮 stub 応答（スナップショット本体は未実行）。
+    """
+    data = request.get_json() or {}
+    division = str(data.get("division", "")).strip().lower()
+    if division not in ("enj", "net"):
+        abort(400, "division は 'enj' または 'net' を指定してください。")
+
+    period_start, period_end = compute_previous_monthly_period()
+    period_key = _build_period_key(period_start, period_end)
+
+    closings_coll = monthly_closings_collection_for_closing_run()
+    default_snap = default_snapshot_collection_for_closing_run()
+    completed, snapshot_collection = _is_monthly_closing_completed(
+        period_key,
+        division,
+        closings_collection=closings_coll,
+        default_snapshot_collection=default_snap,
+    )
+    if completed:
+        abort(409, "この前月度・部署の締め処理はすでに完了しています。")
+
+    if is_monthly_closing_test_mode():
+        current_app.logger.warning(
+            "MONTHLY_CLOSING_TEST_MODE is enabled: closing run uses "
+            f"closings_collection={closings_coll!r} snapshot_collection={snapshot_collection!r}"
+        )
+
+    started_by = ""
+    if hasattr(g, "user_info") and isinstance(g.user_info, dict):
+        started_by = str(g.user_info.get("company_employee_id") or "").strip()
+
+    payload = execute_monthly_closing_stub(division, started_by=started_by)
+    payload["period_key"] = period_key
+    payload["period_start"] = period_start.isoformat()
+    payload["period_end"] = period_end.isoformat()
+    payload["test_mode"] = is_monthly_closing_test_mode()
+    payload["monthly_closings_collection"] = closings_coll
+    payload["snapshot_collection"] = snapshot_collection
+    return jsonify(payload), 200
+
 
 def get_authenticated_user_info() -> dict:
     """
