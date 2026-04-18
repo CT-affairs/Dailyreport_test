@@ -49,6 +49,7 @@
 | 勤務時間取得 | GET | `/api/work-time` | Jobcan 連携・パラメータで挙動切替 |
 | PC セッション | POST / DELETE | `/api/pc/session` | LINE ID トークン起点 |
 | 予実一覧（管理） | GET | `/api/manager/daily-reports` | 管理者向け |
+| 締め処理（前月度・第一段階） | POST | `/api/manager/monthly-closing` | 管理者向け。完了済みは 409。本体コピー接続前は stub 応答 |
 | 過去日報 | GET | `/api/manager/past-reports` / `/api/past-reports` | 登録ユーザー向け（詳細は `routes/api.py`） |
 | Webhook | POST | （`webhook_bp` 登録パス） | LINE 署名 |
 
@@ -86,6 +87,9 @@
 | `LINE_MESSAGING_API_CHANNEL_SECRET` | Webhook 署名検証 |
 | `TEST_LINE_USER_ID` | テスト通知（任意） |
 | `PORT` | ローカル起動時ポート（既定 8080 等） |
+| `MONTHLY_CLOSING_TEST_MODE` | 真（`1` / `true` / `yes` / `on`、大文字小文字無視）のとき、締め処理 API の**管理ドキュメント・スナップショット既定先**だけをテスト用コレクションに切り替える。集計の前月度参照は**常に本番**の `monthly_closings` / `daily_reports_snapshot` のみ |
+| `MONTHLY_CLOSINGS_TEST_COLLECTION` | 任意。テスト時の管理ドキュメントコレクション名（既定 `monthly_closings_test`） |
+| `MONTHLY_CLOSING_TEST_SNAPSHOT_COLLECTION` | 任意。テスト時のスナップショット既定コレクション名（既定 `daily_reports_snapshot_test`） |
 | （GCP） | Cloud Run / Firestore 用プロジェクトは `app_core/config.py` の `PROJECT_ID` 等 |
 
 ローカルではリポジトリ直下に `.env` を置くと `main.py` が読み込む。完全な一覧は運用に合わせて `.env.example` がある場合はそれを正とする。
@@ -124,6 +128,7 @@
 
 | 日付 | 変更内容 |
 |------|----------|
+| 2026-04-18 | 締め: `date` / `group_id` ルール README、`calculate_monthly_period` 一本化、完了済み 409、`MONTHLY_CLOSING_TEST_MODE` とテスト用コレクション分離、締め API 応答に `test_mode` 等 |
 | 2026-04-16 | `context.md.example` に沿った README 初版 |
 
 ---
@@ -200,6 +205,38 @@
   - 例: `2026-03-21_2026-04-20_enj`
 - すべての日報は、対象月度のいずれか一方に必ず属する。
   - `"{period_key}_enj"` または `"{period_key}_net"`
+
+### 合意7-補足（確定）: 締め対象ドキュメントの判定基準
+
+- **対象に含めるかどうかは、ドキュメントの `date` フィールド**で判定する（集計 API が `daily_reports` に対して行う `date` の範囲条件と同一の考え方）。
+- ドキュメント ID に埋め込まれた日付だけでは判定しない（ID と `date` が不整合なレガシーがあっても、集計と締めで同じドキュメント集合を見るため）。
+- **`group_id` が欠損している場合（`None`、空文字、空白のみ等）の現状ルール**: **ネット（`net`）には含めず、工務（`enj`）側の扱いとする**（`str(group_id).strip() == "3"` のときだけ `net`。それ以外はすべて `enj`）。
+
+### 合意7-API（確定）: 完了済み締めの拒否
+
+- `POST /api/manager/monthly-closing` は、対象となる前月度の `period_key` とリクエストの `division` について、管理ドキュメントの `status` が **completed**（前後空白を除き小文字比較）のとき **HTTP 409** で拒否する。
+- 締め処理本体（スナップショットコピー等）の実装より先に本チェックを完成させる。
+
+### 実装メモ: 月度期間の単一ソース
+
+- 月度の開始・終了の計算は **`app_core.utils` の `calculate_monthly_period` のみ**を正とする。
+- 締め対象の補助ロジック（`app_core/monthly_closing_snapshot_selection.py`）も同関数を import して用いる。
+- **保守**: 締め本体を実装したあと、コードベースに utils と**重複した月度計算**（未使用のヘルパ等）が残っていないか確認し、残存していれば可読性・単一責務の観点から**削除を検討**する。
+
+### テストモード（締め処理の本番前検証）
+
+**ロジックの妥当性（結論）**: 妥当。Firestore ではコレクションは書き込みで暗黙的に作られるため、「テスト専用のスナップショットコレクション」にだけコピーを書き、検証後に**そのコレクション（と、テスト用の管理コレクション）を丸ごと削除**すれば、本番の `daily_reports`・`monthly_closings`・`daily_reports_snapshot` には手をかけていなければ本番へ影響しない。
+
+**実装方針**
+
+- 環境変数 `MONTHLY_CLOSING_TEST_MODE` が真のとき、締め実行 API（および将来の締め本体）は **`monthly_closings_test` / `daily_reports_snapshot_test` を既定**とする（上書きは `MONTHLY_CLOSINGS_TEST_COLLECTION` / `MONTHLY_CLOSING_TEST_SNAPSHOT_COLLECTION`）。
+- **集計**（前月度で `daily_reports` と `daily_reports_snapshot` を切り替える処理）は、**常に本番**の `monthly_closings` のみを参照する（テストモードの切替の影響を受けない）。
+- 締め本体実装時は、コピー先・管理ドキュメントの参照に **`app_core.config` の `monthly_closings_collection_for_closing_run` / `default_snapshot_collection_for_closing_run`** を用いる。
+
+**運用上の注意**
+
+- 検証後は **テスト用コレクションだけ** を削除すること（誤って本番コレクションを消さない）。
+- 本番 Cloud Run で検証する場合、検証後は **`MONTHLY_CLOSING_TEST_MODE` を必ずオフ**にする。オンにしたままだと、管理者の締め操作がテスト用コレクションに流れ続ける。
 
 ### 合意8（確定）: 締め後コピー先のドキュメントIDは元 `daily_reports` と同一IDを使用
 

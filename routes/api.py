@@ -19,9 +19,18 @@ import json
 
 from datetime import datetime, timezone, timedelta
 from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes, resolve_paid_leave_minutes_engineering, resolve_paid_leave_for_sync, resolve_paid_leave_for_sync_by_work_kind, is_net_main_group, default_net_paid_leave_time_slot
+from app_core.monthly_closing_snapshot_selection import compute_previous_monthly_period
 from app_core.utils import send_push_message, activate_download_link
 # from app_core.utils import send_quick_report_email # 【実装保留】のためコメントアウト
-from app_core.config import COLLECTION_DAILY_REPORTS, COLLECTION_JOBCAN_RAW_RESPONSES
+from app_core.config import (
+    COLLECTION_DAILY_REPORTS,
+    COLLECTION_JOBCAN_RAW_RESPONSES,
+    DAILY_REPORTS_SNAPSHOT_COLLECTION,
+    MONTHLY_CLOSINGS_COLLECTION,
+    default_snapshot_collection_for_closing_run,
+    is_monthly_closing_test_mode,
+    monthly_closings_collection_for_closing_run,
+)
 from functools import wraps
 from flask_cors import CORS
 
@@ -31,8 +40,6 @@ CORS(api_bp, supports_credentials=True)
 
 # --- クライアントと定数の初期化 ---
 db = firestore.Client()
-MONTHLY_CLOSINGS_COLLECTION = "monthly_closings"
-DAILY_REPORTS_SNAPSHOT_COLLECTION = "daily_reports_snapshot"
 import jwt
 LINE_LOGIN_CHANNEL_ID = os.environ.get("LINE_LOGIN_CHANNEL_ID")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
@@ -83,9 +90,15 @@ def _build_period_key(start_date: datetime, end_date: datetime) -> str:
     return f"{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}"
 
 
-def _load_monthly_closing_doc(period_key: str, division: str) -> dict | None:
+def _load_monthly_closing_doc(
+    period_key: str,
+    division: str,
+    *,
+    closings_collection: str | None = None,
+) -> dict | None:
+    coll = closings_collection or MONTHLY_CLOSINGS_COLLECTION
     doc_id = f"{period_key}_{division}"
-    doc = db.collection(MONTHLY_CLOSINGS_COLLECTION).document(doc_id).get()
+    doc = db.collection(coll).document(doc_id).get()
     if not doc.exists:
         return None
     data = doc.to_dict() or {}
@@ -93,14 +106,26 @@ def _load_monthly_closing_doc(period_key: str, division: str) -> dict | None:
     return data
 
 
-def _is_monthly_closing_completed(period_key: str, division: str) -> tuple[bool, str]:
-    data = _load_monthly_closing_doc(period_key, division)
+def _is_monthly_closing_completed(
+    period_key: str,
+    division: str,
+    *,
+    closings_collection: str | None = None,
+    default_snapshot_collection: str | None = None,
+) -> tuple[bool, str]:
+    """
+    closings_collection / default_snapshot_collection を省略したときは本番の
+    monthly_closings / daily_reports_snapshot を前提とする（集計の参照切替用）。
+    """
+    coll = closings_collection or MONTHLY_CLOSINGS_COLLECTION
+    default_snap = default_snapshot_collection or DAILY_REPORTS_SNAPSHOT_COLLECTION
+    data = _load_monthly_closing_doc(period_key, division, closings_collection=coll)
     if not data:
-        return False, DAILY_REPORTS_SNAPSHOT_COLLECTION
+        return False, default_snap
 
     raw_status = data.get("status", "")
     status = str(raw_status).strip().lower()
-    snapshot_collection = str(data.get("snapshot_collection") or DAILY_REPORTS_SNAPSHOT_COLLECTION).strip() or DAILY_REPORTS_SNAPSHOT_COLLECTION
+    snapshot_collection = str(data.get("snapshot_collection") or default_snap).strip() or default_snap
     return status == "completed", snapshot_collection
 
 
@@ -136,8 +161,8 @@ def execute_monthly_closing_stub(division: str, started_by: str | None = None) -
     現時点では何も更新せず、呼び出し側に「未実装」情報のみ返す。
 
     NOTE:
-    - まだどの API からも呼び出さないことを前提とする。
     - 実装時に管理ドキュメント更新・スナップショット作成処理へ置き換える。
+    - **完了済みチェック**は `POST /api/manager/monthly-closing` 側で行う（本関数は未チェック）。
     """
     return {
         "status": "stub",
@@ -146,6 +171,55 @@ def execute_monthly_closing_stub(division: str, started_by: str | None = None) -
         "started_by": started_by or "",
         "updated": False,
     }
+
+
+@api_bp.route("/manager/monthly-closing", methods=["POST"])
+@token_required
+@login_required
+@manager_required
+def post_manager_monthly_closing():
+    """
+    前月度の締め処理 API（第一段階）。
+    管理ドキュメント上で当該 `period_key` + `division` が **completed** のときは 409 を返す。
+    未完了のときは仮 stub 応答（スナップショット本体は未実行）。
+    """
+    data = request.get_json() or {}
+    division = str(data.get("division", "")).strip().lower()
+    if division not in ("enj", "net"):
+        abort(400, "division は 'enj' または 'net' を指定してください。")
+
+    period_start, period_end = compute_previous_monthly_period()
+    period_key = _build_period_key(period_start, period_end)
+
+    closings_coll = monthly_closings_collection_for_closing_run()
+    default_snap = default_snapshot_collection_for_closing_run()
+    completed, snapshot_collection = _is_monthly_closing_completed(
+        period_key,
+        division,
+        closings_collection=closings_coll,
+        default_snapshot_collection=default_snap,
+    )
+    if completed:
+        abort(409, "この前月度・部署の締め処理はすでに完了しています。")
+
+    if is_monthly_closing_test_mode():
+        current_app.logger.warning(
+            "MONTHLY_CLOSING_TEST_MODE is enabled: closing run uses "
+            f"closings_collection={closings_coll!r} snapshot_collection={snapshot_collection!r}"
+        )
+
+    started_by = ""
+    if hasattr(g, "user_info") and isinstance(g.user_info, dict):
+        started_by = str(g.user_info.get("company_employee_id") or "").strip()
+
+    payload = execute_monthly_closing_stub(division, started_by=started_by)
+    payload["period_key"] = period_key
+    payload["period_start"] = period_start.isoformat()
+    payload["period_end"] = period_end.isoformat()
+    payload["test_mode"] = is_monthly_closing_test_mode()
+    payload["monthly_closings_collection"] = closings_coll
+    payload["snapshot_collection"] = snapshot_collection
+    return jsonify(payload), 200
 
 def _minimize_user_info_for_session(user_info: dict) -> dict:
     """
