@@ -1914,6 +1914,20 @@ function updateDashboardShimePanel() {
     }
 }
 
+function confirmDashboardShimeExecution(divisionLabel) {
+    if (!confirm('あなたは担当部署の締め処理を実施する管理者で間違いありませんか？')) {
+        return false;
+    }
+    if (!confirm('締め処理は原則、部署内全従業員が、日報入力を完了しているのが前提となります。実行しますか？')) {
+        return false;
+    }
+    if (!confirm('この処理はやり直しが効きません。本当に実行してよろしいですか？')) {
+        return false;
+    }
+    showToast(`${divisionLabel}の締め処理は未実装です（確認フローのみ有効）。`, 'info');
+    return true;
+}
+
 /**
  * ダッシュボード（ホーム）画面の描画
  */
@@ -2088,13 +2102,13 @@ async function renderDashboardHome(container) {
     if (shimeKBtn) {
         shimeKBtn.addEventListener('click', () => {
             if (shimeKBtn.disabled) return;
-            showToast('締め処理は今後実装予定です。', 'info');
+            confirmDashboardShimeExecution('工務');
         });
     }
     if (shimeNBtn) {
         shimeNBtn.addEventListener('click', () => {
             if (shimeNBtn.disabled) return;
-            showToast('締め処理は今後実装予定です。', 'info');
+            confirmDashboardShimeExecution('ネット事業部');
         });
     }
 

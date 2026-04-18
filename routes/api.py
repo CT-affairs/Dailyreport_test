@@ -129,6 +129,24 @@ def _resolve_summary_source_collection(target_month: str, start_date: datetime, 
 
     return COLLECTION_DAILY_REPORTS
 
+
+def execute_monthly_closing_stub(division: str, started_by: str | None = None) -> dict:
+    """
+    締め処理本体の仮実装（未接続）。
+    現時点では何も更新せず、呼び出し側に「未実装」情報のみ返す。
+
+    NOTE:
+    - まだどの API からも呼び出さないことを前提とする。
+    - 実装時に管理ドキュメント更新・スナップショット作成処理へ置き換える。
+    """
+    return {
+        "status": "stub",
+        "message": "monthly closing is not implemented yet",
+        "division": str(division or "").strip(),
+        "started_by": started_by or "",
+        "updated": False,
+    }
+
 def _minimize_user_info_for_session(user_info: dict) -> dict:
     """
     Cookie サイズを抑えるため、認証・識別に必要な最小限のみ保持する。
