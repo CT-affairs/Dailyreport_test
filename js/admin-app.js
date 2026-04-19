@@ -1867,13 +1867,13 @@ function updateDashboardShimePanel() {
         kBtn.disabled = !isFeatureEnabled;
         kBtn.style.opacity = isFeatureEnabled ? '1' : '0.55';
         kBtn.style.cursor = isFeatureEnabled ? 'pointer' : 'not-allowed';
-        kBtn.title = isFeatureEnabled ? '準備中（クリックで案内）' : '2026/04/20 以降に有効';
+        kBtn.title = isFeatureEnabled ? '前月度の締め処理を実行（API）' : '2026/04/20 以降に有効';
     }
     if (nBtn) {
         nBtn.disabled = !isFeatureEnabled;
         nBtn.style.opacity = isFeatureEnabled ? '1' : '0.55';
         nBtn.style.cursor = isFeatureEnabled ? 'pointer' : 'not-allowed';
-        nBtn.title = isFeatureEnabled ? '準備中（クリックで案内）' : '2026/04/20 以降に有効';
+        nBtn.title = isFeatureEnabled ? '前月度の締め処理を実行（API）' : '2026/04/20 以降に有効';
     }
 
     if (!isFeatureEnabled) {
@@ -1914,18 +1914,73 @@ function updateDashboardShimePanel() {
     }
 }
 
-function confirmDashboardShimeExecution(divisionLabel) {
+/**
+ * ダッシュボード締めボタン: 確認の後に POST /api/manager/monthly-closing を呼ぶ。
+ * @param {'enj'|'net'} division
+ * @param {string} divisionLabel 表示用（工務 / ネット事業部）
+ */
+async function executeDashboardShimeClosing(division, divisionLabel) {
     if (!confirm('あなたは担当部署の締め処理を実施する管理者で間違いありませんか？')) {
-        return false;
+        return;
     }
     if (!confirm('締め処理は原則、部署内全従業員が、日報入力を完了しているのが前提となります。実行しますか？')) {
-        return false;
+        return;
     }
     if (!confirm('この処理はやり直しが効きません。本当に実行してよろしいですか？')) {
-        return false;
+        return;
     }
-    showToast(`${divisionLabel}の締め処理は未実装です（確認フローのみ有効）。`, 'info');
-    return true;
+
+    const kBtn = document.getElementById('dashboard-shime-koumu-btn');
+    const nBtn = document.getElementById('dashboard-shime-net-btn');
+    const busy = [kBtn, nBtn].filter(Boolean);
+    busy.forEach((b) => {
+        b.disabled = true;
+        b.dataset._shimePrevText = b.textContent;
+        b.textContent = '実行中...';
+    });
+
+    try {
+        const res = await fetchWithAuth(`${API_BASE_URL}/api/manager/monthly-closing`, {
+            method: 'POST',
+            body: JSON.stringify({ division }),
+        });
+        const raw = await res.text();
+        let data = {};
+        try {
+            data = raw ? JSON.parse(raw) : {};
+        } catch {
+            data = { message: raw.slice(0, 300).trim() || res.statusText };
+        }
+        const errMsg = data.message || data.error || data.description || `HTTP ${res.status}`;
+
+        if (res.ok) {
+            const testHint = data.test_mode ? '［テストモード］' : '';
+            const period = data.period_key ? ` (${data.period_key})` : '';
+            showToast(
+                `${divisionLabel} ${testHint}${data.message || '締め処理APIが応答しました。'}${period}`,
+                data.status === 'stub' ? 'info' : 'success',
+            );
+        } else if (res.status === 409) {
+            showToast(errMsg, 'warning');
+            try {
+                const key = division === 'net' ? 'dashboard_shime_net_complete' : 'dashboard_shime_koumu_complete';
+                localStorage.setItem(key, '1');
+            } catch (e) {
+                /* ignore */
+            }
+        } else {
+            showToast(errMsg, 'error');
+        }
+    } catch (e) {
+        console.error('monthly-closing', e);
+        showToast(`通信エラー: ${e.message}`, 'error');
+    } finally {
+        busy.forEach((b) => {
+            b.textContent = b.dataset._shimePrevText || '締め処理実行';
+            delete b.dataset._shimePrevText;
+        });
+        updateDashboardShimePanel();
+    }
 }
 
 /**
@@ -2047,7 +2102,7 @@ async function renderDashboardHome(container) {
                     <div style="margin-top: 15px; margin-bottom: 20px;">
                         <h4 style="margin: 0 0 8px 0; font-size: 1em; color: ${navyColor};">工務</h4>
                         <div style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px;">
-                            <button type="button" id="dashboard-shime-koumu-btn" class="btn-dashboard-action" title="準備中（クリックで案内）" style="flex-shrink: 0; background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">締め処理実行</button>
+                            <button type="button" id="dashboard-shime-koumu-btn" class="btn-dashboard-action" title="前月度の締め処理を実行" style="flex-shrink: 0; background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">締め処理実行</button>
                             <div style="flex: 1; min-width: 0; font-size: 0.9em; line-height: 1.55; color: #555;">
                                 <div id="dashboard-shime-koumu-status" style="font-weight: 600;">締め処理が未完了です</div>
                                 <div id="dashboard-shime-koumu-elapsed" style="margin-top: 4px; color: #666;"></div>
@@ -2057,7 +2112,7 @@ async function renderDashboardHome(container) {
                     <div style="padding-top: 16px; border-top: 1px solid #f0f0f0;">
                         <h4 style="margin: 0 0 8px 0; font-size: 1em; color: ${navyColor};">ネット事業部</h4>
                         <div style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px;">
-                            <button type="button" id="dashboard-shime-net-btn" class="btn-dashboard-action" title="準備中（クリックで案内）" style="flex-shrink: 0; background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">締め処理実行</button>
+                            <button type="button" id="dashboard-shime-net-btn" class="btn-dashboard-action" title="前月度の締め処理を実行" style="flex-shrink: 0; background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">締め処理実行</button>
                             <div style="flex: 1; min-width: 0; font-size: 0.9em; line-height: 1.55; color: #555;">
                                 <div id="dashboard-shime-net-status" style="font-weight: 600;">締め処理が未完了です</div>
                                 <div id="dashboard-shime-net-elapsed" style="margin-top: 4px; color: #666;"></div>
@@ -2102,13 +2157,13 @@ async function renderDashboardHome(container) {
     if (shimeKBtn) {
         shimeKBtn.addEventListener('click', () => {
             if (shimeKBtn.disabled) return;
-            confirmDashboardShimeExecution('工務');
+            void executeDashboardShimeClosing('enj', '工務');
         });
     }
     if (shimeNBtn) {
         shimeNBtn.addEventListener('click', () => {
             if (shimeNBtn.disabled) return;
-            confirmDashboardShimeExecution('ネット事業部');
+            void executeDashboardShimeClosing('net', 'ネット事業部');
         });
     }
 
