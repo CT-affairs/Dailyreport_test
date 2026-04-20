@@ -695,25 +695,36 @@ async function openMonthlyOverviewModal() {
         return;
     }
 
-    const columns = _buildMonthlyOverviewColumns(targetDate);
-    if (!columns.length) {
-        alert('当月一覧の期間計算に失敗しました。');
-        return;
-    }
-
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:120000;display:flex;align-items:center;justify-content:center;padding:20px;';
     const modal = document.createElement('div');
     modal.style.cssText = 'width:min(96vw,1400px);height:min(88vh,900px);background:#fff;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.25);';
     const head = document.createElement('div');
     head.style.cssText = 'padding:10px 14px;border-bottom:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center;';
-    head.innerHTML = `<div style="font-weight:700;">当月一覧（${escapeHTML(targetDate)}基準）</div>`;
+    const titleEl = document.createElement('div');
+    titleEl.style.cssText = 'font-weight:700;';
+    head.appendChild(titleEl);
+    const rightActions = document.createElement('div');
+    rightActions.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button';
+    prevBtn.textContent = '◀前月';
+    prevBtn.className = 'btn-secondary';
+    prevBtn.style.cssText = 'padding:6px 10px;font-size:12px;';
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.textContent = '翌月▶';
+    nextBtn.className = 'btn-secondary';
+    nextBtn.style.cssText = 'padding:6px 10px;font-size:12px;';
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.textContent = '閉じる';
     closeBtn.className = 'btn-secondary';
     closeBtn.style.cssText = 'padding:6px 10px;font-size:12px;';
-    head.appendChild(closeBtn);
+    rightActions.appendChild(prevBtn);
+    rightActions.appendChild(nextBtn);
+    rightActions.appendChild(closeBtn);
+    head.appendChild(rightActions);
 
     const body = document.createElement('div');
     body.style.cssText = 'padding:8px 10px;overflow:auto;flex:1;';
@@ -742,61 +753,114 @@ async function openMonthlyOverviewModal() {
         if (e.target === overlay) close();
     });
 
-    const uniqueDates = [...new Set(columns.map((c) => c.ymd).filter(Boolean))];
-    if (!uniqueDates.length) {
-        body.innerHTML = '<div style="font-size:12px;color:#666;">対象日がありません。</div>';
-        return;
-    }
-    const startDateStr = uniqueDates[0];
-    const endDateStr = uniqueDates[uniqueDates.length - 1];
+    const toLocalYmd = (dt) => {
+        const yy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getDate()).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
+    };
+    let currentBaseDate = targetDate;
+    let isRendering = false;
 
-    const statusByEmployee = {};
-    try {
-        let done = 0;
-        for (const u of shownUsers) {
-            done += 1;
-            body.innerHTML = `<div style="font-size:12px;color:#666;">データ集計中... (${done}/${shownUsers.length})</div>`;
-            const cacheBuster = Date.now() + done;
-            const res = await fetchWithAuth(
-                `${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${encodeURIComponent(u.employeeId)}&start_date=${startDateStr}&end_date=${endDateStr}&_ts=${cacheBuster}`,
-            );
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || `calendar-statuses取得失敗: ${res.status}`);
-            }
-            statusByEmployee[String(u.employeeId)] = await res.json();
+    const renderForBaseDate = async () => {
+        if (isRendering) return;
+        isRendering = true;
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+
+        const columns = _buildMonthlyOverviewColumns(currentBaseDate);
+        if (!columns.length) {
+            body.innerHTML = '<div style="font-size:12px;color:#666;">対象日の期間計算に失敗しました。</div>';
+            titleEl.textContent = `当月一覧（${currentBaseDate}基準）`;
+            isRendering = false;
+            prevBtn.disabled = false;
+            nextBtn.disabled = false;
+            return;
         }
-    } catch (e) {
-        body.innerHTML = `<div style="font-size:12px;color:#c0392b;">取得失敗: ${escapeHTML(e.message || String(e))}</div>`;
-        return;
-    }
 
-    let html = '<table style="border-collapse:collapse;font-size:10px;min-width:100%;">';
-    html += '<thead><tr><th style="position:sticky;left:0;background:#fff;z-index:2;border:1px solid #ddd;padding:4px 6px;white-space:nowrap;">社員名</th>';
-    columns.forEach((c) => {
-        html += `<th style="border:1px solid #ddd;padding:3px 5px;text-align:center;min-width:22px;">${escapeHTML(c.label)}</th>`;
-    });
-    html += '</tr></thead><tbody>';
+        titleEl.textContent = `当月一覧（${currentBaseDate}基準）`;
+        const uniqueDates = [...new Set(columns.map((c) => c.ymd).filter(Boolean))];
+        if (!uniqueDates.length) {
+            body.innerHTML = '<div style="font-size:12px;color:#666;">対象日がありません。</div>';
+            isRendering = false;
+            prevBtn.disabled = false;
+            nextBtn.disabled = false;
+            return;
+        }
+        const startDateStr = uniqueDates[0];
+        const endDateStr = uniqueDates[uniqueDates.length - 1];
 
-    shownUsers.forEach((u) => {
-        html += `<tr><td style="position:sticky;left:0;background:#fff;z-index:1;border:1px solid #ddd;padding:3px 6px;white-space:nowrap;">${escapeHTML(u.name)}</td>`;
-        columns.forEach((c) => {
-            if (!c.ymd) {
-                html += '<td style="border:1px solid #ddd;background:#fff;"></td>';
-                return;
+        const statusByEmployee = {};
+        try {
+            let done = 0;
+            for (const u of shownUsers) {
+                done += 1;
+                body.innerHTML = `<div style="font-size:12px;color:#666;">データ集計中... (${done}/${shownUsers.length})</div>`;
+                const cacheBuster = Date.now() + done;
+                const res = await fetchWithAuth(
+                    `${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${encodeURIComponent(u.employeeId)}&start_date=${startDateStr}&end_date=${endDateStr}&_ts=${cacheBuster}`,
+                );
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.message || `calendar-statuses取得失敗: ${res.status}`);
+                }
+                statusByEmployee[String(u.employeeId)] = await res.json();
             }
-            const empStatuses = statusByEmployee[String(u.employeeId)] || {};
-            const statusData = empStatuses[c.ymd] || null;
-            const bg = _monthlyOverviewCellColorFromCalendarStatus(statusData);
-            const title = statusData
-                ? `日付:${c.ymd} 状態:${statusData.status || '-'} 勤務:${statusData.jobcan_minutes ?? '-'}分 / 日報:${statusData.reported_minutes ?? '-'}分`
-                : `日付:${c.ymd} データなし`;
-            html += `<td title="${escapeHTML(title)}" style="border:1px solid #ddd;background:${bg};height:14px;"></td>`;
+        } catch (e) {
+            body.innerHTML = `<div style="font-size:12px;color:#c0392b;">取得失敗: ${escapeHTML(e.message || String(e))}</div>`;
+            isRendering = false;
+            prevBtn.disabled = false;
+            nextBtn.disabled = false;
+            return;
+        }
+
+        let html = '<table style="border-collapse:collapse;font-size:10px;min-width:100%;">';
+        html += '<thead><tr><th style="position:sticky;left:0;background:#fff;z-index:2;border:1px solid #ddd;padding:4px 6px;white-space:nowrap;">社員名</th>';
+        columns.forEach((c) => {
+            html += `<th style="border:1px solid #ddd;padding:3px 5px;text-align:center;min-width:22px;">${escapeHTML(c.label)}</th>`;
         });
-        html += '</tr>';
+        html += '</tr></thead><tbody>';
+
+        shownUsers.forEach((u) => {
+            html += `<tr><td style="position:sticky;left:0;background:#fff;z-index:1;border:1px solid #ddd;padding:3px 6px;white-space:nowrap;">${escapeHTML(u.name)}</td>`;
+            columns.forEach((c) => {
+                if (!c.ymd) {
+                    html += '<td style="border:1px solid #ddd;background:#fff;"></td>';
+                    return;
+                }
+                const empStatuses = statusByEmployee[String(u.employeeId)] || {};
+                const statusData = empStatuses[c.ymd] || null;
+                const bg = _monthlyOverviewCellColorFromCalendarStatus(statusData);
+                const title = statusData
+                    ? `日付:${c.ymd} 状態:${statusData.status || '-'} 勤務:${statusData.jobcan_minutes ?? '-'}分 / 日報:${statusData.reported_minutes ?? '-'}分`
+                    : `日付:${c.ymd} データなし`;
+                html += `<td title="${escapeHTML(title)}" style="border:1px solid #ddd;background:${bg};height:14px;"></td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        body.innerHTML = html;
+        isRendering = false;
+        prevBtn.disabled = false;
+        nextBtn.disabled = false;
+    };
+
+    prevBtn.addEventListener('click', async () => {
+        const dt = new Date(`${currentBaseDate}T00:00:00`);
+        if (Number.isNaN(dt.getTime())) return;
+        dt.setMonth(dt.getMonth() - 1);
+        currentBaseDate = toLocalYmd(dt);
+        await renderForBaseDate();
     });
-    html += '</tbody></table>';
-    body.innerHTML = html;
+    nextBtn.addEventListener('click', async () => {
+        const dt = new Date(`${currentBaseDate}T00:00:00`);
+        if (Number.isNaN(dt.getTime())) return;
+        dt.setMonth(dt.getMonth() + 1);
+        currentBaseDate = toLocalYmd(dt);
+        await renderForBaseDate();
+    });
+
+    await renderForBaseDate();
 }
 
 /**
