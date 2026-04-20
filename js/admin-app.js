@@ -1860,6 +1860,31 @@ async function refreshDashboardMonthlyClosingStatus() {
     }
 }
 
+/**
+ * 前月度ダウンロードの実行前確認。
+ * 管理ドキュメント（本番 monthly_closings）状態に応じて文言を切り替える。
+ * @param {'enj'|'net'|'all'} scope
+ * @returns {Promise<boolean>}
+ */
+async function confirmPreviousMonthDownloadMode(scope) {
+    if (!dashboardMonthlyClosingStatus) {
+        await refreshDashboardMonthlyClosingStatus();
+    }
+    const st = dashboardMonthlyClosingStatus;
+    const enjDone = !!(st && st.enj && st.enj.exists && st.enj.status === 'completed');
+    const netDone = !!(st && st.net && st.net.exists && st.net.status === 'completed');
+
+    let snapshotReady = false;
+    if (scope === 'enj') snapshotReady = enjDone;
+    else if (scope === 'net') snapshotReady = netDone;
+    else snapshotReady = enjDone && netDone; // all
+
+    if (snapshotReady) {
+        return confirm('締め後のデータにて集計を行います。よろしいですか？');
+    }
+    return confirm('締め処理前なので暫定値となります。集計してよろしいですか？');
+}
+
 function formatElapsedDaysHoursFromEndToNow(endDate) {
     const now = Date.now();
     const t = endDate.getTime();
@@ -2285,6 +2310,10 @@ async function renderDashboardHome(container) {
 
     // Excelダウンロードボタン（API経由）
     const handleExcelDownload = async (targetMonth, btnId) => {
+        if (targetMonth === 'previous') {
+            const ok = await confirmPreviousMonthDownloadMode('enj');
+            if (!ok) return;
+        }
         const btn = document.getElementById(btnId);
         const originalText = btn.textContent;
         btn.disabled = true;
@@ -2314,7 +2343,11 @@ async function renderDashboardHome(container) {
     };
 
     // スタッフ別集計表ダウンロード処理（工番別をコピー）
-    const handleStaffSummaryDownload = async (targetMonth, btnId) => {
+    const handleStaffSummaryDownload = async (targetMonth, btnId, previousScope = 'enj') => {
+        if (targetMonth === 'previous') {
+            const ok = await confirmPreviousMonthDownloadMode(previousScope);
+            if (!ok) return;
+        }
         const btn = document.getElementById(btnId);
         const originalText = btn.textContent;
         btn.disabled = true;
@@ -2346,6 +2379,10 @@ async function renderDashboardHome(container) {
 
     // 宿泊/現場(全社) 手当集計Excelダウンロード（template_allowance → allowance_YYYYMM.xlsx）
     const handleAllowanceDownload = async (targetMonth, btnId) => {
+        if (targetMonth === 'previous') {
+            const ok = await confirmPreviousMonthDownloadMode('all');
+            if (!ok) return;
+        }
         const btn = document.getElementById(btnId);
         const originalText = btn.textContent;
         btn.disabled = true;
@@ -2388,6 +2425,10 @@ async function renderDashboardHome(container) {
 
     // 業務別(ネット): ピボット用縦持ちCSV（/api/manager/net-task-summary/csv）
     const handleNetGyomuCsvDownload = async (targetMonth, btnId) => {
+        if (targetMonth === 'previous') {
+            const ok = await confirmPreviousMonthDownloadMode('net');
+            if (!ok) return;
+        }
         const btn = document.getElementById(btnId);
         const originalText = btn.textContent;
         btn.disabled = true;
@@ -2426,7 +2467,7 @@ async function renderDashboardHome(container) {
 
     // 残業/休出(全社) - 非表示だが念のためリスナーを追加
     document.getElementById('zankyu-zensha-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'zankyu-zensha-curr-btn'));
-    document.getElementById('zankyu-zensha-prev-btn').addEventListener('click', () => handleStaffSummaryDownload('previous', 'zankyu-zensha-prev-btn'));
+    document.getElementById('zankyu-zensha-prev-btn').addEventListener('click', () => handleStaffSummaryDownload('previous', 'zankyu-zensha-prev-btn', 'all'));
 
     // ★非表示にしたため、関連コードをコメントアウト
     // 値の読み込み (localStorageから)
