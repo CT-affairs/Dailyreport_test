@@ -4447,6 +4447,29 @@ def _format_report_content_line_from_task(task: dict) -> str:
 
 
 # --- 内部関数: 有休自動入力用 ---
+def _task_looks_like_paid_leave(task: dict) -> bool:
+    """
+    日報 tasks の1要素が「有休」として既に存在するかの広めの判定。
+    自動付与は A00/e_000000 だが、手入力・過去データは ID やラベルの組み合わせがずれることがある。
+    いずれかに該当すれば Jobcan 同期では追加・置換しない（上書き防止）。
+    """
+    if not isinstance(task, dict):
+        return False
+    ca = str(task.get("categoryA_id") or "").strip()
+    cl = str(task.get("categoryA_label") or "").strip()
+    cb = str(task.get("categoryB_id") or "").strip()
+    bl = str(task.get("categoryB_label") or "").strip()
+    if ca == "A00":
+        return True
+    if cl == "有休":
+        return True
+    if cb == "e_000000":
+        return True
+    if bl == "000000" and (cl == "有休" or ca == "A00"):
+        return True
+    return False
+
+
 def register_paid_holiday_work_report(
     target_employee_id,
     target_date,
@@ -4458,6 +4481,8 @@ def register_paid_holiday_work_report(
     """
     有休情報を元に日報データを生成・更新する関数。
     戻り値: 実際に作成/更新した場合は True、既存有休タスクがありスキップした場合は False。
+
+    既存ドキュメントに有休らしきタスクが1件でもあれば何もしない（tasks を書き換えない）。
     
     Args:
         target_employee_id (str): 対象従業員の社内ID
@@ -4506,44 +4531,19 @@ def register_paid_holiday_work_report(
             data = doc.to_dict()
             tasks = data.get('tasks', [])
 
-            paid_task_indexes = [
-                idx for idx, t in enumerate(tasks)
-                if t.get('categoryA_id') == CATEGORY_A_ID and t.get('categoryB_id') == CATEGORY_B_ID
-            ]
+            paid_task_indexes = [idx for idx, t in enumerate(tasks) if _task_looks_like_paid_leave(t)]
             has_existing_paid_task = len(paid_task_indexes) > 0
 
             if has_existing_paid_task:
-                # 既存の有休タスクがある場合:
-                # - 工務（start/endなし）は従来どおり上書きしない
-                # - ネット（start/endあり）は、既存有休に時刻が無い場合のみ時刻付きへ補正する
-                if not use_net_task_shape:
-                    current_app.logger.info(
-                        f"Skipped paid holiday overwrite for {target_employee_id} on {target_date.strftime('%Y-%m-%d')} "
-                        f"because a paid holiday task already exists."
-                    )
-                    return False
-
-                all_paid_have_time = all(
-                    tasks[idx].get("startTime") and tasks[idx].get("endTime")
-                    for idx in paid_task_indexes
+                # 要件: 既に有休らしきタスクがあれば追加も置換もしない（Jobcan 同期の二重適用・上書き防止）
+                current_app.logger.info(
+                    f"Skipped paid holiday sync for {target_employee_id} on {target_date.strftime('%Y-%m-%d')} "
+                    f"because paid-leave-like task(s) already exist (indices={paid_task_indexes})."
                 )
-                if all_paid_have_time:
-                    current_app.logger.info(
-                        f"Skipped net paid holiday overwrite for {target_employee_id} on {target_date.strftime('%Y-%m-%d')} "
-                        f"because existing paid holiday task(s) already include start/end time."
-                    )
-                    return False
+                return False
 
-                first_idx = paid_task_indexes[0]
-                # 既存有休タスクを1件の時刻付き有休タスクへ置換
-                tasks = [
-                    t for idx, t in enumerate(tasks)
-                    if idx not in set(paid_task_indexes)
-                ]
-                tasks.insert(first_idx, new_task)
-            else:
-                # 有休タスクが未登録の場合のみ追加
-                tasks.append(new_task)
+            # 有休タスクが未登録の場合のみ追加
+            tasks.append(new_task)
             
             # 合計時間の再計算
             new_total = 0
