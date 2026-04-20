@@ -651,20 +651,25 @@ function _buildMonthlyOverviewColumns(baseDateStr) {
     });
 }
 
-function _monthlyOverviewCellColor(workTime, taskTime) {
+function _monthlyOverviewCellColorFromCalendarStatus(statusData) {
     const NAVY = '#083969';
     const GRAY = '#9e9e9e';
     const DARK_ORANGE = '#b25e00';
     const WHITE = '#ffffff';
 
-    const w = Number.isFinite(Number(workTime)) ? Number(workTime) : null;
-    const t = Number.isFinite(Number(taskTime)) ? Number(taskTime) : 0;
+    if (!statusData || typeof statusData !== 'object') {
+        return GRAY;
+    }
+    const jobcanMinutes = Number.isFinite(Number(statusData.jobcan_minutes))
+        ? Number(statusData.jobcan_minutes)
+        : 0;
+    const status = String(statusData.status || '').toLowerCase();
 
-    if (w === 0) return WHITE; // 勤務時間ゼロ
-    if (w === null || w < 0) return GRAY; // 不明は未入力寄せ
-    if (t <= 0) return GRAY; // 未入力
-    if (t === w) return NAVY; // 完了
-    return DARK_ORANGE; // 不一致
+    if (jobcanMinutes === 0) return WHITE; // 勤務時間ゼロ
+    if (status === 'completed') return NAVY; // 完了
+    if (status === 'pending') return GRAY; // 未入力
+    if (status === 'inconsistent') return DARK_ORANGE; // 不一致
+    return GRAY;
 }
 
 async function openMonthlyOverviewModal() {
@@ -730,39 +735,33 @@ async function openMonthlyOverviewModal() {
         if (e.target === overlay) close();
     });
 
-    const byDate = {};
     const uniqueDates = [...new Set(columns.map((c) => c.ymd).filter(Boolean))];
+    if (!uniqueDates.length) {
+        body.innerHTML = '<div style="font-size:12px;color:#666;">対象日がありません。</div>';
+        return;
+    }
+    const startDateStr = uniqueDates[0];
+    const endDateStr = uniqueDates[uniqueDates.length - 1];
+
+    const statusByEmployee = {};
     try {
         let done = 0;
-        for (const ymd of uniqueDates) {
+        for (const u of shownUsers) {
             done += 1;
-            body.innerHTML = `<div style="font-size:12px;color:#666;">データ集計中... (${done}/${uniqueDates.length})</div>`;
-            const res = await fetchWithAuth(`${API_BASE_URL}/api/manager/daily-reports?date=${ymd}`);
+            body.innerHTML = `<div style="font-size:12px;color:#666;">データ集計中... (${done}/${shownUsers.length})</div>`;
+            const cacheBuster = Date.now() + done;
+            const res = await fetchWithAuth(
+                `${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${encodeURIComponent(u.employeeId)}&start_date=${startDateStr}&end_date=${endDateStr}&_ts=${cacheBuster}`,
+            );
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || `daily-reports取得失敗: ${res.status}`);
+                throw new Error(err.message || `calendar-statuses取得失敗: ${res.status}`);
             }
-            byDate[ymd] = await res.json();
+            statusByEmployee[String(u.employeeId)] = await res.json();
         }
     } catch (e) {
         body.innerHTML = `<div style="font-size:12px;color:#c0392b;">取得失敗: ${escapeHTML(e.message || String(e))}</div>`;
         return;
-    }
-
-    const selectedSet = new Set(shownUsers.map((u) => String(u.employeeId)));
-    const matrix = {};
-    for (const ymd of uniqueDates) {
-        const rows = Array.isArray(byDate[ymd]) ? byDate[ymd] : [];
-        const rowMap = {};
-        rows.forEach((r) => {
-            const eid = String(r.employeeId || '');
-            if (!selectedSet.has(eid)) return;
-            rowMap[eid] = {
-                workTime: r.workTime,
-                taskTime: r.taskTime,
-            };
-        });
-        matrix[ymd] = rowMap;
     }
 
     let html = '<table style="border-collapse:collapse;font-size:10px;min-width:100%;">';
@@ -779,11 +778,12 @@ async function openMonthlyOverviewModal() {
                 html += '<td style="border:1px solid #ddd;background:#fff;"></td>';
                 return;
             }
-            const row = (matrix[c.ymd] && matrix[c.ymd][String(u.employeeId)]) || null;
-            const workTime = row ? row.workTime : null;
-            const taskTime = row ? row.taskTime : 0;
-            const bg = _monthlyOverviewCellColor(workTime, taskTime);
-            const title = `日付:${c.ymd} 勤務:${workTime ?? '-'}分 / 工数:${taskTime ?? 0}分`;
+            const empStatuses = statusByEmployee[String(u.employeeId)] || {};
+            const statusData = empStatuses[c.ymd] || null;
+            const bg = _monthlyOverviewCellColorFromCalendarStatus(statusData);
+            const title = statusData
+                ? `日付:${c.ymd} 状態:${statusData.status || '-'} 勤務:${statusData.jobcan_minutes ?? '-'}分 / 日報:${statusData.reported_minutes ?? '-'}分`
+                : `日付:${c.ymd} データなし`;
             html += `<td title="${escapeHTML(title)}" style="border:1px solid #ddd;background:${bg};height:14px;"></td>`;
         });
         html += '</tr>';
