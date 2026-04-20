@@ -187,8 +187,10 @@
 - `retry_allowed`: `false`（boolean）
 - `run_id`: `""`（string）
 - `snapshot_collection`: `"daily_reports_snapshot"`（string）
-- `started_by`: `""`（string）
-- `status`: `"running "`（string）
+- `started_by`: 実行者の表示名（`employee_mappings` の `name`。取得できなければ社員ID）（string）
+- `started_by_employee_id`: 実行者の社員ID（string）
+- `started_at`: `timestamp`（実行開始）
+- `status`: `"running"`（string。余分な空白なし）
 
 **補足（実装時の整備候補）**
 

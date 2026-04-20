@@ -177,6 +177,31 @@ def _monthly_closing_query_date_bounds(period_start: datetime, period_end: datet
     return qs, qe
 
 
+def _employee_display_name_from_mappings(company_employee_id: str) -> str:
+    """
+    employee_mappings（ドキュメントID = 社員ID）の name を返す。
+    取得できなければ社員IDをそのまま返す。
+    """
+    cid = (company_employee_id or "").strip()
+    if not cid:
+        return ""
+    try:
+        snap = db.collection("employee_mappings").document(cid).get()
+        if snap.exists:
+            raw = (snap.to_dict() or {}).get("name")
+            if raw is not None:
+                name = str(raw).strip()
+                if name:
+                    return name
+    except Exception as e:
+        current_app.logger.warning(
+            "monthly closing: employee_mappings lookup failed for %s: %s",
+            cid,
+            e,
+        )
+    return cid
+
+
 def execute_monthly_closing(
     division: str,
     started_by: str | None,
@@ -197,7 +222,8 @@ def execute_monthly_closing(
         abort(400, "division は 'enj' または 'net' を指定してください。")
 
     snapshot_collection = _validate_snapshot_collection_name(snapshot_collection)
-    started_by = (started_by or "").strip()
+    started_by_employee_id = (started_by or "").strip()
+    started_by_name = _employee_display_name_from_mappings(started_by_employee_id)
 
     mgmt_doc_id = f"{period_key}_{division}"
     mgmt_ref = db.collection(closings_collection).document(mgmt_doc_id)
@@ -224,7 +250,8 @@ def execute_monthly_closing(
             "period_start": period_start,
             "period_end": period_end,
             "snapshot_collection": snapshot_collection,
-            "started_by": started_by,
+            "started_by": started_by_name,
+            "started_by_employee_id": started_by_employee_id,
             "started_at": firestore.SERVER_TIMESTAMP,
             "run_id": run_id,
             "retry_allowed": False,
@@ -305,7 +332,8 @@ def execute_monthly_closing(
         "status": "completed",
         "message": f"締め処理が完了しました（{copied_count} 件をスナップショットへコピー）。",
         "division": division,
-        "started_by": started_by,
+        "started_by": started_by_name,
+        "started_by_employee_id": started_by_employee_id,
         "updated": True,
         "copied_count": copied_count,
         "run_id": run_id,
