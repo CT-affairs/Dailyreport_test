@@ -1987,6 +1987,54 @@ function updateDashboardShimePanel() {
 }
 
 /**
+ * 締め処理の2段目以降の確認用。ネイティブ confirm を連打するとブラウザが
+ * 「さらにダイアログを表示しない」チェック付きになるため、DOM モーダルで代替する。
+ * @param {string} message
+ * @returns {Promise<boolean>} OK なら true
+ */
+function showMonthlyClosingStepConfirm(message) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText =
+            'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+        const box = document.createElement('div');
+        box.style.cssText =
+            'background:#fff;border-radius:8px;max-width:440px;padding:20px 24px;box-shadow:0 8px 32px rgba(0,0,0,0.2);font-size:15px;line-height:1.55;color:#333;';
+        const p = document.createElement('p');
+        p.style.margin = '0 0 20px 0';
+        p.textContent = message;
+        const btns = document.createElement('div');
+        btns.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.textContent = 'キャンセル';
+        cancelBtn.style.cssText =
+            'padding:8px 16px;border:1px solid #ccc;background:#f8f8f8;border-radius:4px;cursor:pointer;font-size:14px;';
+        const okBtn = document.createElement('button');
+        okBtn.type = 'button';
+        okBtn.textContent = 'OK';
+        okBtn.style.cssText =
+            'padding:8px 16px;border:none;background:#397939;color:#fff;border-radius:4px;cursor:pointer;font-size:14px;';
+        const finish = (ok) => {
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            resolve(ok);
+        };
+        cancelBtn.addEventListener('click', () => finish(false));
+        okBtn.addEventListener('click', () => finish(true));
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) finish(false);
+        });
+        btns.appendChild(cancelBtn);
+        btns.appendChild(okBtn);
+        box.appendChild(p);
+        box.appendChild(btns);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+        okBtn.focus();
+    });
+}
+
+/**
  * ダッシュボード締めボタン: 確認の後に POST /api/manager/monthly-closing を呼ぶ。
  * @param {'enj'|'net'} division
  * @param {string} divisionLabel 表示用（工務 / ネット事業部）
@@ -1995,10 +2043,10 @@ async function executeDashboardShimeClosing(division, divisionLabel) {
     if (!confirm('あなたは担当部署の締め処理を実施する管理者で間違いありませんか？')) {
         return;
     }
-    if (!confirm('締め処理は原則、部署内全従業員が、日報入力を完了しているのが前提となります。実行しますか？')) {
+    if (!(await showMonthlyClosingStepConfirm('締め処理は原則、部署内全従業員が、日報入力を完了しているのが前提となります。実行しますか？'))) {
         return;
     }
-    if (!confirm('この処理はやり直しが効きません。本当に実行してよろしいですか？')) {
+    if (!(await showMonthlyClosingStepConfirm('この処理はやり直しが効きません。本当に実行してよろしいですか？'))) {
         return;
     }
 
