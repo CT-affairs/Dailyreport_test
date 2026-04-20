@@ -640,13 +640,20 @@ function _buildMonthlyOverviewColumns(baseDateStr) {
     for (let day = 21; day <= 31; day += 1) labels.push(day);
     for (let day = 1; day <= 20; day += 1) labels.push(day);
 
+    const toLocalYmd = (dt) => {
+        const yy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getDate()).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
+    };
+
     return labels.map((day) => {
         const isStartSide = day >= 21;
         const yy = isStartSide ? startY : endY;
         const mm = isStartSide ? startM : endM;
         const dt = new Date(yy, mm, day);
         const isValid = dt.getFullYear() === yy && dt.getMonth() === mm && dt.getDate() === day;
-        const ymd = isValid ? dt.toISOString().split('T')[0] : null;
+        const ymd = isValid ? toLocalYmd(dt) : null;
         return { label: String(day), ymd };
     });
 }
