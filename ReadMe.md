@@ -49,7 +49,7 @@
 | 勤務時間取得 | GET | `/api/work-time` | Jobcan 連携・パラメータで挙動切替 |
 | PC セッション | POST / DELETE | `/api/pc/session` | LINE ID トークン起点 |
 | 予実一覧（管理） | GET | `/api/manager/daily-reports` | 管理者向け |
-| 締め処理（前月度・第一段階） | POST | `/api/manager/monthly-closing` | 管理者向け。完了済みは 409。本体コピー接続前は stub 応答 |
+| 締め処理（前月度） | POST | `/api/manager/monthly-closing` | 管理者向け。完了済み・実行中・他部署実行中は 409。対象日報をスナップショットへコピー |
 | 過去日報 | GET | `/api/manager/past-reports` / `/api/past-reports` | 登録ユーザー向け（詳細は `routes/api.py`） |
 | Webhook | POST | （`webhook_bp` 登録パス） | LINE 署名 |
 
@@ -128,7 +128,7 @@
 
 | 日付 | 変更内容 |
 |------|----------|
-| 2026-04-18 | 締め: `date` / `group_id` ルール README、`calculate_monthly_period` 一本化、完了済み 409、`MONTHLY_CLOSING_TEST_MODE` とテスト用コレクション分離、締め API 応答に `test_mode` 等 |
+| 2026-04-18 | 締め: `date`/`group_id` ルール・月度一本化・テストモード分離・`POST /api/manager/monthly-closing`（スナップショット実コピー、管理 running/completed/failed、409 条件拡張） |
 | 2026-04-16 | `context.md.example` に沿った README 初版 |
 
 ---
@@ -212,10 +212,11 @@
 - ドキュメント ID に埋め込まれた日付だけでは判定しない（ID と `date` が不整合なレガシーがあっても、集計と締めで同じドキュメント集合を見るため）。
 - **`group_id` が欠損している場合（`None`、空文字、空白のみ等）の現状ルール**: **ネット（`net`）には含めず、工務（`enj`）側の扱いとする**（`str(group_id).strip() == "3"` のときだけ `net`。それ以外はすべて `enj`）。
 
-### 合意7-API（確定）: 完了済み締めの拒否
+### 合意7-API（確定）: 完了済み・実行中の拒否
 
 - `POST /api/manager/monthly-closing` は、対象となる前月度の `period_key` とリクエストの `division` について、管理ドキュメントの `status` が **completed**（前後空白を除き小文字比較）のとき **HTTP 409** で拒否する。
-- 締め処理本体（スナップショットコピー等）の実装より先に本チェックを完成させる。
+- 同一ドキュメントが **running** のとき、および **もう一方の division（enj/net）が running** のときも **409** で拒否する（同時実行の抑止）。
+- 上記を通過したうえで、`daily_reports` から対象日報を列挙しスナップショットへコピーし、管理ドキュメントを **completed** に更新する。
 
 ### 実装メモ: 月度期間の単一ソース
 
@@ -231,7 +232,7 @@
 
 - 環境変数 `MONTHLY_CLOSING_TEST_MODE` が真のとき、締め実行 API（および将来の締め本体）は **`monthly_closings_test` / `daily_reports_snapshot_test` を既定**とする（上書きは `MONTHLY_CLOSINGS_TEST_COLLECTION` / `MONTHLY_CLOSING_TEST_SNAPSHOT_COLLECTION`）。
 - **集計**（前月度で `daily_reports` と `daily_reports_snapshot` を切り替える処理）は、**常に本番**の `monthly_closings` のみを参照する（テストモードの切替の影響を受けない）。
-- 締め本体実装時は、コピー先・管理ドキュメントの参照に **`app_core.config` の `monthly_closings_collection_for_closing_run` / `default_snapshot_collection_for_closing_run`** を用いる。
+- コピー先・管理ドキュメントの参照は **`app_core.config` の `monthly_closings_collection_for_closing_run` / `default_snapshot_collection_for_closing_run`** を用いる。
 
 **運用上の注意**
 

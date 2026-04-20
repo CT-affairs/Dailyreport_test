@@ -1958,7 +1958,7 @@ async function executeDashboardShimeClosing(division, divisionLabel) {
             const period = data.period_key ? ` (${data.period_key})` : '';
             showToast(
                 `${divisionLabel} ${testHint}${data.message || '締め処理APIが応答しました。'}${period}`,
-                data.status === 'stub' ? 'info' : 'success',
+                data.status === 'completed' ? 'success' : 'info',
             );
         } else if (res.status === 409) {
             showToast(errMsg, 'warning');

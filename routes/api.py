@@ -16,10 +16,15 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import time
 import requests
 import json
+import re
+import uuid
 
 from datetime import datetime, timezone, timedelta
 from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes, resolve_paid_leave_minutes_engineering, resolve_paid_leave_for_sync, resolve_paid_leave_for_sync_by_work_kind, is_net_main_group, default_net_paid_leave_time_slot
-from app_core.monthly_closing_snapshot_selection import compute_previous_monthly_period
+from app_core.monthly_closing_snapshot_selection import (
+    classify_for_previous_month_closing_snapshot,
+    compute_previous_monthly_period,
+)
 from app_core.utils import send_push_message, activate_download_link
 # from app_core.utils import send_quick_report_email # 【実装保留】のためコメントアウト
 from app_core.config import (
@@ -155,21 +160,155 @@ def _resolve_summary_source_collection(target_month: str, start_date: datetime, 
     return COLLECTION_DAILY_REPORTS
 
 
-def execute_monthly_closing_stub(division: str, started_by: str | None = None) -> dict:
-    """
-    締め処理本体の仮実装（未接続）。
-    現時点では何も更新せず、呼び出し側に「未実装」情報のみ返す。
+_SNAPSHOT_COLLECTION_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
-    NOTE:
-    - 実装時に管理ドキュメント更新・スナップショット作成処理へ置き換える。
-    - **完了済みチェック**は `POST /api/manager/monthly-closing` 側で行う（本関数は未チェック）。
+
+def _validate_snapshot_collection_name(name: str) -> str:
+    n = (name or "").strip()
+    if not _SNAPSHOT_COLLECTION_NAME_RE.fullmatch(n):
+        abort(500, "スナップショットコレクション名が不正です。")
+    return n
+
+
+def _monthly_closing_query_date_bounds(period_start: datetime, period_end: datetime) -> tuple[datetime, datetime]:
+    """`date` フィールドの範囲クエリ用に日付境界へ正規化する。"""
+    qs = period_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    qe = period_end.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return qs, qe
+
+
+def execute_monthly_closing(
+    division: str,
+    started_by: str | None,
+    *,
+    period_start: datetime,
+    period_end: datetime,
+    period_key: str,
+    closings_collection: str,
+    snapshot_collection: str,
+) -> dict:
     """
+    前月度の日報を `daily_reports` から列挙し、division ごとにスナップショットへコピーする。
+    `daily_reports` は読み取りのみ（更新・削除しない）。
+    完了済み・実行中は 409。テスト/本番は closings_collection / snapshot_collection で切替。
+    """
+    division = str(division or "").strip().lower()
+    if division not in ("enj", "net"):
+        abort(400, "division は 'enj' または 'net' を指定してください。")
+
+    snapshot_collection = _validate_snapshot_collection_name(snapshot_collection)
+    started_by = (started_by or "").strip()
+
+    mgmt_doc_id = f"{period_key}_{division}"
+    mgmt_ref = db.collection(closings_collection).document(mgmt_doc_id)
+
+    existing = _load_monthly_closing_doc(period_key, division, closings_collection=closings_collection)
+    if existing:
+        st = str(existing.get("status", "")).strip().lower()
+        if st == "completed":
+            abort(409, "この前月度・部署の締め処理はすでに完了しています。")
+        if st == "running":
+            abort(409, "この前月度・部署の締め処理が実行中です。完了後に再試行するか、システム管理者へ連絡してください。")
+
+    other_div = "net" if division == "enj" else "enj"
+    other = _load_monthly_closing_doc(period_key, other_div, closings_collection=closings_collection)
+    if other and str(other.get("status", "")).strip().lower() == "running":
+        abort(409, "他部署の締め処理が実行中です。完了後に再試行してください。")
+
+    run_id = str(uuid.uuid4())
+    mgmt_ref.set(
+        {
+            "status": "running",
+            "division": division,
+            "period_key": period_key,
+            "period_start": period_start,
+            "period_end": period_end,
+            "snapshot_collection": snapshot_collection,
+            "started_by": started_by,
+            "started_at": firestore.SERVER_TIMESTAMP,
+            "run_id": run_id,
+            "retry_allowed": False,
+            "copied_count": 0,
+        },
+        merge=False,
+    )
+
+    q_start, q_end = _monthly_closing_query_date_bounds(period_start, period_end)
+    try:
+        query = (
+            db.collection(COLLECTION_DAILY_REPORTS)
+            .where(filter=FieldFilter("date", ">=", q_start))
+            .where(filter=FieldFilter("date", "<=", q_end))
+        )
+        candidates = list(query.stream())
+    except Exception as e:
+        current_app.logger.exception("monthly closing: query daily_reports failed")
+        mgmt_ref.update(
+            {
+                "status": "failed",
+                "finished_at": firestore.SERVER_TIMESTAMP,
+                "error_message": str(e)[:2000],
+            }
+        )
+        abort(500, "日報の取得に失敗しました。")
+
+    to_copy: list[tuple[str, dict]] = []
+    for doc in candidates:
+        data = doc.to_dict() or {}
+        ok, div = classify_for_previous_month_closing_snapshot(
+            data.get("date"),
+            data.get("group_id"),
+            period_start,
+            period_end,
+        )
+        if ok and div == division:
+            to_copy.append((doc.id, data))
+
+    snap = db.collection(snapshot_collection)
+    batch = db.batch()
+    in_batch = 0
+    committed_count = 0
+    try:
+        for doc_id, data in to_copy:
+            batch.set(snap.document(doc_id), data, merge=False)
+            in_batch += 1
+            if in_batch >= 400:
+                batch.commit()
+                committed_count += in_batch
+                batch = db.batch()
+                in_batch = 0
+        if in_batch:
+            batch.commit()
+            committed_count += in_batch
+    except Exception as e:
+        current_app.logger.exception("monthly closing: snapshot batch write failed")
+        mgmt_ref.update(
+            {
+                "status": "failed",
+                "finished_at": firestore.SERVER_TIMESTAMP,
+                "error_message": str(e)[:2000],
+                "copied_count_before_failure": committed_count,
+            }
+        )
+        abort(500, "スナップショットへのコピーに失敗しました。")
+
+    copied_count = committed_count
+    mgmt_ref.update(
+        {
+            "status": "completed",
+            "finished_at": firestore.SERVER_TIMESTAMP,
+            "copied_count": copied_count,
+        }
+    )
+
     return {
-        "status": "stub",
-        "message": "monthly closing is not implemented yet",
-        "division": str(division or "").strip(),
-        "started_by": started_by or "",
-        "updated": False,
+        "status": "completed",
+        "message": f"締め処理が完了しました（{copied_count} 件をスナップショットへコピー）。",
+        "division": division,
+        "started_by": started_by,
+        "updated": True,
+        "copied_count": copied_count,
+        "run_id": run_id,
     }
 
 
@@ -334,7 +473,7 @@ def post_manager_monthly_closing():
     """
     前月度の締め処理 API（第一段階）。
     管理ドキュメント上で当該 `period_key` + `division` が **completed** のときは 409 を返す。
-    未完了のときは仮 stub 応答（スナップショット本体は未実行）。
+    未完了のときは前月度の対象日報をスナップショットへコピーし、管理ドキュメントを completed にする。
     """
     data = request.get_json() or {}
     division = str(data.get("division", "")).strip().lower()
@@ -365,7 +504,15 @@ def post_manager_monthly_closing():
     if hasattr(g, "user_info") and isinstance(g.user_info, dict):
         started_by = str(g.user_info.get("company_employee_id") or "").strip()
 
-    payload = execute_monthly_closing_stub(division, started_by=started_by)
+    payload = execute_monthly_closing(
+        division,
+        started_by,
+        period_start=period_start,
+        period_end=period_end,
+        period_key=period_key,
+        closings_collection=closings_coll,
+        snapshot_collection=snapshot_collection,
+    )
     payload["period_key"] = period_key
     payload["period_start"] = period_start.isoformat()
     payload["period_end"] = period_end.isoformat()
