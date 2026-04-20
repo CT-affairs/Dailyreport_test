@@ -589,6 +589,19 @@ function setupNavigation() {
         }
     });
 
+    // 当月一覧ボタン（拠点ごと一覧 / ネット一覧 共通）
+    const monthlyOverviewBtn = document.getElementById('monthly-overview-button');
+    if (monthlyOverviewBtn) {
+        monthlyOverviewBtn.addEventListener('click', async () => {
+            const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
+            if (activeTarget === 'dashboard' || activeTarget === 'dashboard_net') {
+                await openMonthlyOverviewModal();
+            } else {
+                alert('この画面では当月一覧を表示できません。');
+            }
+        });
+    }
+
     // 日付変更時
     const dateInput = document.getElementById('target-date');
     // 初期値を今日に設定
@@ -607,6 +620,176 @@ function setupNavigation() {
             filterDashboardData();
         });
     }
+}
+
+function _buildMonthlyOverviewColumns(baseDateStr) {
+    const base = new Date(`${baseDateStr}T00:00:00`);
+    if (Number.isNaN(base.getTime())) return [];
+    const y = base.getFullYear();
+    const m = base.getMonth();
+    const d = base.getDate();
+
+    const periodEnd = d <= closingDay ? new Date(y, m, closingDay) : new Date(y, m + 1, closingDay);
+    const periodStart = new Date(periodEnd.getFullYear(), periodEnd.getMonth() - 1, closingDay + 1);
+    const startY = periodStart.getFullYear();
+    const startM = periodStart.getMonth();
+    const endY = periodEnd.getFullYear();
+    const endM = periodEnd.getMonth();
+
+    const labels = [];
+    for (let day = 21; day <= 31; day += 1) labels.push(day);
+    for (let day = 1; day <= 20; day += 1) labels.push(day);
+
+    return labels.map((day) => {
+        const isStartSide = day >= 21;
+        const yy = isStartSide ? startY : endY;
+        const mm = isStartSide ? startM : endM;
+        const dt = new Date(yy, mm, day);
+        const isValid = dt.getFullYear() === yy && dt.getMonth() === mm && dt.getDate() === day;
+        const ymd = isValid ? dt.toISOString().split('T')[0] : null;
+        return { label: String(day), ymd };
+    });
+}
+
+function _monthlyOverviewCellColor(workTime, taskTime) {
+    const NAVY = '#083969';
+    const GRAY = '#9e9e9e';
+    const DARK_ORANGE = '#b25e00';
+    const WHITE = '#ffffff';
+
+    const w = Number.isFinite(Number(workTime)) ? Number(workTime) : null;
+    const t = Number.isFinite(Number(taskTime)) ? Number(taskTime) : 0;
+
+    if (w === 0) return WHITE; // 勤務時間ゼロ
+    if (w === null || w < 0) return GRAY; // 不明は未入力寄せ
+    if (t <= 0) return GRAY; // 未入力
+    if (t === w) return NAVY; // 完了
+    return DARK_ORANGE; // 不一致
+}
+
+async function openMonthlyOverviewModal() {
+    const targetDate = document.getElementById('target-date')?.value;
+    if (!targetDate) {
+        alert('日付を選択してから実行してください。');
+        return;
+    }
+    const shownUsers = (filteredDashboardData || []).map((r) => ({
+        employeeId: r.employeeId,
+        name: r.name || r.employeeId,
+    })).filter((r) => r.employeeId);
+
+    if (!shownUsers.length) {
+        alert('表示対象のユーザーがいません。');
+        return;
+    }
+
+    const columns = _buildMonthlyOverviewColumns(targetDate);
+    if (!columns.length) {
+        alert('当月一覧の期間計算に失敗しました。');
+        return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:120000;display:flex;align-items:center;justify-content:center;padding:20px;';
+    const modal = document.createElement('div');
+    modal.style.cssText = 'width:min(96vw,1400px);height:min(88vh,900px);background:#fff;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.25);';
+    const head = document.createElement('div');
+    head.style.cssText = 'padding:10px 14px;border-bottom:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center;';
+    head.innerHTML = `<div style="font-weight:700;">当月一覧（${escapeHTML(targetDate)}基準）</div>`;
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.textContent = '閉じる';
+    closeBtn.className = 'btn-secondary';
+    closeBtn.style.cssText = 'padding:6px 10px;font-size:12px;';
+    head.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.style.cssText = 'padding:8px 10px;overflow:auto;flex:1;';
+    body.innerHTML = '<div style="font-size:12px;color:#666;">データ集計中...</div>';
+
+    const foot = document.createElement('div');
+    foot.style.cssText = 'padding:8px 12px;border-top:1px solid #e5e5e5;font-size:11px;color:#555;display:flex;gap:12px;flex-wrap:wrap;';
+    foot.innerHTML = `
+        <span><span style="display:inline-block;width:12px;height:12px;border:1px solid #ccc;background:#fff;vertical-align:middle;margin-right:4px;"></span>勤務時間ゼロ</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border:1px solid #ccc;background:#083969;vertical-align:middle;margin-right:4px;"></span>完了</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border:1px solid #ccc;background:#9e9e9e;vertical-align:middle;margin-right:4px;"></span>未入力</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border:1px solid #ccc;background:#b25e00;vertical-align:middle;margin-right:4px;"></span>不一致</span>
+    `;
+
+    modal.appendChild(head);
+    modal.appendChild(body);
+    modal.appendChild(foot);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const close = () => {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    };
+    closeBtn.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) close();
+    });
+
+    const byDate = {};
+    const uniqueDates = [...new Set(columns.map((c) => c.ymd).filter(Boolean))];
+    try {
+        let done = 0;
+        for (const ymd of uniqueDates) {
+            done += 1;
+            body.innerHTML = `<div style="font-size:12px;color:#666;">データ集計中... (${done}/${uniqueDates.length})</div>`;
+            const res = await fetchWithAuth(`${API_BASE_URL}/api/manager/daily-reports?date=${ymd}`);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || `daily-reports取得失敗: ${res.status}`);
+            }
+            byDate[ymd] = await res.json();
+        }
+    } catch (e) {
+        body.innerHTML = `<div style="font-size:12px;color:#c0392b;">取得失敗: ${escapeHTML(e.message || String(e))}</div>`;
+        return;
+    }
+
+    const selectedSet = new Set(shownUsers.map((u) => String(u.employeeId)));
+    const matrix = {};
+    for (const ymd of uniqueDates) {
+        const rows = Array.isArray(byDate[ymd]) ? byDate[ymd] : [];
+        const rowMap = {};
+        rows.forEach((r) => {
+            const eid = String(r.employeeId || '');
+            if (!selectedSet.has(eid)) return;
+            rowMap[eid] = {
+                workTime: r.workTime,
+                taskTime: r.taskTime,
+            };
+        });
+        matrix[ymd] = rowMap;
+    }
+
+    let html = '<table style="border-collapse:collapse;font-size:10px;min-width:100%;">';
+    html += '<thead><tr><th style="position:sticky;left:0;background:#fff;z-index:2;border:1px solid #ddd;padding:4px 6px;white-space:nowrap;">社員名</th>';
+    columns.forEach((c) => {
+        html += `<th style="border:1px solid #ddd;padding:3px 5px;text-align:center;min-width:22px;">${escapeHTML(c.label)}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    shownUsers.forEach((u) => {
+        html += `<tr><td style="position:sticky;left:0;background:#fff;z-index:1;border:1px solid #ddd;padding:3px 6px;white-space:nowrap;">${escapeHTML(u.name)}</td>`;
+        columns.forEach((c) => {
+            if (!c.ymd) {
+                html += '<td style="border:1px solid #ddd;background:#fff;"></td>';
+                return;
+            }
+            const row = (matrix[c.ymd] && matrix[c.ymd][String(u.employeeId)]) || null;
+            const workTime = row ? row.workTime : null;
+            const taskTime = row ? row.taskTime : 0;
+            const bg = _monthlyOverviewCellColor(workTime, taskTime);
+            const title = `日付:${c.ymd} 勤務:${workTime ?? '-'}分 / 工数:${taskTime ?? 0}分`;
+            html += `<td title="${escapeHTML(title)}" style="border:1px solid #ddd;background:${bg};height:14px;"></td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
 }
 
 /**
