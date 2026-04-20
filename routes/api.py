@@ -550,6 +550,76 @@ def post_manager_monthly_closing():
     return jsonify(payload), 200
 
 
+def _jsonable_firestore_scalar(value):
+    """Firestore ドキュメント値を JSON 化しやすい形へ（タイムスタンプ等）。"""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    if hasattr(value, "timestamp") and callable(getattr(value, "timestamp")):
+        try:
+            return datetime.fromtimestamp(value.timestamp(), tz=timezone.utc).isoformat()
+        except Exception:
+            pass
+    return str(value)
+
+
+def _monthly_closing_division_status_for_dashboard(period_key: str, division: str) -> dict:
+    """ダッシュボード用。常に本番 `MONTHLY_CLOSINGS_COLLECTION` のみ参照する。"""
+    data = _load_monthly_closing_doc(period_key, division, closings_collection=MONTHLY_CLOSINGS_COLLECTION)
+    if not data:
+        return {"exists": False, "status": None}
+
+    st = str(data.get("status", "")).strip().lower() or None
+    out: dict = {
+        "exists": True,
+        "status": st,
+        "finished_at": _jsonable_firestore_scalar(data.get("finished_at")),
+        "started_at": _jsonable_firestore_scalar(data.get("started_at")),
+        "started_by": data.get("started_by"),
+        "started_by_employee_id": data.get("started_by_employee_id"),
+        "copied_count": data.get("copied_count"),
+        "run_id": data.get("run_id"),
+    }
+    if st == "failed":
+        out["error_message"] = data.get("error_message")
+    return out
+
+
+@api_bp.route("/manager/monthly-closing/status", methods=["GET"])
+@token_required
+@login_required
+@manager_required
+def get_manager_monthly_closing_status():
+    """
+    ダッシュボード用の締め状態（前月度）。
+    **常に本番** `monthly_closings` のみを参照する（MONTHLY_CLOSING_TEST_MODE の影響を受けない）。
+    """
+    period_start, period_end = compute_previous_monthly_period()
+    period_key = _build_period_key(period_start, period_end)
+    closing_day = int(os.environ.get("CLOSING_DAY", "20"))
+    period_end_date = period_end.date().isoformat() if hasattr(period_end, "date") else str(period_end)[:10]
+
+    payload = {
+        "period_key": period_key,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "period_end_date": period_end_date,
+        "closing_day": closing_day,
+        "closings_collection": MONTHLY_CLOSINGS_COLLECTION,
+        "enj": _monthly_closing_division_status_for_dashboard(period_key, "enj"),
+        "net": _monthly_closing_division_status_for_dashboard(period_key, "net"),
+    }
+    return jsonify(payload), 200
+
+
 def get_authenticated_user_info() -> dict:
     """
     認証済みユーザー情報を取得する。

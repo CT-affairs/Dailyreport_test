@@ -23,6 +23,9 @@ function handleLinkNavigation(event, callback) {
 const USE_PC_SESSION_AUTH = true; // PC版: セッション(Cookie)優先。スマホLIFFは liff-app.js を維持。
 let pcSessionEnsuringPromise = null;
 
+/** 本番 monthly_closings の前月度ステータス（GET /api/manager/monthly-closing/status） */
+let dashboardMonthlyClosingStatus = null;
+
 async function ensurePcSession() {
     if (!USE_PC_SESSION_AUTH) return;
     if (pcSessionEnsuringPromise) return pcSessionEnsuringPromise;
@@ -1814,7 +1817,7 @@ async function saveInvoiceOcrCurrentDraft() {
     }
 }
 
-/** ダッシュボード締め処理: 月度締め日（20日）基準で、直近に完了した締め日時（ローカル日付の終端） */
+/** API 未取得時のフォールバック: 締め日を 20 日固定で直近締め日終端（ローカル暦） */
 function getDashboardLastCompletedShimeClosingEnd() {
     const now = new Date();
     const y = now.getFullYear();
@@ -1824,6 +1827,37 @@ function getDashboardLastCompletedShimeClosingEnd() {
         return new Date(y, m, 20, 23, 59, 59, 999);
     }
     return new Date(y, m - 1, 20, 23, 59, 59, 999);
+}
+
+/** `YYYY-MM-DD` をローカル暦のその日 23:59:59.999 に変換 */
+function parsePeriodEndDateToLocalEndOfDay(ymd) {
+    if (!ymd || typeof ymd !== 'string') return null;
+    const parts = ymd.split('-').map((x) => parseInt(x, 10));
+    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+    const [y, mo, d] = parts;
+    return new Date(y, mo - 1, d, 23, 59, 59, 999);
+}
+
+/** 本番 monthly_closings の前月度状態を取得して dashboardMonthlyClosingStatus を更新 */
+async function refreshDashboardMonthlyClosingStatus() {
+    try {
+        const res = await fetchWithAuth(`${API_BASE_URL}/api/manager/monthly-closing/status`);
+        const raw = await res.text();
+        let data = null;
+        try {
+            data = raw ? JSON.parse(raw) : null;
+        } catch {
+            data = null;
+        }
+        if (res.ok && data && typeof data === 'object') {
+            dashboardMonthlyClosingStatus = data;
+        } else {
+            dashboardMonthlyClosingStatus = null;
+        }
+    } catch (e) {
+        console.warn('refreshDashboardMonthlyClosingStatus', e);
+        dashboardMonthlyClosingStatus = null;
+    }
 }
 
 function formatElapsedDaysHoursFromEndToNow(endDate) {
@@ -1837,24 +1871,41 @@ function formatElapsedDaysHoursFromEndToNow(endDate) {
     return { days, hours };
 }
 
-/** API 未接続時は localStorage で表示トグル（'1'=完了）。キーは将来 API に置き換え可能 */
-function isDashboardShimeComplete(kind) {
-    try {
-        return localStorage.getItem(`dashboard_shime_${kind}_complete`) === '1';
-    } catch (e) {
-        return false;
-    }
-}
-
 function updateDashboardShimePanel() {
     const featureEnabledAt = new Date(2026, 3, 20, 0, 0, 0, 0); // 2026/04/20 00:00 (local)
     const isFeatureEnabled = Date.now() >= featureEnabledAt.getTime();
-    const endAt = getDashboardLastCompletedShimeClosingEnd();
-    const { days, hours } = formatElapsedDaysHoursFromEndToNow(endAt);
+    const st = dashboardMonthlyClosingStatus;
+    const enj = st && st.enj;
+    const net = st && st.net;
+    const kDone = !!(enj && enj.exists && enj.status === 'completed');
+    const nDone = !!(net && net.exists && net.status === 'completed');
+    const kRunning = !!(enj && enj.exists && enj.status === 'running');
+    const nRunning = !!(net && net.exists && net.status === 'running');
+    const kFailed = !!(enj && enj.exists && enj.status === 'failed');
+    const nFailed = !!(net && net.exists && net.status === 'failed');
+    const anyRunning = kRunning || nRunning;
+    const statusFetchFailed = isFeatureEnabled && !st;
+
+    const endAt =
+        st && st.period_end_date
+            ? parsePeriodEndDateToLocalEndOfDay(st.period_end_date)
+            : getDashboardLastCompletedShimeClosingEnd();
+    const { days, hours } = formatElapsedDaysHoursFromEndToNow(endAt || getDashboardLastCompletedShimeClosingEnd());
     const elapsedLine = `前月度が終わってから${days}日${hours}時間経過`;
-    const kDone = isDashboardShimeComplete('koumu');
-    const nDone = isDashboardShimeComplete('net');
-    const line = (done) => (done ? '締め処理は完了しています' : '締め処理が未完了です');
+
+    const lineFor = (done, running, failed) => {
+        if (failed) return { text: '締め処理は失敗状態です（システム管理者へ連絡）', color: '#c62828' };
+        if (running) return { text: '締め処理を実行中です', color: '#f57c00' };
+        if (done) return { text: '締め処理は完了しています', color: '#2e7d32' };
+        return { text: '締め処理が未完了です', color: '#c0392b' };
+    };
+
+    const kLine = statusFetchFailed
+        ? { text: '本番の締め状態を取得できませんでした', color: '#7f8c8d' }
+        : lineFor(kDone, kRunning, kFailed);
+    const nLine = statusFetchFailed
+        ? { text: '本番の締め状態を取得できませんでした', color: '#7f8c8d' }
+        : lineFor(nDone, nRunning, nFailed);
 
     const kStatus = document.getElementById('dashboard-shime-koumu-status');
     const kElapsed = document.getElementById('dashboard-shime-koumu-elapsed');
@@ -1863,17 +1914,36 @@ function updateDashboardShimePanel() {
     const kBtn = document.getElementById('dashboard-shime-koumu-btn');
     const nBtn = document.getElementById('dashboard-shime-net-btn');
 
+    const kBtnDisabled = !isFeatureEnabled || kDone || anyRunning;
+    const nBtnDisabled = !isFeatureEnabled || nDone || anyRunning;
+
     if (kBtn) {
-        kBtn.disabled = !isFeatureEnabled;
-        kBtn.style.opacity = isFeatureEnabled ? '1' : '0.55';
-        kBtn.style.cursor = isFeatureEnabled ? 'pointer' : 'not-allowed';
-        kBtn.title = isFeatureEnabled ? '前月度の締め処理を実行（API）' : '2026/04/20 以降に有効';
+        kBtn.disabled = kBtnDisabled;
+        kBtn.style.opacity = kBtnDisabled && isFeatureEnabled ? '0.55' : isFeatureEnabled ? '1' : '0.55';
+        kBtn.style.cursor = kBtnDisabled ? 'not-allowed' : 'pointer';
+        kBtn.title = !isFeatureEnabled
+            ? '2026/04/20 以降に有効'
+            : kDone
+              ? '本番ではこの前月度の締めは完了済みです'
+              : anyRunning
+                ? '他部署または自部署の締め実行中のため待機してください'
+                : statusFetchFailed
+                  ? '本番の締め状態は未取得ですが、実行時はサーバが判定します'
+                  : '前月度の締め処理を実行（API）';
     }
     if (nBtn) {
-        nBtn.disabled = !isFeatureEnabled;
-        nBtn.style.opacity = isFeatureEnabled ? '1' : '0.55';
-        nBtn.style.cursor = isFeatureEnabled ? 'pointer' : 'not-allowed';
-        nBtn.title = isFeatureEnabled ? '前月度の締め処理を実行（API）' : '2026/04/20 以降に有効';
+        nBtn.disabled = nBtnDisabled;
+        nBtn.style.opacity = nBtnDisabled && isFeatureEnabled ? '0.55' : isFeatureEnabled ? '1' : '0.55';
+        nBtn.style.cursor = nBtnDisabled ? 'not-allowed' : 'pointer';
+        nBtn.title = !isFeatureEnabled
+            ? '2026/04/20 以降に有効'
+            : nDone
+              ? '本番ではこの前月度の締めは完了済みです'
+              : anyRunning
+                ? '他部署または自部署の締め実行中のため待機してください'
+                : statusFetchFailed
+                  ? '本番の締め状態は未取得ですが、実行時はサーバが判定します'
+                  : '前月度の締め処理を実行（API）';
     }
 
     if (!isFeatureEnabled) {
@@ -1897,20 +1967,22 @@ function updateDashboardShimePanel() {
     }
 
     if (kStatus) {
-        kStatus.textContent = line(kDone);
-        kStatus.style.color = kDone ? '#2e7d32' : '#c0392b';
+        kStatus.textContent = kLine.text;
+        kStatus.style.color = kLine.color;
     }
     if (kElapsed) {
-        kElapsed.textContent = kDone ? '' : elapsedLine;
-        kElapsed.style.display = kDone ? 'none' : 'block';
+        const hideElapsed = kDone || kFailed || statusFetchFailed;
+        kElapsed.textContent = hideElapsed ? '' : elapsedLine;
+        kElapsed.style.display = hideElapsed ? 'none' : 'block';
     }
     if (nStatus) {
-        nStatus.textContent = line(nDone);
-        nStatus.style.color = nDone ? '#2e7d32' : '#c0392b';
+        nStatus.textContent = nLine.text;
+        nStatus.style.color = nLine.color;
     }
     if (nElapsed) {
-        nElapsed.textContent = nDone ? '' : elapsedLine;
-        nElapsed.style.display = nDone ? 'none' : 'block';
+        const hideElapsed = nDone || nFailed || statusFetchFailed;
+        nElapsed.textContent = hideElapsed ? '' : elapsedLine;
+        nElapsed.style.display = hideElapsed ? 'none' : 'block';
     }
 }
 
@@ -1962,12 +2034,6 @@ async function executeDashboardShimeClosing(division, divisionLabel) {
             );
         } else if (res.status === 409) {
             showToast(errMsg, 'warning');
-            try {
-                const key = division === 'net' ? 'dashboard_shime_net_complete' : 'dashboard_shime_koumu_complete';
-                localStorage.setItem(key, '1');
-            } catch (e) {
-                /* ignore */
-            }
         } else {
             showToast(errMsg, 'error');
         }
@@ -1979,6 +2045,7 @@ async function executeDashboardShimeClosing(division, divisionLabel) {
             b.textContent = b.dataset._shimePrevText || '締め処理実行';
             delete b.dataset._shimePrevText;
         });
+        await refreshDashboardMonthlyClosingStatus();
         updateDashboardShimePanel();
     }
 }
@@ -2151,6 +2218,7 @@ async function renderDashboardHome(container) {
         handleNavigation('system_admin');
     });
 
+    await refreshDashboardMonthlyClosingStatus();
     updateDashboardShimePanel();
     const shimeKBtn = document.getElementById('dashboard-shime-koumu-btn');
     const shimeNBtn = document.getElementById('dashboard-shime-net-btn');
