@@ -743,15 +743,17 @@ async function openMonthlyOverviewModal() {
 
     const body = document.createElement('div');
     body.style.cssText = 'padding:8px 10px;overflow:auto;flex:1;display:flex;flex-direction:column;';
+    const infoBlock = document.createElement('div');
+    infoBlock.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:10px;display:flex;flex-direction:column;gap:4px;';
     const periodBlock = document.createElement('div');
-    periodBlock.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:6px;';
     const hintBlock = document.createElement('div');
-    hintBlock.style.cssText = 'font-size:11px;color:#666;margin-bottom:10px;';
+    hintBlock.style.cssText = 'font-size:11px;color:#666;';
     hintBlock.textContent = '「◀前月」「翌月▶」で対象期間を切り替え、「表示」でその月度の一覧表を生成します。';
     const tableMount = document.createElement('div');
     tableMount.style.cssText = 'flex:1;min-height:80px;';
-    body.appendChild(periodBlock);
-    body.appendChild(hintBlock);
+    infoBlock.appendChild(periodBlock);
+    infoBlock.appendChild(hintBlock);
+    body.appendChild(infoBlock);
     body.appendChild(tableMount);
 
     const foot = document.createElement('div');
