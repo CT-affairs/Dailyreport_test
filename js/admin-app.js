@@ -746,7 +746,7 @@ async function openMonthlyOverviewModal() {
     periodBlock.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:6px;';
     const hintBlock = document.createElement('div');
     hintBlock.style.cssText = 'font-size:11px;color:#666;margin-bottom:10px;';
-    hintBlock.textContent = '「表示」または「◀前月」「翌月▶」を押すと一覧表を生成します。';
+    hintBlock.textContent = '「◀前月」「翌月▶」で対象期間を切り替え、「表示」でその月度の一覧表を生成します。';
     const tableMount = document.createElement('div');
     tableMount.style.cssText = 'flex:1;min-height:80px;';
     body.appendChild(periodBlock);
@@ -891,23 +891,21 @@ async function openMonthlyOverviewModal() {
         void fetchAndRenderTable();
     });
 
-    prevBtn.addEventListener('click', async () => {
+    prevBtn.addEventListener('click', () => {
         const dt = new Date(`${currentBaseDate}T00:00:00`);
         if (Number.isNaN(dt.getTime())) return;
         dt.setMonth(dt.getMonth() - 1);
         currentBaseDate = toLocalYmd(dt);
         refreshPeriodOnly();
         tableMount.innerHTML = '';
-        await fetchAndRenderTable();
     });
-    nextBtn.addEventListener('click', async () => {
+    nextBtn.addEventListener('click', () => {
         const dt = new Date(`${currentBaseDate}T00:00:00`);
         if (Number.isNaN(dt.getTime())) return;
         dt.setMonth(dt.getMonth() + 1);
         currentBaseDate = toLocalYmd(dt);
         refreshPeriodOnly();
         tableMount.innerHTML = '';
-        await fetchAndRenderTable();
     });
 
     refreshPeriodOnly();
