@@ -2042,17 +2042,17 @@ def delete_system_notice(notice_id):
         current_app.logger.error(f"Failed to delete system notice {notice_id}: {e}")
         abort(500, "お知らせの削除に失敗しました。")
 
-@api_bp.route("/batch/refresh-all-work-times", methods=["POST"])
-@scheduler_token_required
-def batch_refresh_all_work_times():
+def _run_batch_sync_today_work_times_for_all_employees():
     """
-    Cloud Schedulerからトリガーされ、全アクティブ従業員の当日の勤務時間をJobcanから取得して更新する。
+    Cloud Scheduler用:
+    全アクティブ従業員の「当日」勤務時間を Jobcan 側で再集計してから取得し、
+    Firestore daily_reports.jobcan_work_minutes を更新する。
     """
     try:
         # 1. 対象日付（当日）
         jst = timezone(timedelta(hours=9))
         target_date_str = datetime.now(jst).strftime('%Y-%m-%d')
-        current_app.logger.info(f"Batch job started: Refresh all work times for {target_date_str}")
+        current_app.logger.info(f"Batch job started: Sync all employees work times for {target_date_str}")
 
         # 2. 全アクティブ従業員を取得
         mappings_ref = db.collection('employee_mappings')
@@ -2081,13 +2081,14 @@ def batch_refresh_all_work_times():
             raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES
         )
 
-        success_count = 0
+        updated_count = 0
+        skipped_no_report_count = 0
         error_count = 0
 
         # 4. 逐次処理で更新
         for emp in employees:
             try:
-                # 当日のため、打刻データから計算するメソッドを使用（待機時間2秒）
+                # 当日は refresh API -> 待機 -> summaries API の順で強制同期
                 work_minutes = jobcan_service.calculate_work_time_from_adits(
                     employee_id=emp['jobcan_employee_id'], 
                     date=target_date_str, 
@@ -2101,10 +2102,10 @@ def batch_refresh_all_work_times():
                 # ※必要であれば set(..., merge=True) にしてドキュメントを作成することも可能
                 try:
                     doc_ref.update({"jobcan_work_minutes": work_minutes})
-                    success_count += 1
+                    updated_count += 1
                 except Exception:
                     # 日報未作成の場合はスキップ（またはログ出力）
-                    pass
+                    skipped_no_report_count += 1
 
             except Exception as e:
                 current_app.logger.error(f"Failed to refresh work time for {emp['company_employee_id']}: {e}")
@@ -2113,13 +2114,34 @@ def batch_refresh_all_work_times():
         return jsonify({
             "status": "success",
             "processed": len(employees),
-            "success": success_count,
+            "updated": updated_count,
+            "skipped_no_report": skipped_no_report_count,
             "errors": error_count
         }), 200
 
     except Exception as e:
         current_app.logger.error(f"Batch job failed: {e}")
         abort(500, f"Batch job failed: {e}")
+
+
+@api_bp.route("/batch/sync-jobcan-today-all-employees", methods=["POST"])
+@scheduler_token_required
+def batch_sync_jobcan_today_all_employees():
+    """
+    Cloud Scheduler専用:
+    当日分 + 全アクティブ従業員の勤務時間を Jobcan と一斉同期する。
+    """
+    return _run_batch_sync_today_work_times_for_all_employees()
+
+
+@api_bp.route("/batch/refresh-all-work-times", methods=["POST"])
+@scheduler_token_required
+def batch_refresh_all_work_times():
+    """
+    旧エンドポイント（互換維持）。
+    内部的には /batch/sync-jobcan-today-all-employees と同じ処理を実行する。
+    """
+    return _run_batch_sync_today_work_times_for_all_employees()
 
 @api_bp.route("/batch/notify-unreported", methods=["POST"])
 @scheduler_token_required
