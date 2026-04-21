@@ -658,6 +658,14 @@ function _buildMonthlyOverviewColumns(baseDateStr) {
     });
 }
 
+/** 当月一覧モーダル用: 基準日から月度の開始日・終了日（YYYY-MM-DD）を返す */
+function _monthlyOverviewFiscalRangeYmd(baseDateStr) {
+    const cols = _buildMonthlyOverviewColumns(baseDateStr);
+    const dates = [...new Set(cols.map((c) => c.ymd).filter(Boolean))];
+    if (!dates.length) return null;
+    return { start: dates[0], end: dates[dates.length - 1] };
+}
+
 function _monthlyOverviewCellColorFromCalendarStatus(statusData) {
     const NAVY = '#083969';
     const GRAY = '#9e9e9e';
@@ -706,6 +714,11 @@ async function openMonthlyOverviewModal() {
     head.appendChild(titleEl);
     const rightActions = document.createElement('div');
     rightActions.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    const showBtn = document.createElement('button');
+    showBtn.type = 'button';
+    showBtn.textContent = '表示';
+    showBtn.className = 'btn-secondary';
+    showBtn.style.cssText = 'padding:6px 10px;font-size:12px;';
     const prevBtn = document.createElement('button');
     prevBtn.type = 'button';
     prevBtn.textContent = '◀前月';
@@ -721,14 +734,24 @@ async function openMonthlyOverviewModal() {
     closeBtn.textContent = '閉じる';
     closeBtn.className = 'btn-secondary';
     closeBtn.style.cssText = 'padding:6px 10px;font-size:12px;';
+    rightActions.appendChild(showBtn);
     rightActions.appendChild(prevBtn);
     rightActions.appendChild(nextBtn);
     rightActions.appendChild(closeBtn);
     head.appendChild(rightActions);
 
     const body = document.createElement('div');
-    body.style.cssText = 'padding:8px 10px;overflow:auto;flex:1;';
-    body.innerHTML = '<div style="font-size:12px;color:#666;">データ集計中...</div>';
+    body.style.cssText = 'padding:8px 10px;overflow:auto;flex:1;display:flex;flex-direction:column;';
+    const periodBlock = document.createElement('div');
+    periodBlock.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:6px;';
+    const hintBlock = document.createElement('div');
+    hintBlock.style.cssText = 'font-size:11px;color:#666;margin-bottom:10px;';
+    hintBlock.textContent = '「表示」または「◀前月」「翌月▶」を押すと一覧表を生成します。';
+    const tableMount = document.createElement('div');
+    tableMount.style.cssText = 'flex:1;min-height:80px;';
+    body.appendChild(periodBlock);
+    body.appendChild(hintBlock);
+    body.appendChild(tableMount);
 
     const foot = document.createElement('div');
     foot.style.cssText = 'padding:8px 12px;border-top:1px solid #e5e5e5;font-size:11px;color:#555;display:flex;gap:12px;flex-wrap:wrap;';
@@ -762,29 +785,50 @@ async function openMonthlyOverviewModal() {
     let currentBaseDate = targetDate;
     let isRendering = false;
 
-    const renderForBaseDate = async () => {
+    const setNavBusy = (busy) => {
+        showBtn.disabled = busy;
+        prevBtn.disabled = busy;
+        nextBtn.disabled = busy;
+    };
+
+    const refreshPeriodOnly = () => {
+        titleEl.textContent = '当月一覧';
+        const range = _monthlyOverviewFiscalRangeYmd(currentBaseDate);
+        if (!range) {
+            periodBlock.innerHTML = `<span style="color:#c0392b;">基準日「${escapeHTML(currentBaseDate)}」から対象期間を計算できませんでした。</span>`;
+            tableMount.innerHTML = '';
+            showBtn.disabled = true;
+            prevBtn.disabled = true;
+            nextBtn.disabled = true;
+            return;
+        }
+        periodBlock.innerHTML = `
+            <div>基準日: <strong>${escapeHTML(currentBaseDate)}</strong></div>
+            <div style="margin-top:4px;">対象期間: <strong>${escapeHTML(range.start)}</strong> ～ <strong>${escapeHTML(range.end)}</strong></div>
+        `;
+        showBtn.disabled = false;
+        prevBtn.disabled = false;
+        nextBtn.disabled = false;
+    };
+
+    const fetchAndRenderTable = async () => {
         if (isRendering) return;
         isRendering = true;
-        prevBtn.disabled = true;
-        nextBtn.disabled = true;
+        setNavBusy(true);
 
         const columns = _buildMonthlyOverviewColumns(currentBaseDate);
         if (!columns.length) {
-            body.innerHTML = '<div style="font-size:12px;color:#666;">対象日の期間計算に失敗しました。</div>';
-            titleEl.textContent = `当月一覧（${currentBaseDate}基準）`;
+            tableMount.innerHTML = '<div style="font-size:12px;color:#666;">対象日の期間計算に失敗しました。</div>';
             isRendering = false;
-            prevBtn.disabled = false;
-            nextBtn.disabled = false;
+            setNavBusy(false);
             return;
         }
 
-        titleEl.textContent = `当月一覧（${currentBaseDate}基準）`;
         const uniqueDates = [...new Set(columns.map((c) => c.ymd).filter(Boolean))];
         if (!uniqueDates.length) {
-            body.innerHTML = '<div style="font-size:12px;color:#666;">対象日がありません。</div>';
+            tableMount.innerHTML = '<div style="font-size:12px;color:#666;">対象日がありません。</div>';
             isRendering = false;
-            prevBtn.disabled = false;
-            nextBtn.disabled = false;
+            setNavBusy(false);
             return;
         }
         const startDateStr = uniqueDates[0];
@@ -795,7 +839,7 @@ async function openMonthlyOverviewModal() {
             let done = 0;
             for (const u of shownUsers) {
                 done += 1;
-                body.innerHTML = `<div style="font-size:12px;color:#666;">データ集計中... (${done}/${shownUsers.length})</div>`;
+                tableMount.innerHTML = `<div style="font-size:12px;color:#666;">データ集計中... (${done}/${shownUsers.length})</div>`;
                 const cacheBuster = Date.now() + done;
                 const res = await fetchWithAuth(
                     `${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${encodeURIComponent(u.employeeId)}&start_date=${startDateStr}&end_date=${endDateStr}&_ts=${cacheBuster}`,
@@ -807,10 +851,9 @@ async function openMonthlyOverviewModal() {
                 statusByEmployee[String(u.employeeId)] = await res.json();
             }
         } catch (e) {
-            body.innerHTML = `<div style="font-size:12px;color:#c0392b;">取得失敗: ${escapeHTML(e.message || String(e))}</div>`;
+            tableMount.innerHTML = `<div style="font-size:12px;color:#c0392b;">取得失敗: ${escapeHTML(e.message || String(e))}</div>`;
             isRendering = false;
-            prevBtn.disabled = false;
-            nextBtn.disabled = false;
+            setNavBusy(false);
             return;
         }
 
@@ -839,28 +882,35 @@ async function openMonthlyOverviewModal() {
             html += '</tr>';
         });
         html += '</tbody></table>';
-        body.innerHTML = html;
+        tableMount.innerHTML = html;
         isRendering = false;
-        prevBtn.disabled = false;
-        nextBtn.disabled = false;
+        setNavBusy(false);
     };
+
+    showBtn.addEventListener('click', () => {
+        void fetchAndRenderTable();
+    });
 
     prevBtn.addEventListener('click', async () => {
         const dt = new Date(`${currentBaseDate}T00:00:00`);
         if (Number.isNaN(dt.getTime())) return;
         dt.setMonth(dt.getMonth() - 1);
         currentBaseDate = toLocalYmd(dt);
-        await renderForBaseDate();
+        refreshPeriodOnly();
+        tableMount.innerHTML = '';
+        await fetchAndRenderTable();
     });
     nextBtn.addEventListener('click', async () => {
         const dt = new Date(`${currentBaseDate}T00:00:00`);
         if (Number.isNaN(dt.getTime())) return;
         dt.setMonth(dt.getMonth() + 1);
         currentBaseDate = toLocalYmd(dt);
-        await renderForBaseDate();
+        refreshPeriodOnly();
+        tableMount.innerHTML = '';
+        await fetchAndRenderTable();
     });
 
-    await renderForBaseDate();
+    refreshPeriodOnly();
 }
 
 /**
