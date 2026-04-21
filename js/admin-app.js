@@ -4,7 +4,6 @@ const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.
 /** Invoice OCR（Cloud Run）。帳票_一覧カレンダー用。CORS はサービス側 INVOICE_OCR_CORS_ORIGIN で調整 */
 const INVOICE_OCR_BASE_URL = "https://invoice-ocr-1088643883290.asia-northeast1.run.app";
 
-
 /**
  * リンククリックを処理し、修飾キーが押されている場合はブラウザのデフォルト動作に任せる。
  * @param {MouseEvent} event - クリックイベント
