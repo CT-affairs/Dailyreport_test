@@ -2883,8 +2883,15 @@ def download_project_summary_excel():
                     if date_str not in kouban_data_map[kouban_label][employee_name]:
                         kouban_data_map[kouban_label][employee_name][date_str] = {'加工': 0, '現場': 0}
 
-                    # 有休判定の強化: 工事番号が'000000'、またはカテゴリ名が'有休'、またはIDが'A00'の場合も含める
-                    is_yukyu = (kouban_label == '000000') or (category_a_id in YUKYU_IDS) or (task.get('categoryA_label') == '有休') or (category_a_id == 'A00')
+                    # 有休判定の強化: 工事番号が'000000'、またはカテゴリ名が'有休'、またはIDが'A00'/'A99'(有休・有休忌引)の場合も含める
+                    is_yukyu = (
+                        (kouban_label == '000000')
+                        or (category_a_id in YUKYU_IDS)
+                        or (task.get('categoryA_label') == '有休')
+                        or (task.get('categoryA_label') == '有休(忌引)')
+                        or (category_a_id == 'A00')
+                        or (category_a_id == 'A99')
+                    )
 
                     if is_yukyu:
                         # 有休は「現場」枠として集計し、シート生成時にヘッダー等を調整する
@@ -3207,7 +3214,9 @@ def download_staff_summary_excel():
                 time_min = task.get('time', 0)
                 
                 if cat_a:
-                    data_map[emp_id][date_str][cat_a] = data_map[emp_id][date_str].get(cat_a, 0) + time_min
+                    # A99（有休・忌引）を有休列（A00）と同一集計
+                    agg_cat_a = 'A00' if cat_a == 'A99' else cat_a
+                    data_map[emp_id][date_str][agg_cat_a] = data_map[emp_id][date_str].get(agg_cat_a, 0) + time_min
                 
                 # 工事番号別集計 (実績がある場合のみ)
                 if cat_b_label and time_min > 0:
@@ -4461,11 +4470,15 @@ def _task_looks_like_paid_leave(task: dict) -> bool:
     bl = str(task.get("categoryB_label") or "").strip()
     if ca == "A00":
         return True
+    if ca == "A99":
+        return True
     if cl == "有休":
+        return True
+    if cl == "有休(忌引)":
         return True
     if cb == "e_000000":
         return True
-    if bl == "000000" and (cl == "有休" or ca == "A00"):
+    if bl == "000000" and (cl == "有休" or cl == "有休(忌引)" or ca == "A00" or ca == "A99"):
         return True
     return False
 
