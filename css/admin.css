@@ -368,7 +368,7 @@ th.sortable-th:hover {
     }
 }
 
-/* --- 過去日報一覧（月度）モーダル: admin シェルに配置（日報_個別ネットの「一覧」から開く） --- */
+/* --- 過去日報一覧（ネット）モーダル: admin シェルに配置（日報_個別ネットの「一覧」から開く） --- */
 .dr-modal {
     display: none !important;
     position: fixed !important;

@@ -8142,8 +8142,8 @@ function ensureNetFiscalPastReportsModalInitialized() {
 }
 
 /**
- * 月度（21日〜翌月20日）の過去日報一覧モーダルを開く（「一覧」ボタン）
- * 左ペイン・ナビは7日分の過去日報モーダルと同じ方式
+ * ネット用「過去日報一覧」モーダルを開く（「一覧」ボタン）
+ * 既定表示は直近10日。左ペイン・ナビは7日分の過去日報モーダルと同方式。
  */
 function openNetFiscalPastReportsModal() {
     ensureNetFiscalPastReportsModalInitialized();
@@ -8171,11 +8171,14 @@ function openNetFiscalPastReportsModal() {
 
     resetNetFiscalPastReportsPeriodToCurrent();
 
-    netFiscalPastReportsNarrow10Mode = false;
-    netFiscalNarrow10EndDate = null;
+    netFiscalPastReportsNarrow10Mode = true;
+    {
+        const a = getNetFiscalNarrow10AsOfNormalized();
+        netFiscalNarrow10EndDate = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+    }
     const narrowOpenBtn = document.getElementById('net-fiscal-past-reports-narrow-range-btn');
     if (narrowOpenBtn) {
-        narrowOpenBtn.textContent = '期間を絞る';
+        narrowOpenBtn.textContent = '月度全体を表示';
     }
 
     modal.classList.add('is-active');
