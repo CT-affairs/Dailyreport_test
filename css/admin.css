@@ -464,6 +464,7 @@ th.sortable-th:hover {
     text-align: center;
     flex: 0 1 auto;
     min-width: 0;
+    color: #1b5e20;
 }
 /* 10日 / 月度 セグメント（tablist + aria-selected） */
 #net-fiscal-past-reports-modal .net-fiscal-past-reports-mode-segment {
@@ -495,17 +496,38 @@ th.sortable-th:hover {
 }
 #net-fiscal-past-reports-modal .net-fiscal-past-reports-mode-btn.is-active,
 #net-fiscal-past-reports-modal .net-fiscal-past-reports-mode-btn[aria-selected="true"] {
-    background: #a94442;
+    background: #1b5e20;
     color: #fff;
-    box-shadow: inset 0 0 0 1px #8a2c2a;
+    box-shadow: inset 0 0 0 1px #145214;
 }
 #net-fiscal-past-reports-modal .net-fiscal-past-reports-mode-btn.is-active:hover,
 #net-fiscal-past-reports-modal .net-fiscal-past-reports-mode-btn[aria-selected="true"]:hover {
-    background: #953d3b;
+    background: #2e7d32;
     color: #fff;
 }
 #net-fiscal-past-reports-modal .past-reports-root {
     padding: 6px 8px;
+}
+/* 再取得中は本文を消さずオーバーレイで覆う（10日↔月度トグル時のちらつき低減） */
+#net-fiscal-past-reports-container.past-reports-root {
+    position: relative;
+}
+#net-fiscal-past-reports-container .net-fiscal-past-reports-fetch-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(1px);
+}
+#net-fiscal-past-reports-container .net-fiscal-past-reports-fetch-overlay-text {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1b5e20;
 }
 /* 月度/10日共通: タイムテーブル領域を従来比 110% へ（下の余白を活用） */
 #net-fiscal-past-reports-modal .past-reports-layout {

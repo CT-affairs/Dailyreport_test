@@ -8783,6 +8783,7 @@ function getNetFiscalPastReportsCurrentRange() {
         endDate,
         startDateStr,
         endDateStr,
+        // 10日表示と同形式（接尾辞なし）で期間行の幅を揃える
         label: `${startDateStr} 〜 ${endDateStr}`,
     };
 }
@@ -8898,7 +8899,8 @@ function getNetFiscalNarrow10Range() {
         endDate,
         startDateStr,
         endDateStr,
-        label: `${startDateStr} 〜 ${endDateStr}（直近10日）`,
+        // 月度の getNetFiscalPastReportsCurrentRange と同じ「開始 〜 終了」のみ（接尾辞を付けないとセグメント切替で期間行の幅が跳ねない）
+        label: `${startDateStr} 〜 ${endDateStr}`,
     };
 }
 
@@ -8925,6 +8927,28 @@ function isNetFiscalPastReportsAtCurrentTargetPeriod() {
  * @param {HTMLElement|string|null} [periodDisplayEl] - 期間表示用（省略可）
  * @param {{ nextButtonEl?: HTMLElement|string|null }} [options] - nextButtonEl があれば「現在の作業月度」まで来たら無効化
  */
+function setNetFiscalPastReportsFetchOverlayVisible(container, visible) {
+    if (!container) return;
+    const cls = 'net-fiscal-past-reports-fetch-overlay';
+    let el = container.querySelector(`.${cls}`);
+    if (visible) {
+        if (!el) {
+            el = document.createElement('div');
+            el.className = cls;
+            el.setAttribute('aria-busy', 'true');
+            const inner = document.createElement('span');
+            inner.className = 'net-fiscal-past-reports-fetch-overlay-text';
+            inner.textContent = '読み込み中...';
+            el.appendChild(inner);
+            container.appendChild(el);
+        } else {
+            el.style.display = 'flex';
+        }
+    } else if (el) {
+        el.remove();
+    }
+}
+
 async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, options) {
     const container = typeof containerEl === 'string' ? document.getElementById(containerEl) : containerEl;
     const ctx = getNetFiscalPastReportsTargetContext();
@@ -8932,8 +8956,6 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
 
     const categoryKind = ctx.groupId && String(ctx.groupId) === '3' ? 'net' : 'engineering';
     await ensureProxyCategoryBOptionsForPastReports(categoryKind);
-
-    resetNetFiscalPastTaskDetailPanel();
 
     const periodEl = periodDisplayEl
         ? (typeof periodDisplayEl === 'string' ? document.getElementById(periodDisplayEl) : periodDisplayEl)
@@ -8971,7 +8993,11 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
         }
     }
 
-    container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0;">読み込み中...</div>';
+    if (container.id === 'net-fiscal-past-reports-container') {
+        setNetFiscalPastReportsFetchOverlayVisible(container, true);
+    } else {
+        container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0;">読み込み中...</div>';
+    }
 
     try {
         let response = await fetchWithAuth(
@@ -8993,6 +9019,7 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
             defaultStartH: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_START_MIN / 60,
             defaultEndH: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_END_MIN / 60,
         });
+        resetNetFiscalPastTaskDetailPanel();
         renderPastReportsTimetables(
             reportsByDate,
             rs,
@@ -9002,6 +9029,9 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
         );
     } catch (error) {
         console.error(error);
+        if (container.id === 'net-fiscal-past-reports-container') {
+            setNetFiscalPastReportsFetchOverlayVisible(container, false);
+        }
         resetNetFiscalPastTaskDetailPanel();
         container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0; color: red;">${error.message}</div>`;
     }
