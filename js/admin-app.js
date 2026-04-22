@@ -8090,8 +8090,21 @@ function ensureNetFiscalPastReportsModalInitialized() {
     const narrowRangeBtn = document.getElementById('net-fiscal-past-reports-narrow-range-btn');
     if (narrowRangeBtn && !narrowRangeBtn.dataset.netFiscalNarrowListenerBound) {
         narrowRangeBtn.dataset.netFiscalNarrowListenerBound = '1';
+        narrowRangeBtn.title =
+            '画面上部の対象日を期間の最終日にした直近10日分。列幅が広がり表示を大きくします。前月/次月は月度表示時のみ。';
         narrowRangeBtn.addEventListener('click', () => {
-            // TODO: 期間を絞る（仕様追って実装）
+            netFiscalPastReportsNarrow10Mode = !netFiscalPastReportsNarrow10Mode;
+            narrowRangeBtn.textContent = netFiscalPastReportsNarrow10Mode
+                ? '月度全体を表示'
+                : '期間を絞る';
+            const m = document.getElementById('net-fiscal-past-reports-modal');
+            if (m && m.classList.contains('is-active')) {
+                void fetchAndRenderNetFiscalPastReports(
+                    'net-fiscal-past-reports-container',
+                    'net-fiscal-past-reports-period-display',
+                    { nextButtonEl: 'net-fiscal-past-reports-next-btn' },
+                );
+            }
         });
     }
 }
@@ -8121,6 +8134,12 @@ function openNetFiscalPastReportsModal() {
     pastReportsLastDataRangeKey = '';
 
     resetNetFiscalPastReportsPeriodToCurrent();
+
+    netFiscalPastReportsNarrow10Mode = false;
+    const narrowOpenBtn = document.getElementById('net-fiscal-past-reports-narrow-range-btn');
+    if (narrowOpenBtn) {
+        narrowOpenBtn.textContent = '期間を絞る';
+    }
 
     modal.classList.add('is-active');
     void modal.offsetWidth;
@@ -8291,6 +8310,9 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
     const isNetFiscalMonthlyView = !!(container && container.id === 'net-fiscal-past-reports-container');
     if (isNetFiscalMonthlyView) {
         gridInner.classList.add('past-reports-grid-inner--fiscal');
+        if (container && container.dataset && container.dataset.netFiscalNarrow10 === '1') {
+            gridInner.classList.add('past-reports-grid-inner--fiscal-narrow10');
+        }
     }
 
     let dayCount = 0;
@@ -8552,6 +8574,8 @@ const NET_FISCAL_PAST_REPORTS_OPENING_DAY = 21;
 
 /** 現在表示中の「締め日」（常に当月度ブロックの20日）。前月ボタンで1ヶ月戻す */
 let netFiscalPastReportsClosingEndDate = null;
+/** true のとき #net-fiscal-past-reports-container は直近10日（終了日=対象日）表示 */
+let netFiscalPastReportsNarrow10Mode = false;
 
 /**
  * YYYY-MM-DD をローカル日付として解釈（UTCずれ防止）
@@ -8687,6 +8711,47 @@ function getNetFiscalPastReportsCurrentRange() {
     };
 }
 
+const NET_FISCAL_NARROW10_DAY_COUNT = 10;
+
+/**
+ * 直近10日表示の「最終日」。画面上部 #target-date があればそれ、なければ本日（ローカル）
+ * @returns {Date}
+ */
+function getNetFiscalNarrow10AsOfDate() {
+    const t = document.getElementById('target-date');
+    if (t && t.value) {
+        return parseProxyYmdToLocalDate(t.value);
+    }
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+}
+
+/**
+ * 最終日=対象日とした直近 NET_FISCAL_NARROW10_DAY_COUNT 日（両端含む）
+ * @returns {{ startDate: Date, endDate: Date, startDateStr: string, endDateStr: string, label: string }}
+ */
+function getNetFiscalNarrow10Range() {
+    const endDateRaw = getNetFiscalNarrow10AsOfDate();
+    const endDate = new Date(endDateRaw.getFullYear(), endDateRaw.getMonth(), endDateRaw.getDate());
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - (NET_FISCAL_NARROW10_DAY_COUNT - 1));
+    const toYmd = (d) => {
+        const yy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
+    };
+    const startDateStr = toYmd(startDate);
+    const endDateStr = toYmd(endDate);
+    return {
+        startDate,
+        endDate,
+        startDateStr,
+        endDateStr,
+        label: `${startDateStr} 〜 ${endDateStr}（直近10日）`,
+    };
+}
+
 /**
  * 基準日の月度ブロックが「現在の作業日（プロキシ日付）」と同じか（次月ボタン無効化などに利用可）
  */
@@ -8727,16 +8792,33 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
         ? (typeof options.nextButtonEl === 'string' ? document.getElementById(options.nextButtonEl) : options.nextButtonEl)
         : null;
 
-    if (!netFiscalPastReportsClosingEndDate) {
+    if (container.id === 'net-fiscal-past-reports-container') {
+        if (netFiscalPastReportsNarrow10Mode) {
+            container.dataset.netFiscalNarrow10 = '1';
+        } else {
+            delete container.dataset.netFiscalNarrow10;
+        }
+    }
+
+    if (!netFiscalPastReportsNarrow10Mode && !netFiscalPastReportsClosingEndDate) {
         resetNetFiscalPastReportsPeriodToCurrent();
     }
 
-    const range = getNetFiscalPastReportsCurrentRange();
+    const range = netFiscalPastReportsNarrow10Mode
+        ? getNetFiscalNarrow10Range()
+        : getNetFiscalPastReportsCurrentRange();
     if (periodEl) {
         periodEl.textContent = range.label;
     }
-    if (nextBtn) {
-        nextBtn.disabled = isNetFiscalPastReportsAtCurrentTargetPeriod();
+    const prevBtnEl = document.getElementById('net-fiscal-past-reports-prev-btn');
+    if (netFiscalPastReportsNarrow10Mode) {
+        if (nextBtn) nextBtn.disabled = true;
+        if (prevBtnEl) prevBtnEl.disabled = true;
+    } else {
+        if (prevBtnEl) prevBtnEl.disabled = false;
+        if (nextBtn) {
+            nextBtn.disabled = isNetFiscalPastReportsAtCurrentTargetPeriod();
+        }
     }
 
     container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 50px 0;">読み込み中...</div>';

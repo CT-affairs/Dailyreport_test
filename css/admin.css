@@ -645,6 +645,24 @@ th.sortable-th:hover {
     padding: 1px 2px;
     line-height: 1.15;
 }
+/* 月度「期間を絞る」直近10日: 日列が広がるため最小幅とフォントを大きく（視認性） */
+.past-reports-grid-inner.past-reports-grid-inner--fiscal.past-reports-grid-inner--fiscal-narrow10
+    > .past-day-column {
+    min-width: 108px;
+    flex: 1 1 0;
+    max-width: none;
+}
+.past-reports-grid-inner.past-reports-grid-inner--fiscal.past-reports-grid-inner--fiscal-narrow10
+    .past-day-header {
+    font-size: 0.95em;
+    padding: 4px 5px;
+}
+.past-reports-grid-inner.past-reports-grid-inner--fiscal.past-reports-grid-inner--fiscal-narrow10
+    .past-task-block {
+    font-size: 0.78em;
+    padding: 2px 4px;
+    line-height: 1.2;
+}
 .past-day-column {
     border: 1px solid #ddd;
     background-color: #fdfdfd;
