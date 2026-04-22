@@ -7837,13 +7837,15 @@ let pastReportsCurrentEndDate = null; // 過去日報の表示期間の終了日
 
 /** 過去日報タイムテーブルの表示時間帯（タスク位置・横線と同期）。時刻は深夜からの「分」で保持 */
 const PAST_REPORTS_VISIBLE_TIME = Object.freeze({
-    /** 週次（7日）過去日報モーダル: 7:00〜18:00 */
-    DEFAULT_START_MIN: 7 * 60,
-    DEFAULT_END_MIN: 18 * 60,
-    /** 月度/10日モーダル: 7:00〜20:00 */
-    FISCAL_DEFAULT_START_MIN: 7 * 60,
-    FISCAL_DEFAULT_END_MIN: 20 * 60,
+    /** 週次（7日）過去日報モーダル既定: 7:30〜19:30 */
+    DEFAULT_START_MIN: 7 * 60 + 30,
+    DEFAULT_END_MIN: 19 * 60 + 30,
+    /** 月度/10日モーダル既定: 7:30〜19:30（＋/−で5:00〜22:00まで拡可） */
+    FISCAL_DEFAULT_START_MIN: 7 * 60 + 30,
+    FISCAL_DEFAULT_END_MIN: 19 * 60 + 30,
+    /** 表示開始の下限（+でさらに早い時間へ） */
     MIN_START_MIN: 5 * 60,
+    /** 表示終了の上限（+でさらに遅い時間へ） */
     MAX_END_MIN: 22 * 60,
     /** 目盛表示・+/- ボタン・背景グリッドの刻み */
     SLOT_MINUTES: 30,
@@ -7852,7 +7854,7 @@ const PAST_REPORTS_VISIBLE_TIME = Object.freeze({
 let pastReportsVisibleStartMin = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_MIN;
 let pastReportsVisibleEndMin = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_MIN;
 /**
- * 週次/月度の「戻し」用デフォルト（+/-の上限/下限: 週7:00–18:00, ネット月度7:00–20:00 等）
+ * 週次/月度の「戻し」用（＋/−の既定端: 7:30 / 19:30）
  * @type {{ startMin: number, endMin: number }}
  */
 let pastReportsTimeRuleDefaults = {
