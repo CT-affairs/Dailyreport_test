@@ -717,8 +717,7 @@ async function openMonthlyOverviewModal() {
     const showBtn = document.createElement('button');
     showBtn.type = 'button';
     showBtn.textContent = '表示';
-    showBtn.className = 'btn-secondary';
-    showBtn.style.cssText = 'padding:6px 10px;font-size:12px;';
+    showBtn.className = 'btn-monthly-show';
     const prevBtn = document.createElement('button');
     prevBtn.type = 'button';
     prevBtn.textContent = '◀前月';
@@ -785,8 +784,13 @@ async function openMonthlyOverviewModal() {
     let currentBaseDate = targetDate;
     let isRendering = false;
 
+    const setShowDisabled = (d) => {
+        showBtn.disabled = d;
+        showBtn.style.opacity = d ? '0.55' : '1';
+        showBtn.style.cursor = d ? 'not-allowed' : 'pointer';
+    };
     const setNavBusy = (busy) => {
-        showBtn.disabled = busy;
+        setShowDisabled(busy);
         prevBtn.disabled = busy;
         nextBtn.disabled = busy;
     };
@@ -797,7 +801,7 @@ async function openMonthlyOverviewModal() {
         if (!range) {
             periodBlock.innerHTML = `<span style="color:#c0392b;">基準日「${escapeHTML(currentBaseDate)}」から対象期間を計算できませんでした。</span>`;
             tableMount.innerHTML = '';
-            showBtn.disabled = true;
+            setShowDisabled(true);
             prevBtn.disabled = true;
             nextBtn.disabled = true;
             return;
@@ -809,8 +813,8 @@ async function openMonthlyOverviewModal() {
             range.start,
         )}</strong> ～ <strong>${escapeHTML(
             range.end,
-        )}</strong></span><span style="color:#666;font-size:11px;justify-self:end;text-align:right;max-width:min(100%,36em);">「◀前月」「翌月▶」で対象期間を切り替え、「表示」でその月度の一覧表を生成します。</span>`;
-        showBtn.disabled = false;
+        )}</strong></span><span style="color:#666;font-size:11px;justify-self:end;text-align:right;white-space:nowrap;">「◀前月」「翌月▶」で対象期間を切り替え、「表示」でその月度の一覧表を生成します。</span>`;
+        setShowDisabled(false);
         prevBtn.disabled = false;
         nextBtn.disabled = false;
     };

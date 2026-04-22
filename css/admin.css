@@ -121,6 +121,26 @@ body, html {
     background-color: #e9ecef;
 }
 
+/* 当月一覧モーダル「表示」: 他ボタンより目立たせ（暗めの黄色） */
+button.btn-monthly-show {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #8f7a1e;
+    color: #141414;
+    border: 1px solid #6b5a12;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    cursor: pointer;
+}
+button.btn-monthly-show:hover:not(:disabled) {
+    background: #9f8824;
+    border-color: #7a6a18;
+}
+button.btn-monthly-show:disabled {
+    box-shadow: none;
+}
+
 /* --- データテーブル (Excel風) --- */
 .table-container {
     background: #fff;
