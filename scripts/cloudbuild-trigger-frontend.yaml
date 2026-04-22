@@ -1,0 +1,14 @@
+# Import: gcloud beta builds triggers import --source=scripts/cloudbuild-trigger-frontend.yaml --project=dailyreport-480700
+# Edit substitutions below before import, or re-import after editing.
+name: dailyreport-frontend-ftp-deploy
+filename: cloudbuild-frontend.yaml
+substitutions:
+  _FTP_HOST: "REPLACE_ME"
+  _FTP_USER: "REPLACE_ME"
+  _FTP_PASS: "REPLACE_ME"
+github:
+  name: Dailyreport_test
+  owner: CT-affairs
+  push:
+    branch: ^main$
+serviceAccount: projects/dailyreport-480700/serviceAccounts/1088643883290-compute@developer.gserviceaccount.com

@@ -1,6 +1,10 @@
 # FTP フロント配信（ホスティングへ lftp put）
-# Cloud Build トリガーに次の置換を必ず設定すること: _FTP_HOST, _FTP_USER, _FTP_PASS
-# 作成手順: scripts/setup-frontend-deploy-trigger.ps1 を参照
+# トリガーまたは手動実行時に _FTP_* を上書きすること（REPLACE_ME のままでは失敗する）
+substitutions:
+  _FTP_HOST: "REPLACE_ME"
+  _FTP_USER: "REPLACE_ME"
+  _FTP_PASS: "REPLACE_ME"
+# 作成手順: scripts/setup-frontend-deploy-trigger.ps1（beta import）を参照
 steps:
 - name: alpine
   entrypoint: sh

@@ -1,0 +1,11 @@
+createTime: '2026-03-26T07:27:13.588942353Z'
+filename: cloudbuild.yaml
+github:
+  name: Dailyreport_test
+  owner: CT-affairs
+  push:
+    branch: ^main$
+id: 1f760d71-244b-4860-a4cf-7ce1e301e4cd
+name: dailyreport-test-cloudbuild-yaml
+resourceName: projects/dailyreport-480700/locations/global/triggers/1f760d71-244b-4860-a4cf-7ce1e301e4cd
+serviceAccount: projects/dailyreport-480700/serviceAccounts/1088643883290-compute@developer.gserviceaccount.com
