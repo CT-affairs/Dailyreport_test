@@ -8091,9 +8091,15 @@ function ensureNetFiscalPastReportsModalInitialized() {
     if (narrowRangeBtn && !narrowRangeBtn.dataset.netFiscalNarrowListenerBound) {
         narrowRangeBtn.dataset.netFiscalNarrowListenerBound = '1';
         narrowRangeBtn.title =
-            '画面上部の対象日を期間の最終日にした直近10日分。列幅が広がり表示を大きくします。前月/次月は月度表示時のみ。';
+            '画面上部の対象日を期間の最終日（上限）とした直近10日。◀/▶は期間を1日ずつ移動。列を広くして視認性を上げます。';
         narrowRangeBtn.addEventListener('click', () => {
             netFiscalPastReportsNarrow10Mode = !netFiscalPastReportsNarrow10Mode;
+            if (netFiscalPastReportsNarrow10Mode) {
+                const a = getNetFiscalNarrow10AsOfNormalized();
+                netFiscalNarrow10EndDate = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+            } else {
+                netFiscalNarrow10EndDate = null;
+            }
             narrowRangeBtn.textContent = netFiscalPastReportsNarrow10Mode
                 ? '月度全体を表示'
                 : '期間を絞る';
@@ -8136,6 +8142,7 @@ function openNetFiscalPastReportsModal() {
     resetNetFiscalPastReportsPeriodToCurrent();
 
     netFiscalPastReportsNarrow10Mode = false;
+    netFiscalNarrow10EndDate = null;
     const narrowOpenBtn = document.getElementById('net-fiscal-past-reports-narrow-range-btn');
     if (narrowOpenBtn) {
         narrowOpenBtn.textContent = '期間を絞る';
@@ -8155,8 +8162,12 @@ function openNetFiscalPastReportsModal() {
     if (prevBtn) {
         prevBtn.replaceWith(prevBtn.cloneNode(true));
         document.getElementById('net-fiscal-past-reports-prev-btn').addEventListener('click', () => {
-            goNetFiscalPastReportsToPreviousPeriod();
-            fetchAndRenderNetFiscalPastReports(
+            if (netFiscalPastReportsNarrow10Mode) {
+                goNetFiscalNarrow10ToPrevious();
+            } else {
+                goNetFiscalPastReportsToPreviousPeriod();
+            }
+            void fetchAndRenderNetFiscalPastReports(
                 'net-fiscal-past-reports-container',
                 'net-fiscal-past-reports-period-display',
                 { nextButtonEl: 'net-fiscal-past-reports-next-btn' },
@@ -8166,8 +8177,12 @@ function openNetFiscalPastReportsModal() {
     if (nextBtn) {
         nextBtn.replaceWith(nextBtn.cloneNode(true));
         document.getElementById('net-fiscal-past-reports-next-btn').addEventListener('click', () => {
-            goNetFiscalPastReportsToNextPeriod();
-            fetchAndRenderNetFiscalPastReports(
+            if (netFiscalPastReportsNarrow10Mode) {
+                goNetFiscalNarrow10ToNext();
+            } else {
+                goNetFiscalPastReportsToNextPeriod();
+            }
+            void fetchAndRenderNetFiscalPastReports(
                 'net-fiscal-past-reports-container',
                 'net-fiscal-past-reports-period-display',
                 { nextButtonEl: 'net-fiscal-past-reports-next-btn' },
@@ -8576,6 +8591,8 @@ const NET_FISCAL_PAST_REPORTS_OPENING_DAY = 21;
 let netFiscalPastReportsClosingEndDate = null;
 /** true のとき #net-fiscal-past-reports-container は直近10日（終了日=対象日）表示 */
 let netFiscalPastReportsNarrow10Mode = false;
+/** 10日表示の期間最終日（ローカル日付）◀/▶で1日ずつ移動。null のときは as-of 相当で解決 */
+let netFiscalNarrow10EndDate = null;
 
 /**
  * YYYY-MM-DD をローカル日付として解釈（UTCずれ防止）
@@ -8727,12 +8744,86 @@ function getNetFiscalNarrow10AsOfDate() {
 }
 
 /**
- * 最終日=対象日とした直近 NET_FISCAL_NARROW10_DAY_COUNT 日（両端含む）
+ * 対象日（上限）をローカル日付の 0:00 に正規化
+ * @returns {Date}
+ */
+function getNetFiscalNarrow10AsOfNormalized() {
+    const a = getNetFiscalNarrow10AsOfDate();
+    return new Date(a.getFullYear(), a.getMonth(), a.getDate());
+}
+
+/**
+ * 10日窓の終了日が対象日（上限）以上なら「次」は無効
+ * @returns {boolean}
+ */
+function isNetFiscalNarrow10EndAtAsOf() {
+    if (!netFiscalNarrow10EndDate) return true;
+    const cap = getNetFiscalNarrow10AsOfNormalized();
+    const e = new Date(
+        netFiscalNarrow10EndDate.getFullYear(),
+        netFiscalNarrow10EndDate.getMonth(),
+        netFiscalNarrow10EndDate.getDate(),
+    );
+    return e.getTime() >= cap.getTime();
+}
+
+/**
+ * 10日窓を1日過去へ（終了日を1日戻す）
+ */
+function goNetFiscalNarrow10ToPrevious() {
+    if (!netFiscalNarrow10EndDate) {
+        const a = getNetFiscalNarrow10AsOfNormalized();
+        netFiscalNarrow10EndDate = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+    }
+    const d = new Date(
+        netFiscalNarrow10EndDate.getFullYear(),
+        netFiscalNarrow10EndDate.getMonth(),
+        netFiscalNarrow10EndDate.getDate(),
+    );
+    d.setDate(d.getDate() - 1);
+    netFiscalNarrow10EndDate = d;
+}
+
+/**
+ * 10日窓を1日未来へ（終了日は画面上部の対象日を上限）
+ */
+function goNetFiscalNarrow10ToNext() {
+    if (!netFiscalNarrow10EndDate) return;
+    const cap = getNetFiscalNarrow10AsOfNormalized();
+    const d = new Date(
+        netFiscalNarrow10EndDate.getFullYear(),
+        netFiscalNarrow10EndDate.getMonth(),
+        netFiscalNarrow10EndDate.getDate(),
+    );
+    d.setDate(d.getDate() + 1);
+    if (d.getTime() > cap.getTime()) return;
+    netFiscalNarrow10EndDate = d;
+}
+
+/**
+ * netFiscalNarrow10EndDate を基準に直近 NET_FISCAL_NARROW10_DAY_COUNT 日（両端含む）
  * @returns {{ startDate: Date, endDate: Date, startDateStr: string, endDateStr: string, label: string }}
  */
 function getNetFiscalNarrow10Range() {
-    const endDateRaw = getNetFiscalNarrow10AsOfDate();
-    const endDate = new Date(endDateRaw.getFullYear(), endDateRaw.getMonth(), endDateRaw.getDate());
+    if (!netFiscalNarrow10EndDate) {
+        const a = getNetFiscalNarrow10AsOfNormalized();
+        netFiscalNarrow10EndDate = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+    } else {
+        const cap = getNetFiscalNarrow10AsOfNormalized();
+        const e = new Date(
+            netFiscalNarrow10EndDate.getFullYear(),
+            netFiscalNarrow10EndDate.getMonth(),
+            netFiscalNarrow10EndDate.getDate(),
+        );
+        if (e.getTime() > cap.getTime()) {
+            netFiscalNarrow10EndDate = new Date(cap.getFullYear(), cap.getMonth(), cap.getDate());
+        }
+    }
+    const endDate = new Date(
+        netFiscalNarrow10EndDate.getFullYear(),
+        netFiscalNarrow10EndDate.getMonth(),
+        netFiscalNarrow10EndDate.getDate(),
+    );
     const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - (NET_FISCAL_NARROW10_DAY_COUNT - 1));
     const toYmd = (d) => {
@@ -8812,8 +8903,8 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
     }
     const prevBtnEl = document.getElementById('net-fiscal-past-reports-prev-btn');
     if (netFiscalPastReportsNarrow10Mode) {
-        if (nextBtn) nextBtn.disabled = true;
-        if (prevBtnEl) prevBtnEl.disabled = true;
+        if (prevBtnEl) prevBtnEl.disabled = false;
+        if (nextBtn) nextBtn.disabled = isNetFiscalNarrow10EndAtAsOf();
     } else {
         if (prevBtnEl) prevBtnEl.disabled = false;
         if (nextBtn) {

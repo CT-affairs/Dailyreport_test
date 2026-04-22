@@ -468,11 +468,12 @@ th.sortable-th:hover {
 #net-fiscal-past-reports-modal .past-reports-root {
     padding: 6px 8px;
 }
+/* 月度/10日共通: タイムテーブル領域を従来比 110% へ（下の余白を活用） */
 #net-fiscal-past-reports-modal .past-reports-layout {
-    min-height: min(78vh, 720px);
+    min-height: min(85.8vh, 792px);
 }
 #net-fiscal-past-reports-modal .past-day-timetable {
-    min-height: min(62vh, 600px);
+    min-height: min(68.2vh, 660px);
 }
 #net-fiscal-past-reports-modal .net-fiscal-past-task-detail {
     max-height: 22vh;
