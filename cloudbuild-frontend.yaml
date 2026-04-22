@@ -46,6 +46,8 @@ steps:
     cat deploy_frontend.normalized.txt
     echo "=== Uploading files ==="
 
+    upload_count=0
+
     matches_whitelist () {
       file="$1"
       while IFS= read -r pattern
@@ -68,8 +70,17 @@ steps:
 
       # lftp の -e 内ではクォート不要
       lftp -u $_FTP_USER,$_FTP_PASS $_FTP_HOST -e "set ftp:ssl-allow no; [ \"$dir\" != \".\" ] && mkdir -p $dir; put $file -o $file; bye"
+      upload_count=$(expr "$upload_count" + 1)
 
     done < changed.txt
+
+    echo "=== FTP upload finished: ${upload_count} file(s) ==="
+    if [ "$upload_count" -eq 0 ]; then
+      echo "WARNING: No files were uploaded. Common causes:"
+      echo "  - This commit changed no paths that match deploy_frontend.txt"
+      echo "  - Cloud Build could not diff to parent (check Changed files / changed.txt above)"
+      echo "  - File path is not under the FTP whitelist"
+    fi
 
 options:
   logging: CLOUD_LOGGING_ONLY
