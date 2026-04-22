@@ -8087,6 +8087,13 @@ function ensureNetFiscalPastReportsModalInitialized() {
     netFiscalPastModal.addEventListener('click', (e) => {
         if (e.target.classList.contains('dr-modal')) closeNetFiscal();
     });
+    const narrowRangeBtn = document.getElementById('net-fiscal-past-reports-narrow-range-btn');
+    if (narrowRangeBtn && !narrowRangeBtn.dataset.netFiscalNarrowListenerBound) {
+        narrowRangeBtn.dataset.netFiscalNarrowListenerBound = '1';
+        narrowRangeBtn.addEventListener('click', () => {
+            // TODO: 期間を絞る（仕様追って実装）
+        });
+    }
 }
 
 /**

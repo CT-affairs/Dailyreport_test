@@ -443,11 +443,26 @@ th.sortable-th:hover {
     padding: 3px 8px;
     line-height: 1.25;
 }
+#net-fiscal-past-reports-modal .net-fiscal-past-reports-nav .net-fiscal-past-reports-center-cluster {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0;
+}
+#net-fiscal-past-reports-modal .net-fiscal-past-reports-nav .net-fiscal-past-reports-period-spacer {
+    flex: 0 0 auto;
+    user-select: none;
+    font-size: 0.78rem;
+    line-height: 1.25;
+}
 #net-fiscal-past-reports-modal .net-fiscal-past-reports-nav .net-fiscal-past-reports-period-display {
     font-weight: 600;
     font-size: 0.78rem;
     text-align: center;
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
 }
 #net-fiscal-past-reports-modal .past-reports-root {
