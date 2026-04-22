@@ -8092,6 +8092,44 @@ function openPastReportsModal() {
 }
 
 /**
+ * 過去日報一覧モーダル: 10日 / 月度 セグメントの aria-selected と is-active
+ */
+function updateNetFiscalPastReportsModeSegmentUI() {
+    const b10 = document.getElementById('net-fiscal-past-reports-mode-10d');
+    const bMonth = document.getElementById('net-fiscal-past-reports-mode-month');
+    if (!b10 || !bMonth) return;
+    const narrow = netFiscalPastReportsNarrow10Mode;
+    b10.setAttribute('aria-selected', narrow ? 'true' : 'false');
+    bMonth.setAttribute('aria-selected', narrow ? 'false' : 'true');
+    b10.classList.toggle('is-active', narrow);
+    bMonth.classList.toggle('is-active', !narrow);
+}
+
+/**
+ * 10日 / 月度 の表示モード切替（同一モードなら何もしない）
+ * @param {boolean} wantNarrow - true=直近10日, false=月度
+ */
+function applyNetFiscalPastReportsDisplayMode(wantNarrow) {
+    if (wantNarrow === netFiscalPastReportsNarrow10Mode) return;
+    netFiscalPastReportsNarrow10Mode = wantNarrow;
+    if (wantNarrow) {
+        const a = getNetFiscalNarrow10AsOfNormalized();
+        netFiscalNarrow10EndDate = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+    } else {
+        netFiscalNarrow10EndDate = null;
+    }
+    updateNetFiscalPastReportsModeSegmentUI();
+    const m = document.getElementById('net-fiscal-past-reports-modal');
+    if (m && m.classList.contains('is-active')) {
+        void fetchAndRenderNetFiscalPastReports(
+            'net-fiscal-past-reports-container',
+            'net-fiscal-past-reports-period-display',
+            { nextButtonEl: 'net-fiscal-past-reports-next-btn' },
+        );
+    }
+}
+
+/**
  * admin.html に配置した月度モーダルの閉じる操作を一度だけバインド
  */
 function ensureNetFiscalPastReportsModalInitialized() {
@@ -8113,30 +8151,15 @@ function ensureNetFiscalPastReportsModalInitialized() {
     netFiscalPastModal.addEventListener('click', (e) => {
         if (e.target.classList.contains('dr-modal')) closeNetFiscal();
     });
-    const narrowRangeBtn = document.getElementById('net-fiscal-past-reports-narrow-range-btn');
-    if (narrowRangeBtn && !narrowRangeBtn.dataset.netFiscalNarrowListenerBound) {
-        narrowRangeBtn.dataset.netFiscalNarrowListenerBound = '1';
-        narrowRangeBtn.title =
-            '画面上部の対象日を期間の最終日（上限）とした直近10日。◀/▶は期間を1日ずつ移動。列を広くして視認性を上げます。';
-        narrowRangeBtn.addEventListener('click', () => {
-            netFiscalPastReportsNarrow10Mode = !netFiscalPastReportsNarrow10Mode;
-            if (netFiscalPastReportsNarrow10Mode) {
-                const a = getNetFiscalNarrow10AsOfNormalized();
-                netFiscalNarrow10EndDate = new Date(a.getFullYear(), a.getMonth(), a.getDate());
-            } else {
-                netFiscalNarrow10EndDate = null;
-            }
-            narrowRangeBtn.textContent = netFiscalPastReportsNarrow10Mode
-                ? '月度全体を表示'
-                : '期間を絞る';
-            const m = document.getElementById('net-fiscal-past-reports-modal');
-            if (m && m.classList.contains('is-active')) {
-                void fetchAndRenderNetFiscalPastReports(
-                    'net-fiscal-past-reports-container',
-                    'net-fiscal-past-reports-period-display',
-                    { nextButtonEl: 'net-fiscal-past-reports-next-btn' },
-                );
-            }
+    const mode10Btn = document.getElementById('net-fiscal-past-reports-mode-10d');
+    const modeMonthBtn = document.getElementById('net-fiscal-past-reports-mode-month');
+    if (mode10Btn && modeMonthBtn && !mode10Btn.dataset.netFiscalModeSegmentBound) {
+        mode10Btn.dataset.netFiscalModeSegmentBound = '1';
+        mode10Btn.addEventListener('click', () => {
+            applyNetFiscalPastReportsDisplayMode(true);
+        });
+        modeMonthBtn.addEventListener('click', () => {
+            applyNetFiscalPastReportsDisplayMode(false);
         });
     }
 }
@@ -8176,10 +8199,7 @@ function openNetFiscalPastReportsModal() {
         const a = getNetFiscalNarrow10AsOfNormalized();
         netFiscalNarrow10EndDate = new Date(a.getFullYear(), a.getMonth(), a.getDate());
     }
-    const narrowOpenBtn = document.getElementById('net-fiscal-past-reports-narrow-range-btn');
-    if (narrowOpenBtn) {
-        narrowOpenBtn.textContent = '月度全体を表示';
-    }
+    updateNetFiscalPastReportsModeSegmentUI();
 
     modal.classList.add('is-active');
     void modal.offsetWidth;
