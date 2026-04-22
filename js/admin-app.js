@@ -7243,6 +7243,23 @@ const isDarkColor = (color) => {
 };
 
 /**
+ * ネット事業部タイムテーブル用: タスク内テキストを
+ * 左70%(コメント) / 右30%(集計項目 / 業務種別) で表示する
+ * @returns {string} innerHTML
+ */
+function buildProxyNetTaskBlockHtml(categoryBLabel, categoryALabel, comment) {
+    const commentText = String(comment || '').trim();
+    const metaText = [categoryBLabel, categoryALabel].filter(Boolean).join(' / ');
+    const titleText = [commentText, metaText].filter(Boolean).join(' | ');
+    return `
+        <div class="proxy-net-task-content" title="${escapeHTML(titleText)}">
+            <span class="proxy-net-task-comment">${escapeHTML(commentText)}</span>
+            <span class="proxy-net-task-meta">${escapeHTML(metaText)}</span>
+        </div>
+    `;
+}
+
+/**
  * タイムテーブルにタスクブロックを追加する
  */
 function addProxyTimetableTask() {
@@ -7321,14 +7338,7 @@ function addProxyTimetableTask() {
         cursor: pointer;
     `;
 
-    // 表示テキストを「集計項目 / 業務種別 / コメント」の形式で1行にまとめる
-    const displayText = [
-        categoryB_label,
-        categoryA_label,
-        comment
-    ].filter(Boolean).join(' / ');
-
-    taskElement.innerHTML = `<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(displayText)}">${escapeHTML(displayText)}</div>`;
+    taskElement.innerHTML = buildProxyNetTaskBlockHtml(categoryB_label, categoryA_label, comment);
 
     // データを要素に保存（将来の編集/削除用）
     taskElement.dataset.startTime = startTime;
@@ -7461,14 +7471,7 @@ function renderExistingTimetableTask(task) {
         cursor: pointer;
     `;
 
-    // 表示テキストを「集計項目 / 業務種別 / コメント」の形式で1行にまとめる
-    const displayText = [
-        categoryB_label,
-        categoryA_label,
-        comment || ''
-    ].filter(Boolean).join(' / ');
-
-    taskElement.innerHTML = `<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(displayText)}">${escapeHTML(displayText)}</div>`;
+    taskElement.innerHTML = buildProxyNetTaskBlockHtml(categoryB_label, categoryA_label, comment || '');
 
     taskElement.dataset.startTime = startTime;
     taskElement.dataset.endTime = endTime;

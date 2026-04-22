@@ -934,3 +934,30 @@ th.sortable-th:hover {
     flex: 0 1 auto;
     min-width: 0;
 }
+
+/* 日報_個別（ネット）入力タイムテーブル: タスク内テキスト */
+.timetable-task .proxy-net-task-content {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+}
+.timetable-task .proxy-net-task-comment {
+    flex: 0 0 70%;
+    max-width: 70%;
+    min-width: 0;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.timetable-task .proxy-net-task-meta {
+    flex: 0 0 30%;
+    max-width: 30%;
+    min-width: 0;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
