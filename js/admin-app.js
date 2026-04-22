@@ -743,9 +743,10 @@ async function openMonthlyOverviewModal() {
     const body = document.createElement('div');
     body.style.cssText = 'padding:8px 10px;overflow:auto;flex:1;display:flex;flex-direction:column;';
     const infoBlock = document.createElement('div');
-    infoBlock.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:10px;';
+    infoBlock.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:10px;width:100%;';
     const periodBlock = document.createElement('div');
-    periodBlock.style.cssText = 'word-break:break-all;';
+    periodBlock.style.cssText =
+        'display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;column-gap:16px;row-gap:8px;width:100%;word-break:break-all;';
     const tableMount = document.createElement('div');
     tableMount.style.cssText = 'flex:1;min-height:80px;';
     infoBlock.appendChild(periodBlock);
@@ -801,14 +802,14 @@ async function openMonthlyOverviewModal() {
             nextBtn.disabled = true;
             return;
         }
-        // 1行（狭い幅では折り返し）: 基準日・対象期間・操作説明を同じブロック内のインラインで並べる
-        periodBlock.innerHTML = `基準日: <strong>${escapeHTML(
+        // 左: 基準日・対象期間 / 右: 操作説明（モーダル内右寄せ）
+        periodBlock.innerHTML = `<span>基準日: <strong>${escapeHTML(
             currentBaseDate,
         )}</strong>　対象期間: <strong>${escapeHTML(
             range.start,
         )}</strong> ～ <strong>${escapeHTML(
             range.end,
-        )}</strong>　<span style="color:#666;font-size:11px;">「◀前月」「翌月▶」で対象期間を切り替え、「表示」でその月度の一覧表を生成します。</span>`;
+        )}</strong></span><span style="color:#666;font-size:11px;justify-self:end;text-align:right;max-width:min(100%,36em);">「◀前月」「翌月▶」で対象期間を切り替え、「表示」でその月度の一覧表を生成します。</span>`;
         showBtn.disabled = false;
         prevBtn.disabled = false;
         nextBtn.disabled = false;
