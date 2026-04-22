@@ -717,6 +717,7 @@ th.sortable-th:hover {
     pointer-events: none;
 }
 .past-day-timetable {
+    /* JS が表示幅（分）/30。実質「30分スロット本数」 */
     --past-hour-span: 11;
     position: relative;
     flex-grow: 1;

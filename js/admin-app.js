@@ -7835,19 +7835,30 @@ function setupTimetableInteractions() {
 
 let pastReportsCurrentEndDate = null; // 過去日報の表示期間の終了日
 
-/** 過去日報タイムテーブルの表示時間帯（タスク位置・横線と同期） */
+/** 過去日報タイムテーブルの表示時間帯（タスク位置・横線と同期）。時刻は深夜からの「分」で保持 */
 const PAST_REPORTS_VISIBLE_TIME = Object.freeze({
-    DEFAULT_START_H: 7,
-    DEFAULT_END_H: 18,
-    /** 過去日報一覧（月度）モーダルの規定表示: 7:00〜20:00（終了時刻はグリッド上の 20:00 ラベルまで） */
-    FISCAL_DEFAULT_START_H: 7,
-    FISCAL_DEFAULT_END_H: 20,
-    MIN_START_H: 5,
-    MAX_END_H: 22,
+    /** 週次（7日）過去日報モーダル: 7:00〜18:00 */
+    DEFAULT_START_MIN: 7 * 60,
+    DEFAULT_END_MIN: 18 * 60,
+    /** 月度/10日モーダル: 7:00〜20:00 */
+    FISCAL_DEFAULT_START_MIN: 7 * 60,
+    FISCAL_DEFAULT_END_MIN: 20 * 60,
+    MIN_START_MIN: 5 * 60,
+    MAX_END_MIN: 22 * 60,
+    /** 目盛表示・+/- ボタン・背景グリッドの刻み */
+    SLOT_MINUTES: 30,
 });
 
-let pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
-let pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+let pastReportsVisibleStartMin = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_MIN;
+let pastReportsVisibleEndMin = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_MIN;
+/**
+ * 週次/月度の「戻し」用デフォルト（+/-の上限/下限: 週7:00–18:00, ネット月度7:00–20:00 等）
+ * @type {{ startMin: number, endMin: number }}
+ */
+let pastReportsTimeRuleDefaults = {
+    startMin: PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_MIN,
+    endMin: PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_MIN,
+};
 /** 直近描画の再描画用キャッシュ（時刻幅変更ボタン用） */
 let pastReportsTimetableRenderState = null;
 /** 取得データの日付範囲が変わったら表示時間帯をデフォルトに戻す */
@@ -7928,30 +7939,37 @@ function getPastReportsDataRangeKey(rangeStart, rangeEnd) {
     return `${formatLocalYmd(rangeStart)}_${formatLocalYmd(rangeEnd)}`;
 }
 
+/** 午前0時からの分 → 「H:MM」 */
+function formatPastReportsClockLabel(totalMinFromMidnight) {
+    const h = Math.floor(totalMinFromMidnight / 60);
+    const m = totalMinFromMidnight % 60;
+    return `${h}:${String(m).padStart(2, '0')}`;
+}
+
 /**
- * @param {{ defaultStartH?: number, defaultEndH?: number }} [resetHourOptions] - 省略時は週次モーダル用 DEFAULT_* を使用
+ * @param {{ defaultStartH?: number, defaultEndH?: number }} [resetHourOptions] - 時（小数可）のまま受け取り内部分に変換
  */
 function maybeResetPastReportsVisibleHoursForDataRange(rangeStart, rangeEnd, resetHourOptions) {
     const key = getPastReportsDataRangeKey(rangeStart, rangeEnd);
     if (key !== pastReportsLastDataRangeKey) {
         pastReportsLastDataRangeKey = key;
         const ds = resetHourOptions && Number.isFinite(resetHourOptions.defaultStartH)
-            ? resetHourOptions.defaultStartH
-            : PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
+            ? Math.round(resetHourOptions.defaultStartH * 60)
+            : PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_MIN;
         const de = resetHourOptions && Number.isFinite(resetHourOptions.defaultEndH)
-            ? resetHourOptions.defaultEndH
-            : PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
-        pastReportsVisibleStartHour = ds;
-        pastReportsVisibleEndHour = de;
+            ? Math.round(resetHourOptions.defaultEndH * 60)
+            : PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_MIN;
+        pastReportsVisibleStartMin = ds;
+        pastReportsVisibleEndMin = de;
+        pastReportsTimeRuleDefaults = { startMin: ds, endMin: de };
     }
 }
 
 function getPastReportsVisibleTimeTotals() {
-    const startMin = pastReportsVisibleStartHour * 60;
-    const endMin = pastReportsVisibleEndHour * 60;
+    const startMin = pastReportsVisibleStartMin;
+    const endMin = pastReportsVisibleEndMin;
     const totalMin = endMin - startMin;
-    const hourSpan = pastReportsVisibleEndHour - pastReportsVisibleStartHour;
-    return { startMin, endMin, totalMin, hourSpan };
+    return { startMin, endMin, totalMin };
 }
 
 function parsePastReportTimeToMinutes(timeStr) {
@@ -7974,29 +7992,28 @@ function handlePastReportsLayoutClick(event) {
     const btn = event.target.closest('[data-past-action]');
     if (!btn || btn.disabled) return;
     const action = btn.getAttribute('data-past-action');
+    const slot = PAST_REPORTS_VISIBLE_TIME.SLOT_MINUTES;
     let changed = false;
     if (action === 'earlier-start') {
-        if (pastReportsVisibleStartHour > PAST_REPORTS_VISIBLE_TIME.MIN_START_H) {
-            pastReportsVisibleStartHour -= 1;
+        if (pastReportsVisibleStartMin > PAST_REPORTS_VISIBLE_TIME.MIN_START_MIN) {
+            pastReportsVisibleStartMin -= slot;
             changed = true;
         }
     } else if (action === 'later-start') {
-        // 上部「−」: 表示開始を遅くするが、既定の 7:00 より遅くはできない
-        if (pastReportsVisibleStartHour < pastReportsVisibleEndHour - 1
-            && pastReportsVisibleStartHour < PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H) {
-            pastReportsVisibleStartHour += 1;
+        if (pastReportsVisibleStartMin < pastReportsVisibleEndMin - slot
+            && pastReportsVisibleStartMin < pastReportsTimeRuleDefaults.startMin) {
+            pastReportsVisibleStartMin += slot;
             changed = true;
         }
     } else if (action === 'later-end') {
-        if (pastReportsVisibleEndHour < PAST_REPORTS_VISIBLE_TIME.MAX_END_H) {
-            pastReportsVisibleEndHour += 1;
+        if (pastReportsVisibleEndMin + slot <= PAST_REPORTS_VISIBLE_TIME.MAX_END_MIN) {
+            pastReportsVisibleEndMin += slot;
             changed = true;
         }
     } else if (action === 'earlier-end') {
-        // 下部「−」: 表示終了を早くするが、既定の 18:00 より早くはできない
-        if (pastReportsVisibleEndHour > pastReportsVisibleStartHour + 1
-            && pastReportsVisibleEndHour > PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H) {
-            pastReportsVisibleEndHour -= 1;
+        if (pastReportsVisibleEndMin > pastReportsVisibleStartMin + slot
+            && pastReportsVisibleEndMin > pastReportsTimeRuleDefaults.endMin) {
+            pastReportsVisibleEndMin -= slot;
             changed = true;
         }
     }
@@ -8011,15 +8028,18 @@ function updatePastReportsRulerButtons(layout) {
     const ls = layout.querySelector('[data-past-action="later-start"]');
     const le = layout.querySelector('[data-past-action="later-end"]');
     const ee = layout.querySelector('[data-past-action="earlier-end"]');
-    if (es) es.disabled = pastReportsVisibleStartHour <= PAST_REPORTS_VISIBLE_TIME.MIN_START_H;
+    const slot = PAST_REPORTS_VISIBLE_TIME.SLOT_MINUTES;
+    if (es) es.disabled = pastReportsVisibleStartMin <= PAST_REPORTS_VISIBLE_TIME.MIN_START_MIN;
     if (ls) {
-        ls.disabled = pastReportsVisibleStartHour >= pastReportsVisibleEndHour - 1
-            || pastReportsVisibleStartHour >= PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
+        ls.disabled = pastReportsVisibleStartMin >= pastReportsVisibleEndMin - slot
+            || pastReportsVisibleStartMin >= pastReportsTimeRuleDefaults.startMin;
     }
-    if (le) le.disabled = pastReportsVisibleEndHour >= PAST_REPORTS_VISIBLE_TIME.MAX_END_H;
+    if (le) {
+        le.disabled = pastReportsVisibleEndMin + slot > PAST_REPORTS_VISIBLE_TIME.MAX_END_MIN;
+    }
     if (ee) {
-        ee.disabled = pastReportsVisibleEndHour <= pastReportsVisibleStartHour + 1
-            || pastReportsVisibleEndHour <= PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+        ee.disabled = pastReportsVisibleEndMin <= pastReportsVisibleStartMin + slot
+            || pastReportsVisibleEndMin <= pastReportsTimeRuleDefaults.endMin;
     }
 }
 
@@ -8033,8 +8053,12 @@ function openPastReportsModal() {
         return;
     }
 
-    pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H;
-    pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H;
+    pastReportsVisibleStartMin = PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_MIN;
+    pastReportsVisibleEndMin = PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_MIN;
+    pastReportsTimeRuleDefaults = {
+        startMin: PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_MIN,
+        endMin: PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_MIN,
+    };
     pastReportsLastDataRangeKey = '';
 
     // 表示期間の初期化（今日の1日前を終了日とする）
@@ -8135,8 +8159,12 @@ function openNetFiscalPastReportsModal() {
         return;
     }
 
-    pastReportsVisibleStartHour = PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_START_H;
-    pastReportsVisibleEndHour = PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_END_H;
+    pastReportsVisibleStartMin = PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_START_MIN;
+    pastReportsVisibleEndMin = PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_END_MIN;
+    pastReportsTimeRuleDefaults = {
+        startMin: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_START_MIN,
+        endMin: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_END_MIN,
+    };
     pastReportsLastDataRangeKey = '';
 
     resetNetFiscalPastReportsPeriodToCurrent();
@@ -8269,7 +8297,7 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
 
     const rangeStart = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
     const rangeEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-    const { startMin, endMin, totalMin, hourSpan } = getPastReportsVisibleTimeTotals();
+    const { startMin, endMin, totalMin } = getPastReportsVisibleTimeTotals();
     if (totalMin <= 0) {
         pastReportsTimetableRenderState = null;
         container.innerHTML = '<div style="text-align: center; padding: 50px 0; color: #c00;">表示時間帯の設定が不正です。</div>';
@@ -8288,28 +8316,34 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
 
     const rulerColumn = document.createElement('div');
     rulerColumn.className = 'past-day-column past-reports-ruler-column';
+    const minStartLab = formatPastReportsClockLabel(PAST_REPORTS_VISIBLE_TIME.MIN_START_MIN);
+    const maxEndLab = formatPastReportsClockLabel(PAST_REPORTS_VISIBLE_TIME.MAX_END_MIN);
+    const ruleStartLab = formatPastReportsClockLabel(pastReportsTimeRuleDefaults.startMin);
+    const ruleEndLab = formatPastReportsClockLabel(pastReportsTimeRuleDefaults.endMin);
     rulerColumn.innerHTML = `
         <div class="past-day-header">時刻</div>
         <div class="past-timetable-strip">
-            <button type="button" class="past-ruler-btn" data-past-action="earlier-start" title="表示開始を1時間早く（最大${PAST_REPORTS_VISIBLE_TIME.MIN_START_H}:00）">+</button>
-            <button type="button" class="past-ruler-btn" data-past-action="later-start" title="表示開始を1時間遅く（${PAST_REPORTS_VISIBLE_TIME.DEFAULT_START_H}:00まで）">−</button>
+            <button type="button" class="past-ruler-btn" data-past-action="earlier-start" title="表示開始を30分早く（最大${minStartLab}）">+</button>
+            <button type="button" class="past-ruler-btn" data-past-action="later-start" title="表示開始を30分遅く（${ruleStartLab}まで）">−</button>
         </div>
         <div class="past-day-timetable past-ruler-timetable"></div>
         <div class="past-timetable-strip">
-            <button type="button" class="past-ruler-btn" data-past-action="later-end" title="表示終了を1時間遅く（最大${PAST_REPORTS_VISIBLE_TIME.MAX_END_H}:00）">+</button>
-            <button type="button" class="past-ruler-btn" data-past-action="earlier-end" title="表示終了を1時間早く（${PAST_REPORTS_VISIBLE_TIME.DEFAULT_END_H}:00まで）">−</button>
+            <button type="button" class="past-ruler-btn" data-past-action="later-end" title="表示終了を30分遅く（最大${maxEndLab}）">+</button>
+            <button type="button" class="past-ruler-btn" data-past-action="earlier-end" title="表示終了を30分早く（${ruleEndLab}まで）">−</button>
         </div>
     `;
     const rulerTimetable = rulerColumn.querySelector('.past-ruler-timetable');
-    rulerTimetable.style.setProperty('--past-hour-span', String(hourSpan));
-    for (let h = pastReportsVisibleStartHour; h <= pastReportsVisibleEndHour; h += 1) {
+    const slotM = PAST_REPORTS_VISIBLE_TIME.SLOT_MINUTES;
+    const slotCount = totalMin / slotM;
+    rulerTimetable.style.setProperty('--past-hour-span', String(slotCount));
+    for (let m = startMin; m <= endMin; m += slotM) {
         const label = document.createElement('div');
         label.className = 'past-ruler-hour-label';
-        label.textContent = `${h}:00`;
-        const pct = ((h * 60 - startMin) / totalMin) * 100;
-        if (h === pastReportsVisibleStartHour) {
+        label.textContent = formatPastReportsClockLabel(m);
+        const pct = ((m - startMin) / totalMin) * 100;
+        if (m === startMin) {
             label.classList.add('is-first');
-        } else if (h === pastReportsVisibleEndHour) {
+        } else if (m === endMin) {
             label.classList.add('is-last');
         } else {
             label.classList.add('is-mid');
@@ -8393,7 +8427,7 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
         }
 
         const timetableEl = column.querySelector('.past-day-timetable');
-        timetableEl.style.setProperty('--past-hour-span', String(hourSpan));
+        timetableEl.style.setProperty('--past-hour-span', String(slotCount));
 
         reports.forEach((task) => {
             if (!task.startTime || !task.endTime || task.categoryA_id === 'N99') return;
@@ -8931,8 +8965,8 @@ async function fetchAndRenderNetFiscalPastReports(containerEl, periodDisplayEl, 
         const rs = new Date(range.startDate.getFullYear(), range.startDate.getMonth(), range.startDate.getDate());
         const re = new Date(range.endDate.getFullYear(), range.endDate.getMonth(), range.endDate.getDate());
         maybeResetPastReportsVisibleHoursForDataRange(rs, re, {
-            defaultStartH: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_START_H,
-            defaultEndH: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_END_H,
+            defaultStartH: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_START_MIN / 60,
+            defaultEndH: PAST_REPORTS_VISIBLE_TIME.FISCAL_DEFAULT_END_MIN / 60,
         });
         renderPastReportsTimetables(
             reportsByDate,
