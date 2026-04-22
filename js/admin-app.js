@@ -1524,7 +1524,7 @@ function handleNavigation(target, params = {}, options = { push: true }) {
 
     switch(target) {
         case 'home':
-            pageTitle.textContent = 'ダッシュボード';
+            pageTitle.textContent = '・ダッシュボード・';
             renderDashboardHome(contentArea);
             break;
 
