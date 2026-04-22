@@ -743,15 +743,12 @@ async function openMonthlyOverviewModal() {
     const body = document.createElement('div');
     body.style.cssText = 'padding:8px 10px;overflow:auto;flex:1;display:flex;flex-direction:column;';
     const infoBlock = document.createElement('div');
-    infoBlock.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:10px;display:flex;flex-direction:column;gap:4px;';
+    infoBlock.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:10px;';
     const periodBlock = document.createElement('div');
-    const hintBlock = document.createElement('div');
-    hintBlock.style.cssText = 'font-size:11px;color:#666;';
-    hintBlock.textContent = '「◀前月」「翌月▶」で対象期間を切り替え、「表示」でその月度の一覧表を生成します。';
+    periodBlock.style.cssText = 'word-break:break-all;';
     const tableMount = document.createElement('div');
     tableMount.style.cssText = 'flex:1;min-height:80px;';
     infoBlock.appendChild(periodBlock);
-    infoBlock.appendChild(hintBlock);
     body.appendChild(infoBlock);
     body.appendChild(tableMount);
 
@@ -804,10 +801,14 @@ async function openMonthlyOverviewModal() {
             nextBtn.disabled = true;
             return;
         }
-        periodBlock.innerHTML = `
-            <div>基準日: <strong>${escapeHTML(currentBaseDate)}</strong></div>
-            <div style="margin-top:4px;">対象期間: <strong>${escapeHTML(range.start)}</strong> ～ <strong>${escapeHTML(range.end)}</strong></div>
-        `;
+        // 1行（狭い幅では折り返し）: 基準日・対象期間・操作説明を同じブロック内のインラインで並べる
+        periodBlock.innerHTML = `基準日: <strong>${escapeHTML(
+            currentBaseDate,
+        )}</strong>　対象期間: <strong>${escapeHTML(
+            range.start,
+        )}</strong> ～ <strong>${escapeHTML(
+            range.end,
+        )}</strong>　<span style="color:#666;font-size:11px;">「◀前月」「翌月▶」で対象期間を切り替え、「表示」でその月度の一覧表を生成します。</span>`;
         showBtn.disabled = false;
         prevBtn.disabled = false;
         nextBtn.disabled = false;
@@ -1524,7 +1525,7 @@ function handleNavigation(target, params = {}, options = { push: true }) {
 
     switch(target) {
         case 'home':
-            pageTitle.textContent = '・ダッシュボード・';
+            pageTitle.textContent = 'ダッシュボード';
             renderDashboardHome(contentArea);
             break;
 
