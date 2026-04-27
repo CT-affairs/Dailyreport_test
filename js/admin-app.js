@@ -8169,7 +8169,7 @@ function ensureNetFiscalPastReportsModalInitialized() {
 
 /**
  * ネット用「過去日報一覧」モーダルを開く（「一覧」ボタン）
- * 既定表示は直近10日。左ペイン・ナビは7日分の過去日報モーダルと同方式。
+ * 既定表示は月度（21日〜翌月20日）。10日モードはセグメントで切り替え。
  */
 function openNetFiscalPastReportsModal() {
     ensureNetFiscalPastReportsModalInitialized();
@@ -8197,11 +8197,8 @@ function openNetFiscalPastReportsModal() {
 
     resetNetFiscalPastReportsPeriodToCurrent();
 
-    netFiscalPastReportsNarrow10Mode = true;
-    {
-        const a = getNetFiscalNarrow10AsOfNormalized();
-        netFiscalNarrow10EndDate = new Date(a.getFullYear(), a.getMonth(), a.getDate());
-    }
+    netFiscalPastReportsNarrow10Mode = false;
+    netFiscalNarrow10EndDate = null;
     updateNetFiscalPastReportsModeSegmentUI();
 
     modal.classList.add('is-active');
@@ -8831,7 +8828,7 @@ function isNetFiscalNarrow10EndAtAsOf() {
 }
 
 /**
- * 10日窓を1日過去へ（終了日を1日戻す）
+ * 10日窓を表示幅ぶん過去へ（終了日を NET_FISCAL_NARROW10_DAY_COUNT 日戻す）
  */
 function goNetFiscalNarrow10ToPrevious() {
     if (!netFiscalNarrow10EndDate) {
@@ -8843,12 +8840,12 @@ function goNetFiscalNarrow10ToPrevious() {
         netFiscalNarrow10EndDate.getMonth(),
         netFiscalNarrow10EndDate.getDate(),
     );
-    d.setDate(d.getDate() - 1);
+    d.setDate(d.getDate() - NET_FISCAL_NARROW10_DAY_COUNT);
     netFiscalNarrow10EndDate = d;
 }
 
 /**
- * 10日窓を1日未来へ（終了日は画面上部の対象日を上限）
+ * 10日窓を表示幅ぶん未来へ（終了日は画面上部の対象日を上限にクリップ）
  */
 function goNetFiscalNarrow10ToNext() {
     if (!netFiscalNarrow10EndDate) return;
@@ -8858,8 +8855,11 @@ function goNetFiscalNarrow10ToNext() {
         netFiscalNarrow10EndDate.getMonth(),
         netFiscalNarrow10EndDate.getDate(),
     );
-    d.setDate(d.getDate() + 1);
-    if (d.getTime() > cap.getTime()) return;
+    d.setDate(d.getDate() + NET_FISCAL_NARROW10_DAY_COUNT);
+    if (d.getTime() > cap.getTime()) {
+        netFiscalNarrow10EndDate = new Date(cap.getFullYear(), cap.getMonth(), cap.getDate());
+        return;
+    }
     netFiscalNarrow10EndDate = d;
 }
 
