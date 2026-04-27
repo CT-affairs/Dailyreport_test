@@ -4074,6 +4074,42 @@ function filterDashboardData() {
 }
 
 /**
+ * 分を「N時間M分」表記にする。0時間のときは「M分」のみ。
+ * @param {number} totalMinutes
+ * @returns {string}
+ */
+function formatMinutesAsJaHoursMinutes(totalMinutes) {
+    const n = Math.round(Number(totalMinutes));
+    if (!Number.isFinite(n)) return String(totalMinutes);
+    const sign = n < 0 ? -1 : 1;
+    const abs = Math.abs(n);
+    const h = Math.floor(abs / 60);
+    const m = abs % 60;
+    let body;
+    if (h === 0) {
+        body = `${m}分`;
+    } else if (m === 0) {
+        body = `${h}時間`;
+    } else {
+        body = `${h}時間${m}分`;
+    }
+    if (sign < 0) return `-${body}`;
+    return body;
+}
+
+/**
+ * 突合一覧の差分列用: 正の値は先頭に + を付ける。
+ * @param {number|null} diffMinutes
+ * @returns {string}
+ */
+function formatDiffMinutesAsJaForComparison(diffMinutes) {
+    if (diffMinutes === null) return '-';
+    const s = formatMinutesAsJaHoursMinutes(diffMinutes);
+    if (diffMinutes > 0) return `+${s}`;
+    return s;
+}
+
+/**
  * テーブル行の描画
  */
 function renderTableRows(data) {
@@ -4101,15 +4137,23 @@ function renderTableRows(data) {
             else if (diff > 0) diffClass = 'diff-plus';
         }
 
+        const workTimeCell = workTime === null
+            ? '-'
+            : (isNetListView ? formatMinutesAsJaHoursMinutes(workTime) : `${workTime}分`);
+        const taskTimeCell = isNetListView ? formatMinutesAsJaHoursMinutes(taskTime) : `${taskTime}分`;
+        const diffCell = diff === null
+            ? '-'
+            : (isNetListView ? formatDiffMinutesAsJaForComparison(diff) : `${(diff > 0 ? '+' : '') + diff}分`);
+
         html += `
             <tr id="report-row-${row.employeeId}">
                 <td>${escapeHTML(row.date)}</td>
                 <td><a href="#${calendarTarget}?employeeId=${row.employeeId}" 
                        onclick="handleLinkNavigation(event, () => handleNavigation('${calendarTarget}', { employeeId: '${row.employeeId}' }))" 
                        title="${escapeHTML(row.name)}さんの当月度の出勤簿へ">${escapeHTML(row.name)}</a></td>
-                <td id="work-time-${row.employeeId}">${workTime !== null ? workTime + '分' : '-'}</td>
-                <td id="task-time-${row.employeeId}">${taskTime}分</td>
-                <td id="diff-${row.employeeId}" class="${diffClass}">${diff !== null ? (diff > 0 ? '+' : '') + diff + '分' : '-'}</td>
+                <td id="work-time-${row.employeeId}">${workTimeCell}</td>
+                <td id="task-time-${row.employeeId}">${taskTimeCell}</td>
+                <td id="diff-${row.employeeId}" class="${diffClass}">${diffCell}</td>
                 <td>
                     <button class="btn-secondary" style="padding:4px 8px; font-size:0.8em;" onclick="openProxyReport('${row.employeeId}', '${row.name}', '${row.date}', '${row.group_id || ''}')">詳細表示(代理入力)</button>
                 </td>
