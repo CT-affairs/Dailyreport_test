@@ -8552,6 +8552,11 @@ function renderPastReportsTimetables(reportsByDate, startDate, endDate, containe
             taskBlock.dataset.categoryBLabel = task.categoryB_label != null ? String(task.categoryB_label) : '';
             taskBlock.dataset.categoryALabel = task.categoryA_label != null ? String(task.categoryA_label) : '';
             taskBlock.dataset.taskBgColor = bgColor;
+            const taskTimeRaw = task.time;
+            const taskTimeNum = taskTimeRaw != null && taskTimeRaw !== ''
+                ? Number(taskTimeRaw)
+                : NaN;
+            taskBlock.dataset.taskTime = Number.isFinite(taskTimeNum) ? String(Math.round(taskTimeNum)) : '';
 
             taskBlock.addEventListener('click', onTaskClick);
             timetableEl.appendChild(taskBlock);
@@ -8636,7 +8641,13 @@ function handleNetFiscalModalTaskDetailClick(event) {
     const catA = el.dataset.categoryALabel || '';
     const cmt = el.dataset.comment || '';
     const taskBg = el.dataset.taskBgColor || '';
-    updateNetFiscalPastTaskDetailPanel(catB, catA, cmt, taskBg);
+    const tt = el.dataset.taskTime;
+    let timeMinutes = null;
+    if (tt !== undefined && tt !== '') {
+        const n = Number(tt);
+        timeMinutes = Number.isFinite(n) ? n : null;
+    }
+    updateNetFiscalPastTaskDetailPanel(catB, catA, cmt, taskBg, timeMinutes);
 }
 
 /**
@@ -8647,6 +8658,7 @@ function resetNetFiscalPastTaskDetailPanel() {
     const body = document.getElementById('net-fiscal-past-task-detail-body');
     const elB = document.getElementById('net-fiscal-detail-cat-b');
     const elA = document.getElementById('net-fiscal-detail-cat-a');
+    const elTime = document.getElementById('net-fiscal-detail-time');
     const elC = document.getElementById('net-fiscal-detail-comment');
     const swatch = document.getElementById('net-fiscal-detail-task-swatch');
     if (ph) {
@@ -8656,6 +8668,7 @@ function resetNetFiscalPastTaskDetailPanel() {
     if (body) body.style.display = 'none';
     if (elB) elB.textContent = '';
     if (elA) elA.textContent = '';
+    if (elTime) elTime.textContent = '';
     if (elC) elC.textContent = '';
     if (swatch) swatch.style.backgroundColor = '';
 }
@@ -8663,19 +8676,26 @@ function resetNetFiscalPastTaskDetailPanel() {
 /**
  * 月度モーダル下部にタスク詳細を表示（textContent のみで XSS 回避）
  * @param {string} taskBgColor - タイムテーブル上のタスク背景色（描画時に dataset と同値）
+ * @param {number|null|undefined} timeMinutes - daily_reports.tasks[].time（分）。未取得時は null
  */
-function updateNetFiscalPastTaskDetailPanel(categoryBLabel, categoryALabel, comment, taskBgColor) {
+function updateNetFiscalPastTaskDetailPanel(categoryBLabel, categoryALabel, comment, taskBgColor, timeMinutes) {
     const ph = document.getElementById('net-fiscal-past-task-detail-placeholder');
     const body = document.getElementById('net-fiscal-past-task-detail-body');
     const elB = document.getElementById('net-fiscal-detail-cat-b');
     const elA = document.getElementById('net-fiscal-detail-cat-a');
+    const elTime = document.getElementById('net-fiscal-detail-time');
     const elC = document.getElementById('net-fiscal-detail-comment');
     const swatch = document.getElementById('net-fiscal-detail-task-swatch');
-    if (!body || !elB || !elA || !elC) return;
+    if (!body || !elB || !elA || !elTime || !elC) return;
     if (ph) ph.style.display = 'none';
     body.style.display = 'block';
     elB.textContent = categoryBLabel.trim() ? categoryBLabel : '（なし）';
     elA.textContent = categoryALabel.trim() ? categoryALabel : '（なし）';
+    if (timeMinutes !== null && timeMinutes !== undefined && Number.isFinite(Number(timeMinutes))) {
+        elTime.textContent = formatMinutesAsJaHoursMinutes(Number(timeMinutes));
+    } else {
+        elTime.textContent = '（なし）';
+    }
     elC.textContent = comment.trim() ? comment : '（なし）';
     if (swatch) {
         const c = taskBgColor && String(taskBgColor).trim() ? String(taskBgColor).trim() : '#e0e0e0';
