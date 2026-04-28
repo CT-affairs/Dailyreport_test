@@ -36,6 +36,7 @@ from app_core.config import (
     MONTHLY_lABOR_COSTS_NET,
     OFFICER_ENTERED_DAY,
     OFFICER_ID,
+    OFFICER_NAME,
     MONTHLY_CLOSINGS_COLLECTION,
     default_snapshot_collection_for_closing_run,
     is_monthly_closing_test_mode,
@@ -3693,6 +3694,11 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
     cat_b_list = _fetch_net_category_b_for_staff_summary_excel()
     staff_list = _fetch_net_staff_for_summary_blocks(start_date, end_date, as_of)
     task_minutes_map = _aggregate_net_staff_task_minutes_for_summary(start_date, end_date)
+    staff_total_task_minutes = {
+        s["id"]: sum(task_minutes_map.get(s["id"], {}).values())
+        for s in staff_list
+    }
+    all_staff_total_task_minutes = sum(staff_total_task_minutes.values())
     if not cat_a_list:
         abort(400, "ネット向け業務種別（category_a）が取得できません。")
     if not cat_b_list:
@@ -3722,7 +3728,10 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
     for i, staff in enumerate(staff_list):
         block_left = staff_block_start_col + i * 3
         block_middle = block_left + 1
-        ws.cell(row=1, column=block_middle).value = staff["name"]
+        staff_name = staff["name"]
+        if _normalize_jobcan_employee_id_for_match(staff.get("id")) == _normalize_jobcan_employee_id_for_match(OFFICER_ID):
+            staff_name = OFFICER_NAME
+        ws.cell(row=1, column=block_middle).value = staff_name
         ws.cell(row=1, column=block_middle).alignment = hdr_align
 
         cost_cell = ws.cell(row=2, column=block_left)
@@ -3754,15 +3763,38 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
 
         # スタッフ別ブロック:
         # - 中央列: 当該行（category_b × category_a）の月度合計時間（小数第2位）
-        # - 右列: その行の全体時間に対する割合
+        # - 右列: そのスタッフの月度トータル勤務（タスク）時間に対する割合
         # - 左列: スタッフ別人件費 × 割合（当該業務にかかった経費）
         b_id = cat_b_list[bi]["id"]
         per_staff_minutes: list[int] = []
-        row_total_minutes = 0
         for staff in staff_list:
             mins = task_minutes_map.get(staff["id"], {}).get((b_id, a_id), 0)
             per_staff_minutes.append(mins)
-            row_total_minutes += mins
+        row_total_minutes_all_staff = sum(per_staff_minutes)
+
+        # 合計ブロック（D:E:F）
+        # - E列: タスク別累計時間（全スタッフ合算）
+        # - F列: タスク別累計時間 / 全スタッフ月度トータル勤務時間
+        # - D列: 全スタッフ累計人件費 × F列（タスク別経費）
+        if row_total_minutes_all_staff > 0:
+            total_hours = (Decimal(row_total_minutes_all_staff) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            total_hours_cell = ws.cell(row=r, column=5)
+            total_hours_cell.value = float(total_hours)
+            total_hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            total_hours_cell.number_format = "0.00"
+
+            if all_staff_total_task_minutes > 0:
+                total_ratio = Decimal(row_total_minutes_all_staff) / Decimal(all_staff_total_task_minutes)
+                total_ratio_cell = ws.cell(row=r, column=6)
+                total_ratio_cell.value = float(total_ratio)
+                total_ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                total_ratio_cell.number_format = "0.00%"
+
+                total_alloc_cost = Decimal(total_labor_cost) * total_ratio
+                total_alloc_cost_cell = ws.cell(row=r, column=4)
+                total_alloc_cost_cell.value = int(total_alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                total_alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                total_alloc_cost_cell.number_format = "#,##0"
 
         for si, staff in enumerate(staff_list):
             mins = per_staff_minutes[si]
@@ -3777,8 +3809,9 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
                 hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
                 hours_cell.number_format = "0.00"
 
-            if row_total_minutes > 0 and mins > 0:
-                ratio = Decimal(mins) / Decimal(row_total_minutes)
+            staff_total_minutes = int(staff_total_task_minutes.get(staff["id"], 0) or 0)
+            if staff_total_minutes > 0 and mins > 0:
+                ratio = Decimal(mins) / Decimal(staff_total_minutes)
                 ratio_cell = ws.cell(row=r, column=block_right)
                 ratio_cell.value = float(ratio)
                 ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
