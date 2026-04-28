@@ -3574,13 +3574,13 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
     ws.column_dimensions["E"].width = 9
     ws.column_dimensions["F"].width = 9
 
+    last_data_row = max(2 + na * nb, 2)
+    for r in range(1, last_data_row + 1):
+        ws.row_dimensions[r].height = 21
+
     # ウィンドウ枠の固定: 1〜2 行目・A〜F 列まで（スクロール領域は G3 左上）
     ws.freeze_panes = "G3"
-    ws.row_dimensions[1].height = 18
-    ws.row_dimensions[2].height = 28
-    ws.row_dimensions[3].height = 22
 
-    last_data_row = max(2 + na * nb, 2)
     _apply_net_staff_summary_sheet_font(ws, last_row=last_data_row, last_col=6)
 
     return wb
