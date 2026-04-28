@@ -3567,12 +3567,12 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
         if hex_rgb:
             a_cell.fill = PatternFill(fill_type="solid", fgColor=hex_rgb)
 
-    ws.column_dimensions["A"].width = 6
-    ws.column_dimensions["B"].width = 28
-    ws.column_dimensions["C"].width = 22
-    ws.column_dimensions["D"].width = 18
-    ws.column_dimensions["E"].width = 14
-    ws.column_dimensions["F"].width = 12
+    ws.column_dimensions["A"].width = 4
+    ws.column_dimensions["B"].width = 9
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 9
+    ws.column_dimensions["E"].width = 9
+    ws.column_dimensions["F"].width = 9
 
     # ウィンドウ枠の固定: 1〜2 行目・A〜F 列まで（スクロール領域は G3 左上）
     ws.freeze_panes = "G3"
