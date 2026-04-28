@@ -3640,6 +3640,43 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
     return staff
 
 
+def _aggregate_net_staff_task_minutes_for_summary(start_date: datetime, end_date: datetime) -> dict[str, dict[tuple[str, str], int]]:
+    """
+    対象月度のネット日報から、社員×(category_b_id, category_a_id) ごとの分数を合算して返す。
+    """
+    query = (
+        db.collection(COLLECTION_DAILY_REPORTS)
+        .where(filter=FieldFilter("date", ">=", start_date))
+        .where(filter=FieldFilter("date", "<=", end_date))
+    )
+
+    agg: dict[str, dict[tuple[str, str], int]] = {}
+    for doc in query.stream():
+        rep = doc.to_dict() or {}
+        if not _is_net_daily_report_group(rep.get("group_id")):
+            continue
+
+        parsed_e, _ = _parse_daily_report_doc_id(doc.id)
+        emp_id = _norm_str_id(rep.get("company_employee_id")) or parsed_e
+        if not emp_id:
+            continue
+
+        tasks = rep.get("tasks")
+        for task in _iter_tasks_for_net_csv(tasks):
+            if not isinstance(task, dict):
+                continue
+            cat_a_id = _norm_str_id(task.get("categoryA_id"))
+            cat_b_id = _norm_str_id(task.get("categoryB_id"))
+            mins = _safe_int_minutes(task.get("time")) or 0
+            if not cat_a_id or not cat_b_id or mins <= 0:
+                continue
+
+            by_key = agg.setdefault(emp_id, {})
+            key = (cat_b_id, cat_a_id)
+            by_key[key] = by_key.get(key, 0) + mins
+    return agg
+
+
 def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: datetime, as_of: datetime) -> openpyxl.Workbook:
     """
     スタッフ別（ネット）Excelのレイアウト骨子。
@@ -3655,6 +3692,7 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
     cat_a_list = _fetch_net_category_a_for_staff_summary_excel()
     cat_b_list = _fetch_net_category_b_for_staff_summary_excel()
     staff_list = _fetch_net_staff_for_summary_blocks(start_date, end_date, as_of)
+    task_minutes_map = _aggregate_net_staff_task_minutes_for_summary(start_date, end_date)
     if not cat_a_list:
         abort(400, "ネット向け業務種別（category_a）が取得できません。")
     if not cat_b_list:
@@ -3673,9 +3711,11 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
     # --- 右側 D〜F: カテゴリ列挙なし（プレースホルダ）---
     ws.cell(row=1, column=5).value = "合計"
     ws.cell(row=1, column=5).alignment = hdr_align
-    ws.cell(row=2, column=4).value = "累計人件費"
-    ws.cell(row=2, column=4).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    ws.cell(row=2, column=4).number_format = "#,##0"
+    total_labor_cost = sum(int(s.get("labor_cost") or 0) for s in staff_list)
+    total_cost_cell = ws.cell(row=2, column=4)
+    total_cost_cell.value = total_labor_cost
+    total_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+    total_cost_cell.number_format = "#,##0"
 
     # --- G列以降: スタッフ別 3列1ブロック（中央列1行目=スタッフ名、左列2行目=経費額） ---
     staff_block_start_col = 7  # G
@@ -3712,6 +3752,44 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         if hex_rgb:
             a_cell.fill = PatternFill(fill_type="solid", fgColor=hex_rgb)
 
+        # スタッフ別ブロック:
+        # - 中央列: 当該行（category_b × category_a）の月度合計時間（小数第2位）
+        # - 右列: その行の全体時間に対する割合
+        # - 左列: スタッフ別人件費 × 割合（当該業務にかかった経費）
+        b_id = cat_b_list[bi]["id"]
+        per_staff_minutes: list[int] = []
+        row_total_minutes = 0
+        for staff in staff_list:
+            mins = task_minutes_map.get(staff["id"], {}).get((b_id, a_id), 0)
+            per_staff_minutes.append(mins)
+            row_total_minutes += mins
+
+        for si, staff in enumerate(staff_list):
+            mins = per_staff_minutes[si]
+            block_left = 7 + si * 3
+            block_middle = block_left + 1
+            block_right = block_left + 2
+
+            if mins > 0:
+                hours = (Decimal(mins) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                hours_cell = ws.cell(row=r, column=block_middle)
+                hours_cell.value = float(hours)
+                hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                hours_cell.number_format = "0.00"
+
+            if row_total_minutes > 0 and mins > 0:
+                ratio = Decimal(mins) / Decimal(row_total_minutes)
+                ratio_cell = ws.cell(row=r, column=block_right)
+                ratio_cell.value = float(ratio)
+                ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                ratio_cell.number_format = "0.00%"
+
+                alloc_cost = Decimal(int(staff.get("labor_cost") or 0)) * ratio
+                alloc_cost_cell = ws.cell(row=r, column=block_left)
+                alloc_cost_cell.value = int(alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                alloc_cost_cell.number_format = "#,##0"
+
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 9
     ws.column_dimensions["C"].width = 16
@@ -3725,14 +3803,22 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         ws.column_dimensions[openpyxl.utils.get_column_letter(block_left + 2)].width = 9
 
     last_data_row = max(2 + na * nb, 2)
-    for r in range(1, last_data_row + 1):
+    total_row = last_data_row + 1
+    last_col = max(6, 6 + len(staff_list) * 3)
+
+    # D列以降のみ、3行目〜末尾データ行の合計を最終行へ追加
+    if last_data_row >= 3:
+        for c in range(4, last_col + 1):
+            col_letter = openpyxl.utils.get_column_letter(c)
+            ws.cell(row=total_row, column=c).value = f"=SUM({col_letter}3:{col_letter}{last_data_row})"
+
+    for r in range(1, total_row + 1):
         ws.row_dimensions[r].height = 15
 
     # ウィンドウ枠の固定: 1〜2 行目・A〜F 列まで（スクロール領域は G3 左上）
     ws.freeze_panes = "G3"
 
-    last_col = max(6, 6 + len(staff_list) * 3)
-    _apply_net_staff_summary_sheet_font(ws, last_row=last_data_row, last_col=last_col)
+    _apply_net_staff_summary_sheet_font(ws, last_row=total_row, last_col=last_col)
 
     return wb
 
