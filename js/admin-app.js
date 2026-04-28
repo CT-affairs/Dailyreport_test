@@ -1415,6 +1415,7 @@ async function renderStaffListUI(container) {
                             <th>main_group</th>
                             <th>sub_group</th>
                             <th>work_kind</th>
+                            <th>entered_day</th>
                         </tr>
                     </thead>
                     <tbody id="staff-list-tbody"></tbody>
@@ -1479,6 +1480,7 @@ async function renderStaffListUI(container) {
                     <td>${escapeHTML(row.main_group != null ? String(row.main_group) : '')}</td>
                     <td style="font-family: monospace; font-size: 0.85em;">${escapeHTML(subStr)}</td>
                     <td>${escapeHTML(row.work_kind != null ? String(row.work_kind) : '')}</td>
+                    <td>${escapeHTML(String(row.entered_day ?? ''))}</td>
                 `;
                 tbody.appendChild(tr);
             });
