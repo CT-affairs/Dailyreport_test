@@ -34,6 +34,8 @@ from app_core.config import (
     COLLECTION_JOBCAN_RAW_RESPONSES,
     DAILY_REPORTS_SNAPSHOT_COLLECTION,
     MONTHLY_lABOR_COSTS_NET,
+    OFFICER_ENTERED_DAY,
+    OFFICER_ID,
     MONTHLY_CLOSINGS_COLLECTION,
     default_snapshot_collection_for_closing_run,
     is_monthly_closing_test_mode,
@@ -3564,10 +3566,14 @@ def _round_to_nearest_10_half_up(v: Decimal) -> int:
     return int((v / Decimal("10")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * Decimal("10"))
 
 
-def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime) -> int:
+def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employee_id: str | None = None) -> int:
     entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
+    if _norm_str_id(employee_id) == _norm_str_id(OFFICER_ID):
+        officer_entered_day = _parse_user_entered_day_date(OFFICER_ENTERED_DAY)
+        if officer_entered_day is not None:
+            entered_day = officer_entered_day
     years = _years_since_entered_day(entered_day, as_of)
-    tenure_factor = Decimal(str(CAREER_COEFFICIENT)) ** years
+    tenure_factor = Decimal("1") + (Decimal(str(CAREER_COEFFICIENT)) * Decimal(years))
     work_kind_factor = _net_work_kind_labor_factor(user_data.get("work_kind_id") or user_data.get("work_kind"))
     cost = Decimal(str(MONTHLY_lABOR_COSTS_NET)) * tenure_factor * work_kind_factor
     return _round_to_nearest_10_half_up(cost)
@@ -3616,7 +3622,7 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
             {
                 "id": emp_id,
                 "name": name_map.get(emp_id, "Unknown"),
-                "labor_cost": _calc_net_staff_monthly_labor_cost(user_data or {}, as_of),
+                "labor_cost": _calc_net_staff_monthly_labor_cost(user_data or {}, as_of, emp_id),
             }
         )
     return staff
