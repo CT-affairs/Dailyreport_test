@@ -3573,7 +3573,12 @@ def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employe
         if officer_entered_day is not None:
             entered_day = officer_entered_day
     years = _years_since_entered_day(entered_day, as_of)
-    tenure_factor = Decimal("1") + (Decimal(str(CAREER_COEFFICIENT)) * Decimal(years))
+    # CAREER_COEFFICIENT は 0.03 形式を想定。
+    # もし 1.03 / 1.025 のような値が入っていても、加算率としては 0.03 / 0.025 として扱う。
+    career_increment = Decimal(str(CAREER_COEFFICIENT))
+    if career_increment >= Decimal("1"):
+        career_increment = career_increment - Decimal("1")
+    tenure_factor = Decimal("1") + (career_increment * Decimal(years))
     work_kind_factor = _net_work_kind_labor_factor(user_data.get("work_kind_id") or user_data.get("work_kind"))
     cost = Decimal(str(MONTHLY_lABOR_COSTS_NET)) * tenure_factor * work_kind_factor
     return _round_to_nearest_10_half_up(cost)
