@@ -2575,10 +2575,10 @@ async function renderDashboardHome(container) {
             </div>
             <div class="card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 20px;">
                 <h3 style="margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; font-size: 1.2em; color: #2c3e50;">API仕様書</h3>
-                <div style="font-size: 0.95em; line-height: 1.7; color: #333; white-space: pre-line;">
-【URL】https://doc-api-kintai.jobcan.ne.jp/
-【ID】customer
-【PW】jobcan.customer
+                <div style="font-size: 0.95em; line-height: 1.7; color: #333;">
+                    【URL】<a href="https://doc-api-kintai.jobcan.ne.jp/" target="_blank" rel="noopener noreferrer" style="color: #1a73e8;">https://doc-api-kintai.jobcan.ne.jp/</a><br>
+                    【ID】customer<br>
+                    【PW】jobcan.customer
                 </div>
             </div>
 
@@ -2774,12 +2774,33 @@ async function renderDashboardHome(container) {
     document.getElementById('net-gyomu-curr-btn').addEventListener('click', () => handleNetGyomuCsvDownload('current', 'net-gyomu-curr-btn'));
     document.getElementById('net-gyomu-prev-btn').addEventListener('click', () => handleNetGyomuCsvDownload('previous', 'net-gyomu-prev-btn'));
 
-    // スタッフ別(ネット) は未実装のためアラートのみ
-    const showNetStaffNotImplemented = () => {
-        alert('スタッフ別(ネット)の集計表ダウンロードは現在未実装です。');
+    // スタッフ別(ネット): Excel（仮: 空ブック。テンプレートなし）
+    const handleNetStaffExcelDownload = async (targetMonth, btnId) => {
+        const btn = document.getElementById(btnId);
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+        try {
+            const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/net-staff-summary/excel`, {
+                method: 'POST',
+                body: JSON.stringify({ target_month: targetMonth }),
+            });
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || `ダウンロード失敗: ${response.status}`);
+            }
+            const result = await response.json();
+            downloadExcelFromBase64(result.file_name, result.file_content);
+        } catch (error) {
+            console.error('Net staff summary Excel download error:', error);
+            alert(`エラーが発生しました: ${error.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
     };
-    document.getElementById('net-staff-curr-btn').addEventListener('click', showNetStaffNotImplemented);
-    document.getElementById('net-staff-prev-btn').addEventListener('click', showNetStaffNotImplemented);
+    document.getElementById('net-staff-curr-btn').addEventListener('click', () => handleNetStaffExcelDownload('current', 'net-staff-curr-btn'));
+    document.getElementById('net-staff-prev-btn').addEventListener('click', () => handleNetStaffExcelDownload('previous', 'net-staff-prev-btn'));
 
     // 残業/休出(全社) - 非表示だが念のためリスナーを追加
     document.getElementById('zankyu-zensha-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'zankyu-zensha-curr-btn'));

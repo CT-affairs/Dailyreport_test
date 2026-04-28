@@ -3425,6 +3425,225 @@ def _is_net_daily_report_group(group_id) -> bool:
     return str(group_id).strip() == "3"
 
 
+_NET_STAFF_SUMMARY_HEADER_FILLS = (
+    "E8F4FD",
+    "FDE8E8",
+    "E8FDE8",
+    "FFF5E8",
+    "EEE8FD",
+    "F0E8FD",
+    "E8FDF6",
+)
+
+
+def _net_staff_summary_label_key(label: str | None) -> str:
+    return (label or "").strip()
+
+
+def _normalize_hex_rgb_for_openpyxl_fill(color_raw: str | None) -> str | None:
+    """category_a_settings の色文字列を openpyxl PatternFill 用 6 桁 RGB に正規化。"""
+    if color_raw is None:
+        return None
+    s = str(color_raw).strip()
+    if not s:
+        return None
+    if s.startswith("#"):
+        s = s[1:]
+    if len(s) == 3 and all(c in "0123456789ABCDEFabcdef" for c in s):
+        s = "".join(c * 2 for c in s)
+    if len(s) == 6 and all(c in "0123456789ABCDEFabcdef" for c in s):
+        return s.upper()
+    return None
+
+
+def _lookup_category_a_color_from_settings(category_a_settings: dict | None, category_a_id: str | None) -> str | None:
+    """category_b.category_a_settings から業務種別 ID に対応する背景色を取得。"""
+    if not category_a_settings or category_a_id is None:
+        return None
+    cid = str(category_a_id).strip()
+    if not cid:
+        return None
+    raw = category_a_settings.get(cid)
+    if raw is None:
+        raw = category_a_settings.get(category_a_id)
+    if isinstance(raw, dict):
+        raw = raw.get("color") or raw.get("bg") or raw.get("hex")
+    return _normalize_hex_rgb_for_openpyxl_fill(raw)
+
+
+def _fetch_net_category_a_for_staff_summary_excel() -> list[dict]:
+    """ネット向け category_a（アクティブ）を order・label でソート。"""
+    rows: list[dict] = []
+    for doc in db.collection("category_a").where(filter=FieldFilter("kind", "==", "net")).stream():
+        data = doc.to_dict()
+        if data.get("active") is False:
+            continue
+        rows.append(
+            {
+                "id": doc.id,
+                "label": data.get("label", ""),
+                "order": data.get("order", 9999),
+            }
+        )
+    rows.sort(key=lambda x: (x["order"], _net_staff_summary_label_key(x["label"])))
+    return [{"id": x["id"], "label": x["label"]} for x in rows]
+
+
+def _fetch_net_category_b_for_staff_summary_excel() -> list[dict]:
+    """ネット向け category_b（アクティブ）を管理画面と同様にソート。"""
+    cats: list[dict] = []
+    for doc in db.collection("category_b").where(filter=FieldFilter("kind", "==", "net")).stream():
+        data = doc.to_dict()
+        if data.get("active") is False:
+            continue
+        cats.append(
+            {
+                "id": doc.id,
+                "label": data.get("label", ""),
+                "order": data.get("order", 0),
+                "category_a_settings": data.get("category_a_settings") or {},
+            }
+        )
+    cats.sort(key=lambda x: (-x["order"], _net_staff_summary_label_key(x["label"])))
+    return [
+        {"id": x["id"], "label": x["label"], "category_a_settings": x["category_a_settings"]}
+        for x in cats
+    ]
+
+
+def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Workbook:
+    """
+    スタッフ別（ネット）Excelのレイアウト骨子。
+    - シート名: YYYY年MM月度（月度終了日ベース）
+    - 列 D〜: 行1 色塗り（集計項目ブロック単位）、行2 集計項目名（マージ）、行3 業務種別（1列ずつ）
+    - 列 A〜C: 行3〜 に左エリア。列Cに業務種別を縦に（集計項目ブロック数ぶん繰り返し）。
+      列Bは業務種別が「全般」の行のみ集計項目ラベル、それ以外は空。
+      列Aはその行の集計項目ブロックに対応する category_b.category_a_settings のカラーマップで、
+      該当業務種別 ID のセルを塗りつぶす（値は入れない）。
+    """
+    from openpyxl.utils import get_column_letter
+
+    cat_a_list = _fetch_net_category_a_for_staff_summary_excel()
+    cat_b_list = _fetch_net_category_b_for_staff_summary_excel()
+    if not cat_a_list:
+        abort(400, "ネット向け業務種別（category_a）が取得できません。")
+    if not cat_b_list:
+        abort(400, "ネット向け集計項目（category_b）が取得できません。")
+
+    na = len(cat_a_list)
+    nb = len(cat_b_list)
+    zenpan_key = _net_staff_summary_label_key("全般")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = end_date.strftime("%Y年%m月度")
+
+    hdr_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    # --- 右側ヘッダ（列 D 〜）---
+    first_data_col = 4  # D
+    total_data_cols = na * nb
+    last_data_col = first_data_col + total_data_cols - 1
+
+    for bi in range(nb):
+        c0 = first_data_col + bi * na
+        c1 = c0 + na - 1
+        fill_hex = _NET_STAFF_SUMMARY_HEADER_FILLS[bi % len(_NET_STAFF_SUMMARY_HEADER_FILLS)]
+        fill = PatternFill(fill_type="solid", fgColor=fill_hex)
+
+        ws.merge_cells(start_row=1, start_column=c0, end_row=1, end_column=c1)
+        top_left = ws.cell(row=1, column=c0)
+        top_left.fill = fill
+        top_left.alignment = hdr_align
+
+        ws.merge_cells(start_row=2, start_column=c0, end_row=2, end_column=c1)
+        b_cell = ws.cell(row=2, column=c0)
+        b_cell.value = cat_b_list[bi]["label"]
+        b_cell.alignment = hdr_align
+        b_cell.fill = fill
+
+        for ai in range(na):
+            col = c0 + ai
+            acell = ws.cell(row=3, column=col)
+            acell.value = cat_a_list[ai]["label"]
+            acell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    # --- 左3列: 行3〜 縦リスト（列C=業務種別繰り返し、列B=全般行のみ集計項目名）---
+    total_left_rows = na * nb
+    for i in range(total_left_rows):
+        r = 3 + i
+        bi = i // na
+        ai = i % na
+        a_label = cat_a_list[ai]["label"]
+        ws.cell(row=r, column=3).value = a_label
+        ws.cell(row=r, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        if _net_staff_summary_label_key(a_label) == zenpan_key:
+            ws.cell(row=r, column=2).value = cat_b_list[bi]["label"]
+            ws.cell(row=r, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+        a_cell = ws.cell(row=r, column=1)
+        a_cell.value = None
+        settings = cat_b_list[bi].get("category_a_settings") or {}
+        a_id = cat_a_list[ai]["id"]
+        hex_rgb = _lookup_category_a_color_from_settings(settings, a_id)
+        if hex_rgb:
+            a_cell.fill = PatternFill(fill_type="solid", fgColor=hex_rgb)
+
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 28
+    ws.column_dimensions["C"].width = 22
+    for col_idx in range(first_data_col, last_data_col + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 14
+
+    ws.freeze_panes = "D4"
+    ws.row_dimensions[1].height = 18
+    ws.row_dimensions[2].height = 28
+    ws.row_dimensions[3].height = 22
+
+    return wb
+
+
+@api_bp.route("/manager/net-staff-summary/excel", methods=["POST"])
+@token_required
+@login_required
+def download_net_staff_summary_excel_placeholder():
+    """
+    ネット事業部「スタッフ別」集計 Excel。
+    テンプレートは使わずプログラム生成。ヘッダレイアウトのみ先行実装し、数値集計は後続。
+    """
+    try:
+        data = request.get_json() or {}
+        target_month = data.get("target_month", "current")
+
+        jst = timezone(timedelta(hours=9))
+        base_date = datetime.now(jst)
+        start_date, end_date = calculate_monthly_period(base_date)
+
+        if target_month == "previous":
+            prev_month_base = start_date - timedelta(days=1)
+            start_date, end_date = calculate_monthly_period(prev_month_base)
+
+        current_app.logger.info(
+            "net-staff-summary/excel period: %s to %s",
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+        )
+
+        wb = _build_net_staff_summary_excel_workbook(end_date)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        excel_data = output.read()
+        b64_data = base64.b64encode(excel_data).decode("utf-8")
+
+        file_name = f"{end_date.strftime('%Y年%m月度')}_スタッフ別（ネット）.xlsx"
+        return jsonify({"file_name": file_name, "file_content": b64_data}), 200
+    except Exception as e:
+        current_app.logger.error(f"net-staff-summary/excel failed: {e}", exc_info=True)
+        abort(500, f"Excel生成中にエラーが発生しました: {str(e)}")
+
+
 @api_bp.route("/manager/net-task-summary/csv", methods=["POST"])
 @token_required
 @login_required
