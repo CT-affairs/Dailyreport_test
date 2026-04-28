@@ -139,14 +139,18 @@ def _resolve_summary_source_collection(target_month: str, start_date: datetime, 
     前月度のみ管理ドキュメントを参照して日報ソースを切り替える。
     - current: 常に daily_reports
     - previous:
-      - enj/net: 該当divisionが completed のときのみ snapshot
+      - net: 常に daily_reports（ネット向け集計は締め後スナップショットを使わない）
+      - enj: 該当 division が completed のときのみ snapshot
       - all: enj/net の両方 completed のときのみ snapshot
     """
     if target_month != "previous":
         return COLLECTION_DAILY_REPORTS
 
+    if division == "net":
+        return COLLECTION_DAILY_REPORTS
+
     period_key = _build_period_key(start_date, end_date)
-    if division in ("enj", "net"):
+    if division == "enj":
         completed, snapshot_collection = _is_monthly_closing_completed(period_key, division)
         return snapshot_collection if completed else COLLECTION_DAILY_REPORTS
 

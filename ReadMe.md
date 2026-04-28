@@ -235,7 +235,7 @@
 **実装方針**
 
 - 環境変数 `MONTHLY_CLOSING_TEST_MODE` が真のとき、締め実行 API（および将来の締め本体）は **`monthly_closings_test` / `daily_reports_snapshot_test` を既定**とする（上書きは `MONTHLY_CLOSINGS_TEST_COLLECTION` / `MONTHLY_CLOSING_TEST_SNAPSHOT_COLLECTION`）。
-- **集計**（前月度で `daily_reports` と `daily_reports_snapshot` を切り替える処理）は、**常に本番**の `monthly_closings` のみを参照する（テストモードの切替の影響を受けない）。
+- **集計**（前月度で `daily_reports` と `daily_reports_snapshot` を切り替える処理）は、**常に本番**の `monthly_closings` のみを参照する（テストモードの切替の影響を受けない）。※ネット向け（`division` が `net`）は前月度でも参照先を `daily_reports` に固定し、この切り替え自体を行わない（下記「ダッシュボード…」）。
 - **ダッシュボードの締め表示**も `GET /api/manager/monthly-closing/status` 経由で **本番** `monthly_closings` のみを参照する（テスト実行の有無と表示を切り離す）。
 - コピー先・管理ドキュメントの参照は **`app_core.config` の `monthly_closings_collection_for_closing_run` / `default_snapshot_collection_for_closing_run`** を用いる。
 
@@ -259,6 +259,11 @@
 - 「前月度」処理時は、管理ドキュメントを参照して切替判定を行う。
 - **`enj` と `net` の両方が締め完了のときのみ**、参照先を `daily_reports_snapshot` に切り替える。
 - どちらか片方でも未完了なら、参照先は従来どおり `daily_reports` とする。
+
+### ダッシュボード「集計表ダウンロード」の前月度と参照コレクション（保守メモ）
+
+- **工務**（工番別・スタッフ別）および**全社系**（宿泊/現場手当、残業/休出など、`_resolve_summary_source_collection` に `enj` または `all` を渡す API）の「**前月度**」は、上記のとおり `monthly_closings` の状態に応じて、締め完了後は **`daily_reports_snapshot`**（締め後コピー）を集計対象に切り替える。
+- **ネット事業部向け**（現状は業務別ネット CSV `/api/manager/net-task-summary/csv` など、同関数に **`net`** を渡す集計）の「**前月度**」は、締め処理の有無にかかわらず **常に `daily_reports`（アクティブ）** を集計対象とする。スナップショットは使わない。
 
 ### 合意10（記録）: 宿泊判定の将来移行を見据えたメモ
 

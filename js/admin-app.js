@@ -2735,10 +2735,6 @@ async function renderDashboardHome(container) {
 
     // 業務別(ネット): ピボット用縦持ちCSV（/api/manager/net-task-summary/csv）
     const handleNetGyomuCsvDownload = async (targetMonth, btnId) => {
-        if (targetMonth === 'previous') {
-            const ok = await confirmPreviousMonthDownloadMode('net');
-            if (!ok) return;
-        }
         const btn = document.getElementById(btnId);
         const originalText = btn.textContent;
         btn.disabled = true;
