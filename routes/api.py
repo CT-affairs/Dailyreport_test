@@ -11,7 +11,7 @@ import io
 import base64
 import pandas as pd
 import openpyxl
-from openpyxl.styles import Alignment, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
 import time
 import requests
@@ -3445,6 +3445,17 @@ def _normalize_hex_rgb_for_openpyxl_fill(color_raw: str | None) -> str | None:
     return None
 
 
+# スタッフ別（ネット）Excel: 既定 11pt より 2 段階小さく、フォント統一
+_NET_STAFF_SUMMARY_FONT = Font(name="Meiryo", size=9)
+
+
+def _apply_net_staff_summary_sheet_font(ws, *, last_row: int, last_col: int = 6) -> None:
+    """シート内の使用矩形にフォントを適用（Meiryo / 9pt）。"""
+    for r in range(1, last_row + 1):
+        for c in range(1, last_col + 1):
+            ws.cell(row=r, column=c).font = _NET_STAFF_SUMMARY_FONT
+
+
 def _lookup_category_a_color_from_settings(category_a_settings: dict | None, category_a_id: str | None) -> str | None:
     """category_b.category_a_settings から業務種別 ID に対応する背景色を取得。"""
     if not category_a_settings or category_a_id is None:
@@ -3563,11 +3574,14 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
     ws.column_dimensions["E"].width = 14
     ws.column_dimensions["F"].width = 12
 
-    # ウィンドウ枠の固定: 1〜2 行目まで（スクロール領域は D3 左上）
-    ws.freeze_panes = "D3"
+    # ウィンドウ枠の固定: 1〜2 行目・A〜F 列まで（スクロール領域は G3 左上）
+    ws.freeze_panes = "G3"
     ws.row_dimensions[1].height = 18
     ws.row_dimensions[2].height = 28
     ws.row_dimensions[3].height = 22
+
+    last_data_row = max(2 + na * nb, 2)
+    _apply_net_staff_summary_sheet_font(ws, last_row=last_data_row, last_col=6)
 
     return wb
 
