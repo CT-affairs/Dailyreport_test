@@ -18,6 +18,7 @@ import requests
 import json
 import re
 import uuid
+from decimal import Decimal, ROUND_HALF_UP
 
 from datetime import datetime, timezone, timedelta
 from app_core.utils import get_user_info_by_line_id, get_calendar_statuses, get_all_category_b_labels, update_category_b_statuses, create_new_category_b, reactivate_category_b, check_unmapped_jobcan_employees, create_employee_mapping, calculate_monthly_period, update_category_b_offices, update_category_b_details, update_user_selection_history, get_user_selection_history, get_accommodation_notes_for_employees, get_on_site_status_for_employees, save_jobcan_holiday_types_to_firestore, enrich_holiday_types_payload_with_minutes, resolve_paid_leave_minutes_engineering, resolve_paid_leave_for_sync, resolve_paid_leave_for_sync_by_work_kind, is_net_main_group, default_net_paid_leave_time_slot
@@ -31,6 +32,7 @@ from app_core.config import (
     COLLECTION_DAILY_REPORTS,
     COLLECTION_JOBCAN_RAW_RESPONSES,
     DAILY_REPORTS_SNAPSHOT_COLLECTION,
+    MONTHLY_lABOR_COSTS_NET,
     MONTHLY_CLOSINGS_COLLECTION,
     default_snapshot_collection_for_closing_run,
     is_monthly_closing_test_mode,
@@ -3522,7 +3524,103 @@ def _fetch_net_category_b_for_staff_summary_excel() -> list[dict]:
     ]
 
 
-def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Workbook:
+def _parse_user_entered_day_date(v) -> datetime | None:
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
+    return None
+
+
+def _years_since_entered_day(entered_day: datetime | None, as_of: datetime) -> int:
+    if entered_day is None:
+        return 0
+    years = as_of.year - entered_day.year
+    if (as_of.month, as_of.day) < (entered_day.month, entered_day.day):
+        years -= 1
+    return max(years, 0)
+
+
+def _net_work_kind_labor_factor(work_kind_raw) -> Decimal:
+    wk = _norm_str_id(work_kind_raw)
+    if wk == "3":
+        return Decimal("1.0")
+    if wk == "10":
+        return Decimal("0.75")
+    return Decimal("0.67")
+
+
+def _round_to_nearest_10_half_up(v: Decimal) -> int:
+    return int((v / Decimal("10")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * Decimal("10"))
+
+
+def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime) -> int:
+    entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
+    years = _years_since_entered_day(entered_day, as_of)
+    tenure_factor = Decimal("1.03") ** years
+    work_kind_factor = _net_work_kind_labor_factor(user_data.get("work_kind_id") or user_data.get("work_kind"))
+    cost = Decimal(str(MONTHLY_lABOR_COSTS_NET)) * tenure_factor * work_kind_factor
+    return _round_to_nearest_10_half_up(cost)
+
+
+def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime, as_of: datetime) -> list[dict]:
+    """
+    対象月度の daily_reports（ネット日報）に出現する社員を抽出し、
+    工務スタッフ別と同様に employee_mappings の name を表示名として返す。
+    """
+    query = (
+        db.collection(COLLECTION_DAILY_REPORTS)
+        .where(filter=FieldFilter("date", ">=", start_date))
+        .where(filter=FieldFilter("date", "<=", end_date))
+    )
+
+    target_emp_ids: set[str] = set()
+    for doc in query.stream():
+        rep = doc.to_dict() or {}
+        if not _is_net_daily_report_group(rep.get("group_id")):
+            continue
+        parsed_e, _ = _parse_daily_report_doc_id(doc.id)
+        emp_id = _norm_str_id(rep.get("company_employee_id")) or parsed_e
+        if emp_id:
+            target_emp_ids.add(emp_id)
+
+    if not target_emp_ids:
+        return []
+
+    mapping_docs = (
+        db.collection("employee_mappings")
+        .where(filter=FieldFilter("status", "==", "active"))
+        .stream()
+    )
+    name_map: dict[str, str] = {}
+    for doc in mapping_docs:
+        if doc.id in target_emp_ids:
+            d = doc.to_dict() or {}
+            name_map[doc.id] = d.get("name", "Unknown")
+
+    staff = []
+    for emp_id in sorted(target_emp_ids):
+        user_snap = db.collection("users").document(emp_id).get()
+        user_data = user_snap.to_dict() if user_snap.exists else {}
+        staff.append(
+            {
+                "id": emp_id,
+                "name": name_map.get(emp_id, "Unknown"),
+                "labor_cost": _calc_net_staff_monthly_labor_cost(user_data or {}, as_of),
+            }
+        )
+    return staff
+
+
+def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: datetime, as_of: datetime) -> openpyxl.Workbook:
     """
     スタッフ別（ネット）Excelのレイアウト骨子。
     - シート名: YYYY年MM月度（月度終了日ベース）
@@ -3536,6 +3634,7 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
 
     cat_a_list = _fetch_net_category_a_for_staff_summary_excel()
     cat_b_list = _fetch_net_category_b_for_staff_summary_excel()
+    staff_list = _fetch_net_staff_for_summary_blocks(start_date, end_date, as_of)
     if not cat_a_list:
         abort(400, "ネット向け業務種別（category_a）が取得できません。")
     if not cat_b_list:
@@ -3556,6 +3655,20 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
     ws.cell(row=1, column=5).alignment = hdr_align
     ws.cell(row=2, column=4).value = "累計人件費"
     ws.cell(row=2, column=4).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    ws.cell(row=2, column=4).number_format = "#,##0"
+
+    # --- G列以降: スタッフ別 3列1ブロック（中央列1行目=スタッフ名、左列2行目=経費額） ---
+    staff_block_start_col = 7  # G
+    for i, staff in enumerate(staff_list):
+        block_left = staff_block_start_col + i * 3
+        block_middle = block_left + 1
+        ws.cell(row=1, column=block_middle).value = staff["name"]
+        ws.cell(row=1, column=block_middle).alignment = hdr_align
+
+        cost_cell = ws.cell(row=2, column=block_left)
+        cost_cell.value = staff["labor_cost"]
+        cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+        cost_cell.number_format = "#,##0"
 
     # --- 左3列: 行3〜 縦リスト（列C=業務種別繰り返し、列B=全般行のみ集計項目名）---
     total_left_rows = na * nb
@@ -3585,15 +3698,21 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
     ws.column_dimensions["D"].width = 9
     ws.column_dimensions["E"].width = 9
     ws.column_dimensions["F"].width = 9
+    for i in range(len(staff_list)):
+        block_left = 7 + i * 3
+        ws.column_dimensions[openpyxl.utils.get_column_letter(block_left)].width = 9
+        ws.column_dimensions[openpyxl.utils.get_column_letter(block_left + 1)].width = 9
+        ws.column_dimensions[openpyxl.utils.get_column_letter(block_left + 2)].width = 9
 
     last_data_row = max(2 + na * nb, 2)
     for r in range(1, last_data_row + 1):
-        ws.row_dimensions[r].height = 21
+        ws.row_dimensions[r].height = 15
 
     # ウィンドウ枠の固定: 1〜2 行目・A〜F 列まで（スクロール領域は G3 左上）
     ws.freeze_panes = "G3"
 
-    _apply_net_staff_summary_sheet_font(ws, last_row=last_data_row, last_col=6)
+    last_col = max(6, 6 + len(staff_list) * 3)
+    _apply_net_staff_summary_sheet_font(ws, last_row=last_data_row, last_col=last_col)
 
     return wb
 
@@ -3624,7 +3743,7 @@ def download_net_staff_summary_excel_placeholder():
             end_date.strftime("%Y-%m-%d"),
         )
 
-        wb = _build_net_staff_summary_excel_workbook(end_date)
+        wb = _build_net_staff_summary_excel_workbook(start_date, end_date, base_date)
 
         output = io.BytesIO()
         wb.save(output)
