@@ -3429,6 +3429,15 @@ def _net_staff_summary_label_key(label: str | None) -> str:
     return (label or "").strip()
 
 
+def _format_net_staff_summary_cat_a_display_label(label: str | None) -> str:
+    """業務種別を Excel 表示用に整形する。全角括弧 （…） がある場合はそのブロックを除く。"""
+    s = (label or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"（[^）]*）", "", s)
+    return s.strip()
+
+
 def _normalize_hex_rgb_for_openpyxl_fill(color_raw: str | None) -> str | None:
     """category_a_settings の色文字列を openpyxl PatternFill 用 6 桁 RGB に正規化。"""
     if color_raw is None:
@@ -3445,15 +3454,17 @@ def _normalize_hex_rgb_for_openpyxl_fill(color_raw: str | None) -> str | None:
     return None
 
 
-# スタッフ別（ネット）Excel: 既定 11pt より 2 段階小さく、フォント統一
-_NET_STAFF_SUMMARY_FONT = Font(name="Meiryo", size=9)
+# スタッフ別（ネット）Excel: ヘッダ行のみ 9pt、データ行は 8pt（Meiryo）
+_NET_STAFF_SUMMARY_FONT_HEADER = Font(name="Meiryo", size=9)
+_NET_STAFF_SUMMARY_FONT_BODY = Font(name="Meiryo", size=8)
 
 
 def _apply_net_staff_summary_sheet_font(ws, *, last_row: int, last_col: int = 6) -> None:
-    """シート内の使用矩形にフォントを適用（Meiryo / 9pt）。"""
+    """シート内の使用矩形にフォントを適用（1〜2行目 9pt、3行目以降 8pt）。"""
     for r in range(1, last_row + 1):
+        font = _NET_STAFF_SUMMARY_FONT_HEADER if r <= 2 else _NET_STAFF_SUMMARY_FONT_BODY
         for c in range(1, last_col + 1):
-            ws.cell(row=r, column=c).font = _NET_STAFF_SUMMARY_FONT
+            ws.cell(row=r, column=c).font = font
 
 
 def _lookup_category_a_color_from_settings(category_a_settings: dict | None, category_a_id: str | None) -> str | None:
@@ -3553,9 +3564,10 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
         bi = i // na
         ai = i % na
         a_label = cat_a_list[ai]["label"]
-        ws.cell(row=r, column=3).value = a_label
+        a_display = _format_net_staff_summary_cat_a_display_label(a_label)
+        ws.cell(row=r, column=3).value = a_display
         ws.cell(row=r, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        if _net_staff_summary_label_key(a_label) == zenpan_key:
+        if _net_staff_summary_label_key(a_display) == zenpan_key:
             ws.cell(row=r, column=2).value = cat_b_list[bi]["label"]
             ws.cell(row=r, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
@@ -3569,7 +3581,7 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
 
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 9
-    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["C"].width = 16
     ws.column_dimensions["D"].width = 9
     ws.column_dimensions["E"].width = 9
     ws.column_dimensions["F"].width = 9
