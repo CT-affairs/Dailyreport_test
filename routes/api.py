@@ -3425,17 +3425,6 @@ def _is_net_daily_report_group(group_id) -> bool:
     return str(group_id).strip() == "3"
 
 
-_NET_STAFF_SUMMARY_HEADER_FILLS = (
-    "E8F4FD",
-    "FDE8E8",
-    "E8FDE8",
-    "FFF5E8",
-    "EEE8FD",
-    "F0E8FD",
-    "E8FDF6",
-)
-
-
 def _net_staff_summary_label_key(label: str | None) -> str:
     return (label or "").strip()
 
@@ -3490,7 +3479,7 @@ def _fetch_net_category_a_for_staff_summary_excel() -> list[dict]:
 
 
 def _fetch_net_category_b_for_staff_summary_excel() -> list[dict]:
-    """ネット向け category_b（アクティブ）を管理画面と同様にソート。"""
+    """ネット向け category_b（アクティブ）を order 昇順でソート。"""
     cats: list[dict] = []
     for doc in db.collection("category_b").where(filter=FieldFilter("kind", "==", "net")).stream():
         data = doc.to_dict()
@@ -3500,11 +3489,11 @@ def _fetch_net_category_b_for_staff_summary_excel() -> list[dict]:
             {
                 "id": doc.id,
                 "label": data.get("label", ""),
-                "order": data.get("order", 0),
+                "order": data.get("order", 9999),
                 "category_a_settings": data.get("category_a_settings") or {},
             }
         )
-    cats.sort(key=lambda x: (-x["order"], _net_staff_summary_label_key(x["label"])))
+    cats.sort(key=lambda x: (x["order"], _net_staff_summary_label_key(x["label"])))
     return [
         {"id": x["id"], "label": x["label"], "category_a_settings": x["category_a_settings"]}
         for x in cats
@@ -3515,13 +3504,13 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
     """
     スタッフ別（ネット）Excelのレイアウト骨子。
     - シート名: YYYY年MM月度（月度終了日ベース）
-    - 列 D〜: 行1 色塗り（集計項目ブロック単位）、行2 集計項目名（マージ）、行3 業務種別（1列ずつ）
+    - 列 D〜F: カテゴリは列挙しない（プレースホルダのみ。例: E1=合計、D2=累計人件費）
     - 列 A〜C: 行3〜 に左エリア。列Cに業務種別を縦に（集計項目ブロック数ぶん繰り返し）。
+      集計項目の並びは category_b.order 昇順。
       列Bは業務種別が「全般」の行のみ集計項目ラベル、それ以外は空。
       列Aはその行の集計項目ブロックに対応する category_b.category_a_settings のカラーマップで、
       該当業務種別 ID のセルを塗りつぶす（値は入れない）。
     """
-    from openpyxl.utils import get_column_letter
 
     cat_a_list = _fetch_net_category_a_for_staff_summary_excel()
     cat_b_list = _fetch_net_category_b_for_staff_summary_excel()
@@ -3540,33 +3529,11 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
 
     hdr_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    # --- 右側ヘッダ（列 D 〜）---
-    first_data_col = 4  # D
-    total_data_cols = na * nb
-    last_data_col = first_data_col + total_data_cols - 1
-
-    for bi in range(nb):
-        c0 = first_data_col + bi * na
-        c1 = c0 + na - 1
-        fill_hex = _NET_STAFF_SUMMARY_HEADER_FILLS[bi % len(_NET_STAFF_SUMMARY_HEADER_FILLS)]
-        fill = PatternFill(fill_type="solid", fgColor=fill_hex)
-
-        ws.merge_cells(start_row=1, start_column=c0, end_row=1, end_column=c1)
-        top_left = ws.cell(row=1, column=c0)
-        top_left.fill = fill
-        top_left.alignment = hdr_align
-
-        ws.merge_cells(start_row=2, start_column=c0, end_row=2, end_column=c1)
-        b_cell = ws.cell(row=2, column=c0)
-        b_cell.value = cat_b_list[bi]["label"]
-        b_cell.alignment = hdr_align
-        b_cell.fill = fill
-
-        for ai in range(na):
-            col = c0 + ai
-            acell = ws.cell(row=3, column=col)
-            acell.value = cat_a_list[ai]["label"]
-            acell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    # --- 右側 D〜F: カテゴリ列挙なし（プレースホルダ）---
+    ws.cell(row=1, column=5).value = "合計"
+    ws.cell(row=1, column=5).alignment = hdr_align
+    ws.cell(row=2, column=4).value = "累計人件費"
+    ws.cell(row=2, column=4).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
     # --- 左3列: 行3〜 縦リスト（列C=業務種別繰り返し、列B=全般行のみ集計項目名）---
     total_left_rows = na * nb
@@ -3592,10 +3559,12 @@ def _build_net_staff_summary_excel_workbook(end_date: datetime) -> openpyxl.Work
     ws.column_dimensions["A"].width = 6
     ws.column_dimensions["B"].width = 28
     ws.column_dimensions["C"].width = 22
-    for col_idx in range(first_data_col, last_data_col + 1):
-        ws.column_dimensions[get_column_letter(col_idx)].width = 14
+    ws.column_dimensions["D"].width = 18
+    ws.column_dimensions["E"].width = 14
+    ws.column_dimensions["F"].width = 12
 
-    ws.freeze_panes = "D4"
+    # ウィンドウ枠の固定: 1〜2 行目まで（スクロール領域は D3 左上）
+    ws.freeze_panes = "D3"
     ws.row_dimensions[1].height = 18
     ws.row_dimensions[2].height = 28
     ws.row_dimensions[3].height = 22
