@@ -3568,10 +3568,17 @@ def _round_to_nearest_10_half_up(v: Decimal) -> int:
 
 def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employee_id: str | None = None) -> int:
     entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
-    if _norm_str_id(employee_id) == _norm_str_id(OFFICER_ID):
+    work_kind_raw = user_data.get("work_kind_id") or user_data.get("work_kind")
+    # OFFICER_ID は int / str / "210501.0" など表現ゆれがあり得るため、
+    # Jobcan 突合せと同じ正規化で比較する。
+    normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
+    normalized_officer = _normalize_jobcan_employee_id_for_match(OFFICER_ID)
+    if normalized_emp and normalized_emp == normalized_officer:
         officer_entered_day = _parse_user_entered_day_date(OFFICER_ENTERED_DAY)
         if officer_entered_day is not None:
             entered_day = officer_entered_day
+        # 執行役員は work_kind を固定で 3 扱いにする
+        work_kind_raw = "3"
     years = _years_since_entered_day(entered_day, as_of)
     # CAREER_COEFFICIENT は 0.03 形式を想定。
     # もし 1.03 / 1.025 のような値が入っていても、加算率としては 0.03 / 0.025 として扱う。
@@ -3579,7 +3586,7 @@ def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employe
     if career_increment >= Decimal("1"):
         career_increment = career_increment - Decimal("1")
     tenure_factor = Decimal("1") + (career_increment * Decimal(years))
-    work_kind_factor = _net_work_kind_labor_factor(user_data.get("work_kind_id") or user_data.get("work_kind"))
+    work_kind_factor = _net_work_kind_labor_factor(work_kind_raw)
     cost = Decimal(str(MONTHLY_lABOR_COSTS_NET)) * tenure_factor * work_kind_factor
     return _round_to_nearest_10_half_up(cost)
 
