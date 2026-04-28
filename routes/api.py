@@ -34,9 +34,6 @@ from app_core.config import (
     COLLECTION_JOBCAN_RAW_RESPONSES,
     DAILY_REPORTS_SNAPSHOT_COLLECTION,
     MONTHLY_lABOR_COSTS_NET,
-    OFFICER_ENTERED_DAY,
-    OFFICER_ID,
-    OFFICER_NAME,
     MONTHLY_CLOSINGS_COLLECTION,
     default_snapshot_collection_for_closing_run,
     is_monthly_closing_test_mode,
@@ -3567,15 +3564,35 @@ def _round_to_nearest_10_half_up(v: Decimal) -> int:
     return int((v / Decimal("10")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * Decimal("10"))
 
 
+def _get_net_summary_officer_overrides() -> tuple[str | None, str | None, str | None]:
+    """
+    ネット集計でのみ使う執行役員の上書き設定。
+    import 失敗時は API 全体を巻き込まないよう None を返す。
+    """
+    try:
+        from app_core import config as _cfg
+        officer_id = getattr(_cfg, "OFFICER_ID", None)
+        officer_entered_day = getattr(_cfg, "OFFICER_ENTERED_DAY", None)
+        officer_name = getattr(_cfg, "OFFICER_NAME", None)
+        return (
+            _norm_str_id(officer_id),
+            _norm_str_id(officer_entered_day),
+            _norm_str_id(officer_name),
+        )
+    except Exception:
+        return None, None, None
+
+
 def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employee_id: str | None = None) -> int:
     entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
     work_kind_raw = user_data.get("work_kind_id") or user_data.get("work_kind")
+    officer_id, officer_entered_day_raw, _ = _get_net_summary_officer_overrides()
     # OFFICER_ID は int / str / "210501.0" など表現ゆれがあり得るため、
     # Jobcan 突合せと同じ正規化で比較する。
     normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
-    normalized_officer = _normalize_jobcan_employee_id_for_match(OFFICER_ID)
+    normalized_officer = _normalize_jobcan_employee_id_for_match(officer_id)
     if normalized_emp and normalized_emp == normalized_officer:
-        officer_entered_day = _parse_user_entered_day_date(OFFICER_ENTERED_DAY)
+        officer_entered_day = _parse_user_entered_day_date(officer_entered_day_raw)
         if officer_entered_day is not None:
             entered_day = officer_entered_day
         # 執行役員は work_kind を固定で 3 扱いにする
@@ -3729,8 +3746,12 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         block_left = staff_block_start_col + i * 3
         block_middle = block_left + 1
         staff_name = staff["name"]
-        if _normalize_jobcan_employee_id_for_match(staff.get("id")) == _normalize_jobcan_employee_id_for_match(OFFICER_ID):
-            staff_name = OFFICER_NAME
+        officer_id, _, officer_name = _get_net_summary_officer_overrides()
+        if (
+            officer_name
+            and _normalize_jobcan_employee_id_for_match(staff.get("id")) == _normalize_jobcan_employee_id_for_match(officer_id)
+        ):
+            staff_name = officer_name
         ws.cell(row=1, column=block_middle).value = staff_name
         ws.cell(row=1, column=block_middle).alignment = hdr_align
 
