@@ -29,6 +29,7 @@ from app_core.monthly_closing_snapshot_selection import (
 from app_core.utils import send_push_message, activate_download_link
 # from app_core.utils import send_quick_report_email # 【実装保留】のためコメントアウト
 from app_core.config import (
+    CAREER_COEFFICIENT,
     COLLECTION_DAILY_REPORTS,
     COLLECTION_JOBCAN_RAW_RESPONSES,
     DAILY_REPORTS_SNAPSHOT_COLLECTION,
@@ -1618,6 +1619,7 @@ def get_manager_jobcan_employees_summary():
                     "main_group": e.get("main_group"),
                     "sub_group": sub,
                     "work_kind": e.get("work_kind"),
+                    "entered_day": e.get("entered_day"),
                 }
             )
 
@@ -3565,7 +3567,7 @@ def _round_to_nearest_10_half_up(v: Decimal) -> int:
 def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime) -> int:
     entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
     years = _years_since_entered_day(entered_day, as_of)
-    tenure_factor = Decimal("1.03") ** years
+    tenure_factor = Decimal(str(CAREER_COEFFICIENT)) ** years
     work_kind_factor = _net_work_kind_labor_factor(user_data.get("work_kind_id") or user_data.get("work_kind"))
     cost = Decimal(str(MONTHLY_lABOR_COSTS_NET)) * tenure_factor * work_kind_factor
     return _round_to_nearest_10_half_up(cost)

@@ -61,3 +61,4 @@ TARGET_EMPLOYEE_IDS = ["16"] # 取得対象の従業員IDリスト。例: ["16",
 
 # --- Net labor costs ---
 MONTHLY_lABOR_COSTS_NET = 330000  # ネット用の月次人件費（円）
+CAREER_COEFFICIENT = 1.025  # キャリア係数
