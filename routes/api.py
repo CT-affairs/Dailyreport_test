@@ -1509,7 +1509,8 @@ def get_manager_jobcan_employees_summary():
 
     併せて users コレクションを更新する:
     users.jobcan_employee_id が Jobcan の id と一致するドキュメントに、
-    Jobcan の work_kind を work_kind_id として書き込む（数値にできる場合は int）。
+    Jobcan の work_kind を work_kind_id として、entered_day を entered_day として書き込む。
+    （work_kind は数値にできる場合は int）
     """
     try:
         from services.jobcan_service import JobcanService
@@ -1528,15 +1529,19 @@ def get_manager_jobcan_employees_summary():
 
         raw_list = result.get("employees") or []
 
-        # --- users: jobcan_employee_id 一致ドキュメントへ work_kind_id を反映 ---
+        # --- users: jobcan_employee_id 一致ドキュメントへ work_kind_id / entered_day を反映 ---
         users_work_kind_updated = 0
         try:
-            jc_key_to_user_ref = {}
+            jc_key_to_user = {}
             for udoc in db.collection("users").stream():
                 udata = udoc.to_dict() or {}
                 jkey = _normalize_jobcan_employee_id_for_match(udata.get("jobcan_employee_id"))
                 if jkey:
-                    jc_key_to_user_ref[jkey] = udoc.reference
+                    jc_key_to_user[jkey] = {
+                        "ref": udoc.reference,
+                        "work_kind_id": udata.get("work_kind_id"),
+                        "entered_day": udata.get("entered_day"),
+                    }
 
             batch = db.batch()
             batch_ops = 0
@@ -1548,8 +1553,8 @@ def get_manager_jobcan_employees_summary():
                 ekey = _normalize_jobcan_employee_id_for_match(e.get("id"))
                 if not ekey:
                     continue
-                ref = jc_key_to_user_ref.get(ekey)
-                if not ref:
+                user_obj = jc_key_to_user.get(ekey)
+                if not user_obj:
                     continue
 
                 wk_raw = e.get("work_kind")
@@ -1560,13 +1565,21 @@ def get_manager_jobcan_employees_summary():
                     except (TypeError, ValueError):
                         wk_val = wk_raw
 
-                batch.update(
-                    ref,
-                    {
-                        "work_kind_id": wk_val,
-                        "updated_at": firestore.SERVER_TIMESTAMP,
-                    },
-                )
+                entered_day_raw = e.get("entered_day")
+                entered_day_val = None
+                if entered_day_raw is not None:
+                    entered_day_val = str(entered_day_raw).strip() or None
+
+                update_payload = {}
+                if user_obj.get("work_kind_id") != wk_val:
+                    update_payload["work_kind_id"] = wk_val
+                if user_obj.get("entered_day") != entered_day_val:
+                    update_payload["entered_day"] = entered_day_val
+                if not update_payload:
+                    continue
+
+                update_payload["updated_at"] = firestore.SERVER_TIMESTAMP
+                batch.update(user_obj["ref"], update_payload)
                 users_work_kind_updated += 1
                 batch_ops += 1
                 if batch_ops >= max_batch:
