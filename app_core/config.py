@@ -63,6 +63,6 @@ TARGET_EMPLOYEE_IDS = ["16"] # 取得対象の従業員IDリスト。例: ["16",
 MONTHLY_lABOR_COSTS_NET = 330000  # ネット用の月次人件費（円）
 CAREER_COEFFICIENT = 0.03  # キャリア係数
 
-OFFICER_NAME = 永田 智子
+OFFICER_NAME = "永田 智子"  # 管理職名
 OFFICER_ID = 210501  # 管理職ID
-OFFICER_ENTERED_DAY = "2006-05-01"  # 管理職入社日
+OFFICER_ENTERED_DAY = "2006-04-25"  # 管理職入社日
