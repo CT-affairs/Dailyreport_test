@@ -3695,6 +3695,38 @@ def _aggregate_net_staff_task_minutes_for_summary(start_date: datetime, end_date
     return agg
 
 
+def _aggregate_net_staff_jobcan_minutes_for_summary(start_date: datetime, end_date: datetime) -> dict[str, int]:
+    """
+    ネット日報ドキュメントの jobcan_work_minutes を社員ごとに月度合算する。
+    スタッフブロック右列の割合の分母（総勤務時間）に使う。
+    """
+    query = (
+        db.collection(COLLECTION_DAILY_REPORTS)
+        .where(filter=FieldFilter("date", ">=", start_date))
+        .where(filter=FieldFilter("date", "<=", end_date))
+    )
+    agg: dict[str, int] = {}
+    for doc in query.stream():
+        rep = doc.to_dict() or {}
+        if not _is_net_daily_report_group(rep.get("group_id")):
+            continue
+        parsed_e, _ = _parse_daily_report_doc_id(doc.id)
+        emp_id = _norm_str_id(rep.get("company_employee_id")) or parsed_e
+        if not emp_id:
+            continue
+        raw = rep.get("jobcan_work_minutes")
+        if raw is None:
+            continue
+        try:
+            mins = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if mins <= 0:
+            continue
+        agg[emp_id] = agg.get(emp_id, 0) + mins
+    return agg
+
+
 def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: datetime, as_of: datetime) -> openpyxl.Workbook:
     """
     スタッフ別（ネット）Excelのレイアウト骨子。
@@ -3711,11 +3743,20 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
     cat_b_list = _fetch_net_category_b_for_staff_summary_excel()
     staff_list = _fetch_net_staff_for_summary_blocks(start_date, end_date, as_of)
     task_minutes_map = _aggregate_net_staff_task_minutes_for_summary(start_date, end_date)
+    jobcan_minutes_by_staff = _aggregate_net_staff_jobcan_minutes_for_summary(start_date, end_date)
     staff_total_task_minutes = {
         s["id"]: sum(task_minutes_map.get(s["id"], {}).values())
         for s in staff_list
     }
+    # 右列・合計ブロックの分母: 総勤務 = 月度の Jobcan 勤務分合計。未取得のみタスク合計にフォールバック。
+    staff_total_work_minutes = {}
+    for s in staff_list:
+        eid = s["id"]
+        jm = int(jobcan_minutes_by_staff.get(eid, 0) or 0)
+        tm = int(staff_total_task_minutes.get(eid, 0) or 0)
+        staff_total_work_minutes[eid] = jm if jm > 0 else tm
     all_staff_total_task_minutes = sum(staff_total_task_minutes.values())
+    all_staff_total_work_minutes = sum(staff_total_work_minutes.get(s["id"], 0) for s in staff_list)
     if not cat_a_list:
         abort(400, "ネット向け業務種別（category_a）が取得できません。")
     if not cat_b_list:
@@ -3784,7 +3825,7 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
 
         # スタッフ別ブロック:
         # - 中央列: 当該行（category_b × category_a）の月度合計時間（小数第2位）
-        # - 右列: そのスタッフの月度トータル勤務（タスク）時間に対する割合
+        # - 右列: その行タスク時間 ÷ そのスタッフの月度総勤務（jobcan_work_minutes 合計、なければタスク合計）
         # - 左列: スタッフ別人件費 × 割合（当該業務にかかった経費）
         b_id = cat_b_list[bi]["id"]
         per_staff_minutes: list[int] = []
@@ -3795,7 +3836,7 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
 
         # 合計ブロック（D:E:F）
         # - E列: タスク別累計時間（全スタッフ合算）
-        # - F列: タスク別累計時間 / 全スタッフ月度トータル勤務時間
+        # - F列: タスク別累計時間 / 全スタッフ月度総勤務（jobcan 合計の合算）
         # - D列: 全スタッフ累計人件費 × F列（タスク別経費）
         if row_total_minutes_all_staff > 0:
             total_hours = (Decimal(row_total_minutes_all_staff) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -3804,8 +3845,9 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
             total_hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
             total_hours_cell.number_format = "0.00"
 
-            if all_staff_total_task_minutes > 0:
-                total_ratio = Decimal(row_total_minutes_all_staff) / Decimal(all_staff_total_task_minutes)
+            denom_all = all_staff_total_work_minutes if all_staff_total_work_minutes > 0 else all_staff_total_task_minutes
+            if denom_all > 0:
+                total_ratio = Decimal(row_total_minutes_all_staff) / Decimal(denom_all)
                 total_ratio_cell = ws.cell(row=r, column=6)
                 total_ratio_cell.value = float(total_ratio)
                 total_ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
@@ -3830,9 +3872,9 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
                 hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
                 hours_cell.number_format = "0.00"
 
-            staff_total_minutes = int(staff_total_task_minutes.get(staff["id"], 0) or 0)
-            if staff_total_minutes > 0 and mins > 0:
-                ratio = Decimal(mins) / Decimal(staff_total_minutes)
+            work_total = int(staff_total_work_minutes.get(staff["id"], 0) or 0)
+            if work_total > 0 and mins > 0:
+                ratio = Decimal(mins) / Decimal(work_total)
                 ratio_cell = ws.cell(row=r, column=block_right)
                 ratio_cell.value = float(ratio)
                 ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
