@@ -3886,6 +3886,89 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
                 alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
                 alloc_cost_cell.number_format = "#,##0"
 
+    # --- 有休など: 最下行に A00 × e_000000（集計は A00 のみ）---
+    PAID_LEAVE_SUMMARY_CAT_B_ID = "e_000000"
+    PAID_LEAVE_SUMMARY_CAT_A_PRIMARY = "A00"
+
+    def _paid_leave_row_minutes(emp_id: str) -> int:
+        m = task_minutes_map.get(emp_id, {})
+        return int(m.get((PAID_LEAVE_SUMMARY_CAT_B_ID, PAID_LEAVE_SUMMARY_CAT_A_PRIMARY), 0) or 0)
+
+    r_paid = 3 + total_left_rows
+    cb_paid = next((x for x in cat_b_list if x["id"] == PAID_LEAVE_SUMMARY_CAT_B_ID), None)
+    ca_paid = next((x for x in cat_a_list if x["id"] == PAID_LEAVE_SUMMARY_CAT_A_PRIMARY), None)
+    if ca_paid:
+        a_display_paid = _format_net_staff_summary_cat_a_display_label(ca_paid["label"])
+    else:
+        a_display_paid = "有休"
+    ws.cell(row=r_paid, column=3).value = a_display_paid
+    ws.cell(row=r_paid, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    if cb_paid and _net_staff_summary_label_key(a_display_paid) == zenpan_key:
+        ws.cell(row=r_paid, column=2).value = cb_paid["label"]
+        ws.cell(row=r_paid, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    a_cell_paid = ws.cell(row=r_paid, column=1)
+    a_cell_paid.value = None
+    settings_paid = (cb_paid.get("category_a_settings") or {}) if cb_paid else {}
+    hex_paid = _lookup_category_a_color_from_settings(settings_paid, PAID_LEAVE_SUMMARY_CAT_A_PRIMARY)
+    if hex_paid:
+        a_cell_paid.fill = PatternFill(fill_type="solid", fgColor=hex_paid)
+
+    per_staff_minutes_paid: list[int] = []
+    for staff in staff_list:
+        per_staff_minutes_paid.append(_paid_leave_row_minutes(staff["id"]))
+    row_total_minutes_all_staff_paid = sum(per_staff_minutes_paid)
+
+    if row_total_minutes_all_staff_paid > 0:
+        total_hours_p = (Decimal(row_total_minutes_all_staff_paid) / Decimal("60")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        thc = ws.cell(row=r_paid, column=5)
+        thc.value = float(total_hours_p)
+        thc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+        thc.number_format = "0.00"
+
+        denom_all_p = all_staff_total_work_minutes if all_staff_total_work_minutes > 0 else all_staff_total_task_minutes
+        if denom_all_p > 0:
+            total_ratio_p = Decimal(row_total_minutes_all_staff_paid) / Decimal(denom_all_p)
+            trc = ws.cell(row=r_paid, column=6)
+            trc.value = float(total_ratio_p)
+            trc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            trc.number_format = "0.00%"
+
+            tac_p = Decimal(total_labor_cost) * total_ratio_p
+            tacc = ws.cell(row=r_paid, column=4)
+            tacc.value = int(tac_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            tacc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            tacc.number_format = "#,##0"
+
+    for si, staff in enumerate(staff_list):
+        mins_p = per_staff_minutes_paid[si]
+        block_left_p = 7 + si * 3
+        block_middle_p = block_left_p + 1
+        block_right_p = block_left_p + 2
+
+        if mins_p > 0:
+            hours_p = (Decimal(mins_p) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            hc = ws.cell(row=r_paid, column=block_middle_p)
+            hc.value = float(hours_p)
+            hc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            hc.number_format = "0.00"
+
+        work_total_p = int(staff_total_work_minutes.get(staff["id"], 0) or 0)
+        if work_total_p > 0 and mins_p > 0:
+            ratio_p = Decimal(mins_p) / Decimal(work_total_p)
+            rc = ws.cell(row=r_paid, column=block_right_p)
+            rc.value = float(ratio_p)
+            rc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            rc.number_format = "0.00%"
+
+            alloc_p = Decimal(int(staff.get("labor_cost") or 0)) * ratio_p
+            ac = ws.cell(row=r_paid, column=block_left_p)
+            ac.value = int(alloc_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            ac.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            ac.number_format = "#,##0"
+
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 9
     ws.column_dimensions["C"].width = 16
@@ -3898,7 +3981,7 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         ws.column_dimensions[openpyxl.utils.get_column_letter(block_left + 1)].width = 9
         ws.column_dimensions[openpyxl.utils.get_column_letter(block_left + 2)].width = 9
 
-    last_data_row = max(2 + na * nb, 2)
+    last_data_row = max(2 + na * nb + 1, 2)
     total_row = last_data_row + 1
     last_col = max(6, 6 + len(staff_list) * 3)
 
