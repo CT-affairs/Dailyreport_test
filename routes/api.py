@@ -3465,6 +3465,8 @@ _NET_STAFF_SUMMARY_FONT_BODY = Font(name="Meiryo", size=8)
 # 見出し背景（合計ブロック D〜F）
 _NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW1 = "8B0000"
 _NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW2 = "FFB6C1"
+# データ行の金額列（合計 D・スタッフブロック各左列）
+_NET_STAFF_SUMMARY_BODY_AMOUNT_COL_FILL = "F2F2F2"
 
 
 def _net_staff_summary_staff_header_fill_hexes(work_kind_raw) -> tuple[str, str]:
@@ -3483,6 +3485,19 @@ def _apply_net_staff_summary_sheet_font(ws, *, last_row: int, last_col: int = 6)
         font = _NET_STAFF_SUMMARY_FONT_HEADER if r <= 2 else _NET_STAFF_SUMMARY_FONT_BODY
         for c in range(1, last_col + 1):
             ws.cell(row=r, column=c).font = font
+
+
+def _apply_net_staff_summary_body_amount_column_fills(
+    ws, *, last_data_row: int, staff_count: int
+) -> None:
+    """データ行（3〜last_data_row）だけ。金額列＝合計ブロック D・各スタッフブロック左列。"""
+    if last_data_row < 3:
+        return
+    fill_amt = PatternFill(fill_type="solid", fgColor=_NET_STAFF_SUMMARY_BODY_AMOUNT_COL_FILL)
+    for r in range(3, last_data_row + 1):
+        ws.cell(row=r, column=4).fill = fill_amt
+        for i in range(staff_count):
+            ws.cell(row=r, column=7 + i * 3).fill = fill_amt
 
 
 def _lookup_category_a_color_from_settings(category_a_settings: dict | None, category_a_id: str | None) -> str | None:
@@ -4156,6 +4171,10 @@ def _build_net_staff_summary_excel_workbook(
         last_data_row = max(r_err, 2)
     else:
         last_data_row = max(last_body_row, 2)
+
+    _apply_net_staff_summary_body_amount_column_fills(
+        ws, last_data_row=last_data_row, staff_count=len(staff_list)
+    )
 
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 9
