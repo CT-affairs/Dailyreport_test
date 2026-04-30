@@ -3695,6 +3695,31 @@ def _aggregate_net_staff_task_minutes_for_summary(start_date: datetime, end_date
     return agg
 
 
+def _net_summary_minutes_for_cat_b_a_scan(
+    emp_id: str,
+    task_map: dict[str, dict[tuple[str, str], int]],
+    *,
+    cat_a_id: str,
+    cat_b_id_candidates: set[str],
+) -> int:
+    """task_map のキー表記ゆれに耐えて、(category_b, category_a) の分数を合算する。"""
+    m = task_map.get(emp_id, {})
+    a_w = _norm_str_id(cat_a_id)
+    b_w = {_norm_str_id(x) for x in cat_b_id_candidates if _norm_str_id(x)}
+    total = 0
+    for (bk, ak), val in m.items():
+        if _norm_str_id(ak) != a_w:
+            continue
+        if _norm_str_id(bk) in b_w:
+            total += int(val or 0)
+    return total
+
+
+# スタッフ別（ネット）Excel 最下行「有休」行: タスク集計キー（Firestore の category ドキュメント ID に合わせる）
+_NET_SUMMARY_PAID_LEAVE_ROW_CAT_B_ID = "e_000000"
+_NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID = "A00"
+
+
 def _aggregate_net_staff_jobcan_minutes_for_summary(start_date: datetime, end_date: datetime) -> dict[str, int]:
     """
     ネット日報ドキュメントの jobcan_work_minutes を社員ごとに月度合算する。
@@ -3886,31 +3911,44 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
                 alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
                 alloc_cost_cell.number_format = "#,##0"
 
-    # --- 有休など: 最下行に A00 × e_000000（集計は A00 のみ）---
-    PAID_LEAVE_SUMMARY_CAT_B_ID = "e_000000"
-    PAID_LEAVE_SUMMARY_CAT_A_PRIMARY = "A00"
+    # --- 有休など: 最下行に A00 × e_000000（走査でキー表記ゆれを吸収）---
+    paid_leave_b_candidates: set[str] = {_NET_SUMMARY_PAID_LEAVE_ROW_CAT_B_ID}
+    cb_paid = next(
+        (
+            x
+            for x in cat_b_list
+            if _norm_str_id(x.get("id")) == _norm_str_id(_NET_SUMMARY_PAID_LEAVE_ROW_CAT_B_ID)
+        ),
+        None,
+    )
+    if cb_paid:
+        paid_leave_b_candidates.add(str(cb_paid.get("id") or "").strip())
 
     def _paid_leave_row_minutes(emp_id: str) -> int:
-        m = task_minutes_map.get(emp_id, {})
-        return int(m.get((PAID_LEAVE_SUMMARY_CAT_B_ID, PAID_LEAVE_SUMMARY_CAT_A_PRIMARY), 0) or 0)
+        return _net_summary_minutes_for_cat_b_a_scan(
+            emp_id,
+            task_minutes_map,
+            cat_a_id=_NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID,
+            cat_b_id_candidates=paid_leave_b_candidates,
+        )
 
     r_paid = 3 + total_left_rows
-    cb_paid = next((x for x in cat_b_list if x["id"] == PAID_LEAVE_SUMMARY_CAT_B_ID), None)
-    ca_paid = next((x for x in cat_a_list if x["id"] == PAID_LEAVE_SUMMARY_CAT_A_PRIMARY), None)
+    ca_paid = next((x for x in cat_a_list if x["id"] == _NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID), None)
     if ca_paid:
         a_display_paid = _format_net_staff_summary_cat_a_display_label(ca_paid["label"])
     else:
         a_display_paid = "有休"
     ws.cell(row=r_paid, column=3).value = a_display_paid
     ws.cell(row=r_paid, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    if cb_paid and _net_staff_summary_label_key(a_display_paid) == zenpan_key:
+    # 有休行は専用行のため、集計項目名は「全般」判定に依存せず常に出す
+    if cb_paid:
         ws.cell(row=r_paid, column=2).value = cb_paid["label"]
         ws.cell(row=r_paid, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
     a_cell_paid = ws.cell(row=r_paid, column=1)
     a_cell_paid.value = None
     settings_paid = (cb_paid.get("category_a_settings") or {}) if cb_paid else {}
-    hex_paid = _lookup_category_a_color_from_settings(settings_paid, PAID_LEAVE_SUMMARY_CAT_A_PRIMARY)
+    hex_paid = _lookup_category_a_color_from_settings(settings_paid, _NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID)
     if hex_paid:
         a_cell_paid.fill = PatternFill(fill_type="solid", fgColor=hex_paid)
 
