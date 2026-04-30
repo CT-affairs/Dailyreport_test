@@ -11,7 +11,7 @@ import io
 import base64
 import pandas as pd
 import openpyxl
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 import time
 import requests
@@ -3459,8 +3459,16 @@ def _normalize_hex_rgb_for_openpyxl_fill(color_raw: str | None) -> str | None:
     return None
 
 
+def _is_white_or_empty_rgb_for_fill(hex_rgb: str | None) -> bool:
+    """A列色が実質「白」かどうか（未設定も白扱い）。"""
+    if not hex_rgb:
+        return True
+    return hex_rgb.upper() in ("FFFFFF", "FFF")
+
+
 # スタッフ別（ネット）Excel: ヘッダ行のみ 9pt、データ行は 8pt（Meiryo）
 _NET_STAFF_SUMMARY_FONT_HEADER = Font(name="Meiryo", size=9)
+_NET_STAFF_SUMMARY_FONT_HEADER_ROW1 = Font(name="Meiryo", size=9, color="FFFFFF")
 _NET_STAFF_SUMMARY_FONT_BODY = Font(name="Meiryo", size=8)
 # 見出し背景（合計ブロック D〜F）
 _NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW1 = "8B0000"
@@ -3482,7 +3490,12 @@ def _net_staff_summary_staff_header_fill_hexes(work_kind_raw) -> tuple[str, str]
 def _apply_net_staff_summary_sheet_font(ws, *, last_row: int, last_col: int = 6) -> None:
     """シート内の使用矩形にフォントを適用（1〜2行目 9pt、3行目以降 8pt）。"""
     for r in range(1, last_row + 1):
-        font = _NET_STAFF_SUMMARY_FONT_HEADER if r <= 2 else _NET_STAFF_SUMMARY_FONT_BODY
+        if r == 1:
+            font = _NET_STAFF_SUMMARY_FONT_HEADER_ROW1
+        elif r == 2:
+            font = _NET_STAFF_SUMMARY_FONT_HEADER
+        else:
+            font = _NET_STAFF_SUMMARY_FONT_BODY
         for c in range(1, last_col + 1):
             ws.cell(row=r, column=c).font = font
 
@@ -3498,6 +3511,19 @@ def _apply_net_staff_summary_body_amount_column_fills(
         ws.cell(row=r, column=4).fill = fill_amt
         for i in range(staff_count):
             ws.cell(row=r, column=7 + i * 3).fill = fill_amt
+
+
+def _apply_net_staff_summary_grid_borders(
+    ws, *, start_row: int, end_row: int, last_col: int
+) -> None:
+    """指定範囲に格子状の罫線を付与。"""
+    if end_row < start_row:
+        return
+    thin = Side(style="thin", color="000000")
+    grid = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for r in range(start_row, end_row + 1):
+        for c in range(1, last_col + 1):
+            ws.cell(row=r, column=c).border = grid
 
 
 def _lookup_category_a_color_from_settings(category_a_settings: dict | None, category_a_id: str | None) -> str | None:
@@ -3998,23 +4024,14 @@ def _build_net_staff_summary_excel_workbook(
 
     r = 3
     paid_row_written = False
+    paid_target_b_label_key = _net_staff_summary_label_key("全体")
     for bi in range(nb):
         for ai in range(na):
             a_label = cat_a_list[ai]["label"]
             a_display = _format_net_staff_summary_cat_a_display_label(a_label)
-            ws.cell(row=r, column=3).value = a_display
-            ws.cell(row=r, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-            if _net_staff_summary_label_key(a_display) == zenpan_key:
-                ws.cell(row=r, column=2).value = cat_b_list[bi]["label"]
-                ws.cell(row=r, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-            a_cell = ws.cell(row=r, column=1)
-            a_cell.value = None
             settings = cat_b_list[bi].get("category_a_settings") or {}
             a_id = cat_a_list[ai]["id"]
             hex_rgb = _lookup_category_a_color_from_settings(settings, a_id)
-            if hex_rgb:
-                a_cell.fill = PatternFill(fill_type="solid", fgColor=hex_rgb)
 
             # スタッフ別ブロック:
             # - 中央列: 当該行（category_b × category_a）の月度合計時間（小数第2位）
@@ -4026,6 +4043,22 @@ def _build_net_staff_summary_excel_workbook(
                 mins = task_minutes_map.get(staff["id"], {}).get((b_id, a_id), 0)
                 per_staff_minutes.append(mins)
             row_total_minutes_all_staff = sum(per_staff_minutes)
+
+            # 行出力制御:
+            # A列が白（未設定含む）かつ D列が空になる行（= この行の配賦コストなし）は非出力
+            if _is_white_or_empty_rgb_for_fill(hex_rgb) and row_total_minutes_all_staff <= 0:
+                continue
+
+            ws.cell(row=r, column=3).value = a_display
+            ws.cell(row=r, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            if _net_staff_summary_label_key(a_display) == zenpan_key:
+                ws.cell(row=r, column=2).value = cat_b_list[bi]["label"]
+                ws.cell(row=r, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+            a_cell = ws.cell(row=r, column=1)
+            a_cell.value = None
+            if hex_rgb:
+                a_cell.fill = PatternFill(fill_type="solid", fgColor=hex_rgb)
 
             # 合計ブロック（D:E:F）
             # - E列: タスク別累計時間（全スタッフ合算）
@@ -4089,7 +4122,10 @@ def _build_net_staff_summary_excel_workbook(
 
             r += 1
 
-        if cb_paid and _norm_str_id(cat_b_list[bi].get("id")) == _norm_str_id(cb_paid.get("id")):
+        current_b = cat_b_list[bi]
+        hit_paid_b_id = cb_paid and _norm_str_id(current_b.get("id")) == _norm_str_id(cb_paid.get("id"))
+        hit_paid_b_label = _net_staff_summary_label_key(current_b.get("label")) == paid_target_b_label_key
+        if hit_paid_b_label or hit_paid_b_id:
             _emit_paid_leave_row(r)
             r += 1
             paid_row_written = True
@@ -4201,6 +4237,10 @@ def _build_net_staff_summary_excel_workbook(
         ws.cell(row=total_row, column=6).number_format = "0%"
         for si in range(len(staff_list)):
             ws.cell(row=total_row, column=9 + si * 3).number_format = "0%"
+
+    _apply_net_staff_summary_grid_borders(
+        ws, start_row=3, end_row=total_row, last_col=last_col
+    )
 
     for r in range(1, total_row + 1):
         ws.row_dimensions[r].height = 15
