@@ -3828,6 +3828,11 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
 
     # --- 左3列: 行3〜 縦リスト（列C=業務種別繰り返し、列B=全般行のみ集計項目名）---
     total_left_rows = na * nb
+    staff_ratio_acc = {s["id"]: Decimal(0) for s in staff_list}
+    staff_alloc_acc = {s["id"]: 0 for s in staff_list}
+    total_block_ratio_acc = Decimal(0)
+    total_block_d_acc = 0
+
     for i in range(total_left_rows):
         r = 3 + i
         bi = i // na
@@ -3876,13 +3881,16 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
                 total_ratio_cell = ws.cell(row=r, column=6)
                 total_ratio_cell.value = float(total_ratio)
                 total_ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                total_ratio_cell.number_format = "0.00%"
+                total_ratio_cell.number_format = "0%"
 
                 total_alloc_cost = Decimal(total_labor_cost) * total_ratio
+                total_alloc_int = int(total_alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
                 total_alloc_cost_cell = ws.cell(row=r, column=4)
-                total_alloc_cost_cell.value = int(total_alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                total_alloc_cost_cell.value = total_alloc_int
                 total_alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
                 total_alloc_cost_cell.number_format = "#,##0"
+                total_block_ratio_acc += total_ratio
+                total_block_d_acc += total_alloc_int
 
         for si, staff in enumerate(staff_list):
             mins = per_staff_minutes[si]
@@ -3903,13 +3911,16 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
                 ratio_cell = ws.cell(row=r, column=block_right)
                 ratio_cell.value = float(ratio)
                 ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                ratio_cell.number_format = "0.00%"
+                ratio_cell.number_format = "0%"
 
                 alloc_cost = Decimal(int(staff.get("labor_cost") or 0)) * ratio
+                alloc_int = int(alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
                 alloc_cost_cell = ws.cell(row=r, column=block_left)
-                alloc_cost_cell.value = int(alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                alloc_cost_cell.value = alloc_int
                 alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
                 alloc_cost_cell.number_format = "#,##0"
+                staff_ratio_acc[staff["id"]] += ratio
+                staff_alloc_acc[staff["id"]] += alloc_int
 
     # --- 有休など: 最下行に A00 × e_000000（走査でキー表記ゆれを吸収）---
     paid_leave_b_candidates: set[str] = {_NET_SUMMARY_PAID_LEAVE_ROW_CAT_B_ID}
@@ -3972,13 +3983,16 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
             trc = ws.cell(row=r_paid, column=6)
             trc.value = float(total_ratio_p)
             trc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            trc.number_format = "0.00%"
+            trc.number_format = "0%"
 
             tac_p = Decimal(total_labor_cost) * total_ratio_p
+            tac_int = int(tac_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
             tacc = ws.cell(row=r_paid, column=4)
-            tacc.value = int(tac_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            tacc.value = tac_int
             tacc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
             tacc.number_format = "#,##0"
+            total_block_ratio_acc += total_ratio_p
+            total_block_d_acc += tac_int
 
     for si, staff in enumerate(staff_list):
         mins_p = per_staff_minutes_paid[si]
@@ -3999,13 +4013,63 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
             rc = ws.cell(row=r_paid, column=block_right_p)
             rc.value = float(ratio_p)
             rc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            rc.number_format = "0.00%"
+            rc.number_format = "0%"
 
             alloc_p = Decimal(int(staff.get("labor_cost") or 0)) * ratio_p
+            alloc_int_p = int(alloc_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
             ac = ws.cell(row=r_paid, column=block_left_p)
-            ac.value = int(alloc_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            ac.value = alloc_int_p
             ac.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
             ac.number_format = "#,##0"
+            staff_ratio_acc[staff["id"]] += ratio_p
+            staff_alloc_acc[staff["id"]] += alloc_int_p
+
+    # --- 誤差（丸め・未分類）行: 上記の累計との差で右列＝100%・左列＝人件費一致に寄せる ---
+    r_err = r_paid + 1
+    ws.cell(row=r_err, column=3).value = "誤差（丸め・未分類）"
+    ws.cell(row=r_err, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    denom_ok_total = all_staff_total_work_minutes > 0 or all_staff_total_task_minutes > 0
+    if denom_ok_total:
+        rem_tr = Decimal(1) - total_block_ratio_acc
+        if rem_tr < 0 and rem_tr > Decimal("-0.000001"):
+            rem_tr = Decimal(0)
+    else:
+        rem_tr = Decimal(0)
+    rem_td = int(total_labor_cost) - total_block_d_acc
+    trf = ws.cell(row=r_err, column=6)
+    trf.value = float(rem_tr)
+    trf.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+    trf.number_format = "0%"
+    tdc = ws.cell(row=r_err, column=4)
+    tdc.value = rem_td
+    tdc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+    tdc.number_format = "#,##0"
+    ws.cell(row=r_err, column=5).value = None
+
+    for si, staff in enumerate(staff_list):
+        sid = staff["id"]
+        lc = int(staff.get("labor_cost") or 0)
+        wt_st = int(staff_total_work_minutes.get(sid, 0) or 0)
+        if wt_st > 0:
+            rem_sr = Decimal(1) - staff_ratio_acc[sid]
+            if rem_sr < 0 and rem_sr > Decimal("-0.000001"):
+                rem_sr = Decimal(0)
+        else:
+            rem_sr = Decimal(0)
+        rem_sa = lc - staff_alloc_acc[sid]
+        bl_e = 7 + si * 3
+        bm_e = bl_e + 1
+        br_e = bl_e + 2
+        ws.cell(row=r_err, column=bm_e).value = None
+        rcr = ws.cell(row=r_err, column=br_e)
+        rcr.value = float(rem_sr)
+        rcr.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+        rcr.number_format = "0%"
+        acl = ws.cell(row=r_err, column=bl_e)
+        acl.value = rem_sa
+        acl.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+        acl.number_format = "#,##0"
 
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 9
@@ -4019,7 +4083,8 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         ws.column_dimensions[openpyxl.utils.get_column_letter(block_left + 1)].width = 9
         ws.column_dimensions[openpyxl.utils.get_column_letter(block_left + 2)].width = 9
 
-    last_data_row = max(2 + na * nb + 1, 2)
+    # データ最終行 = 本体 + 有休 + 誤差（行番号は r_err）
+    last_data_row = max(r_err, 2)
     total_row = last_data_row + 1
     last_col = max(6, 6 + len(staff_list) * 3)
 
@@ -4028,6 +4093,10 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         for c in range(4, last_col + 1):
             col_letter = openpyxl.utils.get_column_letter(c)
             ws.cell(row=total_row, column=c).value = f"=SUM({col_letter}3:{col_letter}{last_data_row})"
+        # パーセント列（合計ブロック F・スタッフブロック右列）は小数なし % 表示
+        ws.cell(row=total_row, column=6).number_format = "0%"
+        for si in range(len(staff_list)):
+            ws.cell(row=total_row, column=9 + si * 3).number_format = "0%"
 
     for r in range(1, total_row + 1):
         ws.row_dimensions[r].height = 15
