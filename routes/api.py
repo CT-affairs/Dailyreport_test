@@ -3773,15 +3773,15 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         s["id"]: sum(task_minutes_map.get(s["id"], {}).values())
         for s in staff_list
     }
-    # 右列・合計ブロックの分母: 総勤務 = 月度の Jobcan 勤務分合計。未取得のみタスク合計にフォールバック。
+    # 右列の分母（スタッフ別）: タスク分数の月度合計を優先、0 のときのみ Jobcan 勤務分合計。
     staff_total_work_minutes = {}
     for s in staff_list:
         eid = s["id"]
         jm = int(jobcan_minutes_by_staff.get(eid, 0) or 0)
         tm = int(staff_total_task_minutes.get(eid, 0) or 0)
-        staff_total_work_minutes[eid] = jm if jm > 0 else tm
+        staff_total_work_minutes[eid] = tm if tm > 0 else jm
     all_staff_total_task_minutes = sum(staff_total_task_minutes.values())
-    all_staff_total_work_minutes = sum(staff_total_work_minutes.get(s["id"], 0) for s in staff_list)
+    all_staff_total_jobcan_sum = sum(int(jobcan_minutes_by_staff.get(s["id"], 0) or 0) for s in staff_list)
     if not cat_a_list:
         abort(400, "ネット向け業務種別（category_a）が取得できません。")
     if not cat_b_list:
@@ -3875,7 +3875,9 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
             total_hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
             total_hours_cell.number_format = "0.00"
 
-            denom_all = all_staff_total_work_minutes if all_staff_total_work_minutes > 0 else all_staff_total_task_minutes
+            denom_all = (
+                all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
+            )
             if denom_all > 0:
                 total_ratio = Decimal(row_total_minutes_all_staff) / Decimal(denom_all)
                 total_ratio_cell = ws.cell(row=r, column=6)
@@ -3977,7 +3979,9 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         thc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
         thc.number_format = "0.00"
 
-        denom_all_p = all_staff_total_work_minutes if all_staff_total_work_minutes > 0 else all_staff_total_task_minutes
+        denom_all_p = (
+            all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
+        )
         if denom_all_p > 0:
             total_ratio_p = Decimal(row_total_minutes_all_staff_paid) / Decimal(denom_all_p)
             trc = ws.cell(row=r_paid, column=6)
@@ -4029,7 +4033,7 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
     ws.cell(row=r_err, column=3).value = "誤差（丸め・未分類）"
     ws.cell(row=r_err, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
-    denom_ok_total = all_staff_total_work_minutes > 0 or all_staff_total_task_minutes > 0
+    denom_ok_total = all_staff_total_task_minutes > 0 or all_staff_total_jobcan_sum > 0
     if denom_ok_total:
         rem_tr = Decimal(1) - total_block_ratio_acc
         if rem_tr < 0 and rem_tr > Decimal("-0.000001"):
@@ -4045,7 +4049,19 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
     tdc.value = rem_td
     tdc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
     tdc.number_format = "#,##0"
-    ws.cell(row=r_err, column=5).value = None
+    # E列: 誤差比率に対応する時間（時間換算の見積り = rem × 分母分 / 60）。分母はタスク合計優先。
+    denom_for_err_hours_total = (
+        all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
+    )
+    if denom_ok_total and denom_for_err_hours_total > 0:
+        err_hours_total = (rem_tr * Decimal(denom_for_err_hours_total)) / Decimal("60")
+        err_hours_total_q = err_hours_total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        ter_h = ws.cell(row=r_err, column=5)
+        ter_h.value = float(err_hours_total_q)
+        ter_h.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+        ter_h.number_format = "0.00"
+    else:
+        ws.cell(row=r_err, column=5).value = None
 
     for si, staff in enumerate(staff_list):
         sid = staff["id"]
@@ -4061,7 +4077,15 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         bl_e = 7 + si * 3
         bm_e = bl_e + 1
         br_e = bl_e + 2
-        ws.cell(row=r_err, column=bm_e).value = None
+        if wt_st > 0:
+            err_hours_st = (rem_sr * Decimal(wt_st)) / Decimal("60")
+            err_hours_st_q = err_hours_st.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            hc_err = ws.cell(row=r_err, column=bm_e)
+            hc_err.value = float(err_hours_st_q)
+            hc_err.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            hc_err.number_format = "0.00"
+        else:
+            ws.cell(row=r_err, column=bm_e).value = None
         rcr = ws.cell(row=r_err, column=br_e)
         rcr.value = float(rem_sr)
         rcr.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
