@@ -3462,6 +3462,19 @@ def _normalize_hex_rgb_for_openpyxl_fill(color_raw: str | None) -> str | None:
 # スタッフ別（ネット）Excel: ヘッダ行のみ 9pt、データ行は 8pt（Meiryo）
 _NET_STAFF_SUMMARY_FONT_HEADER = Font(name="Meiryo", size=9)
 _NET_STAFF_SUMMARY_FONT_BODY = Font(name="Meiryo", size=8)
+# 見出し背景（合計ブロック D〜F）
+_NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW1 = "8B0000"
+_NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW2 = "FFB6C1"
+
+
+def _net_staff_summary_staff_header_fill_hexes(work_kind_raw) -> tuple[str, str]:
+    """スタッフブロック見出し（1行目・2行目）の背景 RGB（6桁・#なし）。work_kind 3 / 10 / その他。"""
+    wk = _norm_str_id(work_kind_raw)
+    if wk == "3":
+        return ("4169E1", "ADD8E6")
+    if wk == "10":
+        return ("00BFFF", "E0FFFF")
+    return ("228B22", "F5F5DC")
 
 
 def _apply_net_staff_summary_sheet_font(ws, *, last_row: int, last_col: int = 6) -> None:
@@ -3584,9 +3597,18 @@ def _get_net_summary_officer_overrides() -> tuple[str | None, str | None, str | 
         return None, None, None
 
 
+def _effective_net_staff_work_kind_raw(user_data: dict, employee_id: str | None = None):
+    """人件費・ヘッダ色で共通。執行役員は work_kind 3 固定。"""
+    officer_id, _, _ = _get_net_summary_officer_overrides()
+    normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
+    normalized_officer = _normalize_jobcan_employee_id_for_match(officer_id)
+    if normalized_emp and normalized_officer and normalized_emp == normalized_officer:
+        return "3"
+    return user_data.get("work_kind_id") or user_data.get("work_kind")
+
+
 def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employee_id: str | None = None) -> int:
     entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
-    work_kind_raw = user_data.get("work_kind_id") or user_data.get("work_kind")
     officer_id, officer_entered_day_raw, _ = _get_net_summary_officer_overrides()
     # OFFICER_ID は int / str / "210501.0" など表現ゆれがあり得るため、
     # Jobcan 突合せと同じ正規化で比較する。
@@ -3596,8 +3618,7 @@ def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employe
         officer_entered_day = _parse_user_entered_day_date(officer_entered_day_raw)
         if officer_entered_day is not None:
             entered_day = officer_entered_day
-        # 執行役員は work_kind を固定で 3 扱いにする
-        work_kind_raw = "3"
+    work_kind_raw = _effective_net_staff_work_kind_raw(user_data, employee_id)
     years = _years_since_entered_day(entered_day, as_of)
     # CAREER_COEFFICIENT は 0.03 形式を想定。
     # もし 1.03 / 1.025 のような値が入っていても、加算率としては 0.03 / 0.025 として扱う。
@@ -3654,6 +3675,7 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
                 "id": emp_id,
                 "name": name_map.get(emp_id, "Unknown"),
                 "labor_cost": _calc_net_staff_monthly_labor_cost(user_data or {}, as_of, emp_id),
+                "work_kind": _effective_net_staff_work_kind_raw(user_data or {}, emp_id),
             }
         )
     return staff
@@ -3716,7 +3738,7 @@ def _net_summary_minutes_for_cat_b_a_scan(
     return total
 
 
-# スタッフ別（ネット）Excel 最下行「有休」行: タスク集計キー（Firestore の category ドキュメント ID に合わせる）
+# スタッフ別（ネット）Excel「有休」行: タスク集計キー（Firestore の category ドキュメント ID に合わせる）。配置は該当 category_b ブロック直後。
 _NET_SUMMARY_PAID_LEAVE_ROW_CAT_B_ID = "e_000000"
 _NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID = "A00"
 
@@ -3769,6 +3791,7 @@ def _build_net_staff_summary_excel_workbook(
       列Bは業務種別が「全般」の行のみ集計項目ラベル、それ以外は空。
       列Aはその行の集計項目ブロックに対応する category_b.category_a_settings のカラーマップで、
       該当業務種別 ID のセルを塗りつぶす（値は入れない）。
+      有休行は有休集計用 category_b（e_000000 等）のブロック直後。該当 b が並びに無いときは表末尾。
     """
 
     cat_a_list = _fetch_net_category_a_for_staff_summary_excel()
@@ -3813,11 +3836,18 @@ def _build_net_staff_summary_excel_workbook(
     total_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
     total_cost_cell.number_format = "#,##0"
 
+    fill_total_r1 = PatternFill(fill_type="solid", fgColor=_NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW1)
+    fill_total_r2 = PatternFill(fill_type="solid", fgColor=_NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW2)
+    for col_tot in range(4, 7):
+        ws.cell(row=1, column=col_tot).fill = fill_total_r1
+        ws.cell(row=2, column=col_tot).fill = fill_total_r2
+
     # --- G列以降: スタッフ別 3列1ブロック（中央列1行目=スタッフ名、左列2行目=経費額） ---
     staff_block_start_col = 7  # G
     for i, staff in enumerate(staff_list):
         block_left = staff_block_start_col + i * 3
         block_middle = block_left + 1
+        block_right = block_left + 2
         staff_name = staff["name"]
         officer_id, _, officer_name = _get_net_summary_officer_overrides()
         if (
@@ -3833,105 +3863,20 @@ def _build_net_staff_summary_excel_workbook(
         cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
         cost_cell.number_format = "#,##0"
 
+        h1, h2 = _net_staff_summary_staff_header_fill_hexes(staff.get("work_kind"))
+        fs1 = PatternFill(fill_type="solid", fgColor=h1)
+        fs2 = PatternFill(fill_type="solid", fgColor=h2)
+        for col_sb in (block_left, block_middle, block_right):
+            ws.cell(row=1, column=col_sb).fill = fs1
+            ws.cell(row=2, column=col_sb).fill = fs2
+
     # --- 左3列: 行3〜 縦リスト（列C=業務種別繰り返し、列B=全般行のみ集計項目名）---
-    total_left_rows = na * nb
     staff_ratio_acc = {s["id"]: Decimal(0) for s in staff_list}
     staff_alloc_acc = {s["id"]: 0 for s in staff_list}
     total_block_ratio_acc = Decimal(0)
     total_block_d_acc = 0
 
-    for i in range(total_left_rows):
-        r = 3 + i
-        bi = i // na
-        ai = i % na
-        a_label = cat_a_list[ai]["label"]
-        a_display = _format_net_staff_summary_cat_a_display_label(a_label)
-        ws.cell(row=r, column=3).value = a_display
-        ws.cell(row=r, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        if _net_staff_summary_label_key(a_display) == zenpan_key:
-            ws.cell(row=r, column=2).value = cat_b_list[bi]["label"]
-            ws.cell(row=r, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-        a_cell = ws.cell(row=r, column=1)
-        a_cell.value = None
-        settings = cat_b_list[bi].get("category_a_settings") or {}
-        a_id = cat_a_list[ai]["id"]
-        hex_rgb = _lookup_category_a_color_from_settings(settings, a_id)
-        if hex_rgb:
-            a_cell.fill = PatternFill(fill_type="solid", fgColor=hex_rgb)
-
-        # スタッフ別ブロック:
-        # - 中央列: 当該行（category_b × category_a）の月度合計時間（小数第2位）
-        # - 右列: その行タスク時間 ÷ そのスタッフの月度総勤務（jobcan_work_minutes 合計、なければタスク合計）
-        # - 左列: スタッフ別人件費 × 割合（当該業務にかかった経費）
-        b_id = cat_b_list[bi]["id"]
-        per_staff_minutes: list[int] = []
-        for staff in staff_list:
-            mins = task_minutes_map.get(staff["id"], {}).get((b_id, a_id), 0)
-            per_staff_minutes.append(mins)
-        row_total_minutes_all_staff = sum(per_staff_minutes)
-
-        # 合計ブロック（D:E:F）
-        # - E列: タスク別累計時間（全スタッフ合算）
-        # - F列: タスク別累計時間 / 全スタッフ月度総勤務（jobcan 合計の合算）
-        # - D列: 全スタッフ累計人件費 × F列（タスク別経費）
-        if row_total_minutes_all_staff > 0:
-            total_hours = (Decimal(row_total_minutes_all_staff) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            total_hours_cell = ws.cell(row=r, column=5)
-            total_hours_cell.value = float(total_hours)
-            total_hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            total_hours_cell.number_format = "0.00"
-
-            denom_all = (
-                all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
-            )
-            if denom_all > 0:
-                total_ratio = Decimal(row_total_minutes_all_staff) / Decimal(denom_all)
-                total_ratio_cell = ws.cell(row=r, column=6)
-                total_ratio_cell.value = float(total_ratio)
-                total_ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                total_ratio_cell.number_format = "0%"
-
-                total_alloc_cost = Decimal(total_labor_cost) * total_ratio
-                total_alloc_int = int(total_alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-                total_alloc_cost_cell = ws.cell(row=r, column=4)
-                total_alloc_cost_cell.value = total_alloc_int
-                total_alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                total_alloc_cost_cell.number_format = "#,##0"
-                total_block_ratio_acc += total_ratio
-                total_block_d_acc += total_alloc_int
-
-        for si, staff in enumerate(staff_list):
-            mins = per_staff_minutes[si]
-            block_left = 7 + si * 3
-            block_middle = block_left + 1
-            block_right = block_left + 2
-
-            if mins > 0:
-                hours = (Decimal(mins) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                hours_cell = ws.cell(row=r, column=block_middle)
-                hours_cell.value = float(hours)
-                hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                hours_cell.number_format = "0.00"
-
-            work_total = int(staff_total_work_minutes.get(staff["id"], 0) or 0)
-            if work_total > 0 and mins > 0:
-                ratio = Decimal(mins) / Decimal(work_total)
-                ratio_cell = ws.cell(row=r, column=block_right)
-                ratio_cell.value = float(ratio)
-                ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                ratio_cell.number_format = "0%"
-
-                alloc_cost = Decimal(int(staff.get("labor_cost") or 0)) * ratio
-                alloc_int = int(alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-                alloc_cost_cell = ws.cell(row=r, column=block_left)
-                alloc_cost_cell.value = alloc_int
-                alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                alloc_cost_cell.number_format = "#,##0"
-                staff_ratio_acc[staff["id"]] += ratio
-                staff_alloc_acc[staff["id"]] += alloc_int
-
-    # --- 有休など: 最下行に A00 × e_000000（走査でキー表記ゆれを吸収）---
+    # 有休行（A00×e_000000）: category_b 並びのうち該当ブロック（例:「全体」）の直後。リストに無ければ従来どおり末尾。
     paid_leave_b_candidates: set[str] = {_NET_SUMMARY_PAID_LEAVE_ROW_CAT_B_ID}
     cb_paid = next(
         (
@@ -3952,92 +3897,197 @@ def _build_net_staff_summary_excel_workbook(
             cat_b_id_candidates=paid_leave_b_candidates,
         )
 
-    r_paid = 3 + total_left_rows
-    ca_paid = next((x for x in cat_a_list if x["id"] == _NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID), None)
-    if ca_paid:
-        a_display_paid = _format_net_staff_summary_cat_a_display_label(ca_paid["label"])
-    else:
-        a_display_paid = "有休"
-    ws.cell(row=r_paid, column=3).value = a_display_paid
-    ws.cell(row=r_paid, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    # 有休行は専用行のため、集計項目名は「全般」判定に依存せず常に出す
-    if cb_paid:
-        ws.cell(row=r_paid, column=2).value = cb_paid["label"]
-        ws.cell(row=r_paid, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-    a_cell_paid = ws.cell(row=r_paid, column=1)
-    a_cell_paid.value = None
-    settings_paid = (cb_paid.get("category_a_settings") or {}) if cb_paid else {}
-    hex_paid = _lookup_category_a_color_from_settings(settings_paid, _NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID)
-    if hex_paid:
-        a_cell_paid.fill = PatternFill(fill_type="solid", fgColor=hex_paid)
-
     per_staff_minutes_paid: list[int] = []
     for staff in staff_list:
         per_staff_minutes_paid.append(_paid_leave_row_minutes(staff["id"]))
     row_total_minutes_all_staff_paid = sum(per_staff_minutes_paid)
 
-    if row_total_minutes_all_staff_paid > 0:
-        total_hours_p = (Decimal(row_total_minutes_all_staff_paid) / Decimal("60")).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
-        thc = ws.cell(row=r_paid, column=5)
-        thc.value = float(total_hours_p)
-        thc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-        thc.number_format = "0.00"
+    ca_paid = next((x for x in cat_a_list if x["id"] == _NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID), None)
+    if ca_paid:
+        a_display_paid = _format_net_staff_summary_cat_a_display_label(ca_paid["label"])
+    else:
+        a_display_paid = "有休"
 
-        denom_all_p = (
-            all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
-        )
-        if denom_all_p > 0:
-            total_ratio_p = Decimal(row_total_minutes_all_staff_paid) / Decimal(denom_all_p)
-            trc = ws.cell(row=r_paid, column=6)
-            trc.value = float(total_ratio_p)
-            trc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            trc.number_format = "0%"
+    def _emit_paid_leave_row(pr: int) -> None:
+        nonlocal total_block_ratio_acc, total_block_d_acc
+        ws.cell(row=pr, column=3).value = a_display_paid
+        ws.cell(row=pr, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        if cb_paid:
+            ws.cell(row=pr, column=2).value = cb_paid["label"]
+            ws.cell(row=pr, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
-            tac_p = Decimal(total_labor_cost) * total_ratio_p
-            tac_int = int(tac_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-            tacc = ws.cell(row=r_paid, column=4)
-            tacc.value = tac_int
-            tacc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            tacc.number_format = "#,##0"
-            total_block_ratio_acc += total_ratio_p
-            total_block_d_acc += tac_int
+        a_cell_paid = ws.cell(row=pr, column=1)
+        a_cell_paid.value = None
+        settings_paid = (cb_paid.get("category_a_settings") or {}) if cb_paid else {}
+        hex_paid = _lookup_category_a_color_from_settings(settings_paid, _NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID)
+        if hex_paid:
+            a_cell_paid.fill = PatternFill(fill_type="solid", fgColor=hex_paid)
 
-    for si, staff in enumerate(staff_list):
-        mins_p = per_staff_minutes_paid[si]
-        block_left_p = 7 + si * 3
-        block_middle_p = block_left_p + 1
-        block_right_p = block_left_p + 2
+        if row_total_minutes_all_staff_paid > 0:
+            total_hours_p = (Decimal(row_total_minutes_all_staff_paid) / Decimal("60")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            thc = ws.cell(row=pr, column=5)
+            thc.value = float(total_hours_p)
+            thc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            thc.number_format = "0.00"
 
-        if mins_p > 0:
-            hours_p = (Decimal(mins_p) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            hc = ws.cell(row=r_paid, column=block_middle_p)
-            hc.value = float(hours_p)
-            hc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            hc.number_format = "0.00"
+            denom_all_p = (
+                all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
+            )
+            if denom_all_p > 0:
+                total_ratio_p = Decimal(row_total_minutes_all_staff_paid) / Decimal(denom_all_p)
+                trc = ws.cell(row=pr, column=6)
+                trc.value = float(total_ratio_p)
+                trc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                trc.number_format = "0%"
 
-        work_total_p = int(staff_total_work_minutes.get(staff["id"], 0) or 0)
-        if work_total_p > 0 and mins_p > 0:
-            ratio_p = Decimal(mins_p) / Decimal(work_total_p)
-            rc = ws.cell(row=r_paid, column=block_right_p)
-            rc.value = float(ratio_p)
-            rc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            rc.number_format = "0%"
+                tac_p = Decimal(total_labor_cost) * total_ratio_p
+                tac_int = int(tac_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                tacc = ws.cell(row=pr, column=4)
+                tacc.value = tac_int
+                tacc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                tacc.number_format = "#,##0"
+                total_block_ratio_acc += total_ratio_p
+                total_block_d_acc += tac_int
 
-            alloc_p = Decimal(int(staff.get("labor_cost") or 0)) * ratio_p
-            alloc_int_p = int(alloc_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-            ac = ws.cell(row=r_paid, column=block_left_p)
-            ac.value = alloc_int_p
-            ac.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            ac.number_format = "#,##0"
-            staff_ratio_acc[staff["id"]] += ratio_p
-            staff_alloc_acc[staff["id"]] += alloc_int_p
+        for si, staff in enumerate(staff_list):
+            mins_p = per_staff_minutes_paid[si]
+            block_left_p = 7 + si * 3
+            block_middle_p = block_left_p + 1
+            block_right_p = block_left_p + 2
+
+            if mins_p > 0:
+                hours_p = (Decimal(mins_p) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                hc = ws.cell(row=pr, column=block_middle_p)
+                hc.value = float(hours_p)
+                hc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                hc.number_format = "0.00"
+
+            work_total_p = int(staff_total_work_minutes.get(staff["id"], 0) or 0)
+            if work_total_p > 0 and mins_p > 0:
+                ratio_p = Decimal(mins_p) / Decimal(work_total_p)
+                rc = ws.cell(row=pr, column=block_right_p)
+                rc.value = float(ratio_p)
+                rc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                rc.number_format = "0%"
+
+                alloc_p = Decimal(int(staff.get("labor_cost") or 0)) * ratio_p
+                alloc_int_p = int(alloc_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                ac = ws.cell(row=pr, column=block_left_p)
+                ac.value = alloc_int_p
+                ac.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                ac.number_format = "#,##0"
+                staff_ratio_acc[staff["id"]] += ratio_p
+                staff_alloc_acc[staff["id"]] += alloc_int_p
+
+    r = 3
+    paid_row_written = False
+    for bi in range(nb):
+        for ai in range(na):
+            a_label = cat_a_list[ai]["label"]
+            a_display = _format_net_staff_summary_cat_a_display_label(a_label)
+            ws.cell(row=r, column=3).value = a_display
+            ws.cell(row=r, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            if _net_staff_summary_label_key(a_display) == zenpan_key:
+                ws.cell(row=r, column=2).value = cat_b_list[bi]["label"]
+                ws.cell(row=r, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+            a_cell = ws.cell(row=r, column=1)
+            a_cell.value = None
+            settings = cat_b_list[bi].get("category_a_settings") or {}
+            a_id = cat_a_list[ai]["id"]
+            hex_rgb = _lookup_category_a_color_from_settings(settings, a_id)
+            if hex_rgb:
+                a_cell.fill = PatternFill(fill_type="solid", fgColor=hex_rgb)
+
+            # スタッフ別ブロック:
+            # - 中央列: 当該行（category_b × category_a）の月度合計時間（小数第2位）
+            # - 右列: その行タスク時間 ÷ そのスタッフの月度総勤務（jobcan_work_minutes 合計、なければタスク合計）
+            # - 左列: スタッフ別人件費 × 割合（当該業務にかかった経費）
+            b_id = cat_b_list[bi]["id"]
+            per_staff_minutes: list[int] = []
+            for staff in staff_list:
+                mins = task_minutes_map.get(staff["id"], {}).get((b_id, a_id), 0)
+                per_staff_minutes.append(mins)
+            row_total_minutes_all_staff = sum(per_staff_minutes)
+
+            # 合計ブロック（D:E:F）
+            # - E列: タスク別累計時間（全スタッフ合算）
+            # - F列: タスク別累計時間 / 全スタッフ月度総勤務（jobcan 合計の合算）
+            # - D列: 全スタッフ累計人件費 × F列（タスク別経費）
+            if row_total_minutes_all_staff > 0:
+                total_hours = (Decimal(row_total_minutes_all_staff) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                total_hours_cell = ws.cell(row=r, column=5)
+                total_hours_cell.value = float(total_hours)
+                total_hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                total_hours_cell.number_format = "0.00"
+
+                denom_all = (
+                    all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
+                )
+                if denom_all > 0:
+                    total_ratio = Decimal(row_total_minutes_all_staff) / Decimal(denom_all)
+                    total_ratio_cell = ws.cell(row=r, column=6)
+                    total_ratio_cell.value = float(total_ratio)
+                    total_ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                    total_ratio_cell.number_format = "0%"
+
+                    total_alloc_cost = Decimal(total_labor_cost) * total_ratio
+                    total_alloc_int = int(total_alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                    total_alloc_cost_cell = ws.cell(row=r, column=4)
+                    total_alloc_cost_cell.value = total_alloc_int
+                    total_alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                    total_alloc_cost_cell.number_format = "#,##0"
+                    total_block_ratio_acc += total_ratio
+                    total_block_d_acc += total_alloc_int
+
+            for si, staff in enumerate(staff_list):
+                mins = per_staff_minutes[si]
+                block_left = 7 + si * 3
+                block_middle = block_left + 1
+                block_right = block_left + 2
+
+                if mins > 0:
+                    hours = (Decimal(mins) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    hours_cell = ws.cell(row=r, column=block_middle)
+                    hours_cell.value = float(hours)
+                    hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                    hours_cell.number_format = "0.00"
+
+                work_total = int(staff_total_work_minutes.get(staff["id"], 0) or 0)
+                if work_total > 0 and mins > 0:
+                    ratio = Decimal(mins) / Decimal(work_total)
+                    ratio_cell = ws.cell(row=r, column=block_right)
+                    ratio_cell.value = float(ratio)
+                    ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                    ratio_cell.number_format = "0%"
+
+                    alloc_cost = Decimal(int(staff.get("labor_cost") or 0)) * ratio
+                    alloc_int = int(alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                    alloc_cost_cell = ws.cell(row=r, column=block_left)
+                    alloc_cost_cell.value = alloc_int
+                    alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                    alloc_cost_cell.number_format = "#,##0"
+                    staff_ratio_acc[staff["id"]] += ratio
+                    staff_alloc_acc[staff["id"]] += alloc_int
+
+            r += 1
+
+        if cb_paid and _norm_str_id(cat_b_list[bi].get("id")) == _norm_str_id(cb_paid.get("id")):
+            _emit_paid_leave_row(r)
+            r += 1
+            paid_row_written = True
+
+    if not paid_row_written:
+        _emit_paid_leave_row(r)
+        r += 1
+
+    last_body_row = r - 1
 
     if include_error_row:
-        # --- 誤差（丸め・未分類）行: 上記の累計との差で右列＝100%・左列＝人件費一致に寄せる ---
-        r_err = r_paid + 1
+        # --- 誤差（丸め・未分類）行: 本体すべて（有休を含む）の直後 ---
+        r_err = r
         ws.cell(row=r_err, column=3).value = "誤差（丸め・未分類）"
         ws.cell(row=r_err, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
@@ -4105,7 +4155,7 @@ def _build_net_staff_summary_excel_workbook(
 
         last_data_row = max(r_err, 2)
     else:
-        last_data_row = max(r_paid, 2)
+        last_data_row = max(last_body_row, 2)
 
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 9
