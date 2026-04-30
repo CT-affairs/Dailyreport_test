@@ -2527,6 +2527,10 @@ async function renderDashboardHome(container) {
                             <button id="net-staff-curr-btn" class="btn-dashboard-action" style="background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">当月度</button>
                             <button id="net-staff-prev-btn" class="btn-dashboard-action" style="background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">前月度</button>
                         </div>
+                        <label style="display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.85em; color: #555;">
+                            <input type="checkbox" id="net-staff-include-error-row" />
+                            誤差行を含める（検証用）
+                        </label>
                     </div>
                     <!-- 残業/休出(全社) - 非表示のスペーサー -->
                     <div style="flex: 1; min-width: 220px; visibility: hidden;">
@@ -2781,9 +2785,11 @@ async function renderDashboardHome(container) {
         btn.disabled = true;
         btn.textContent = '生成中...';
         try {
+            const includeErrorRow =
+                document.getElementById('net-staff-include-error-row')?.checked ?? false;
             const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/net-staff-summary/excel`, {
                 method: 'POST',
-                body: JSON.stringify({ target_month: targetMonth }),
+                body: JSON.stringify({ target_month: targetMonth, include_error_row: includeErrorRow }),
             });
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));

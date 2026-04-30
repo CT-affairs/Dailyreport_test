@@ -35,6 +35,7 @@ from app_core.config import (
     DAILY_REPORTS_SNAPSHOT_COLLECTION,
     MONTHLY_lABOR_COSTS_NET,
     MONTHLY_CLOSINGS_COLLECTION,
+    NET_STAFF_SUMMARY_INCLUDE_ERROR_ROW,
     default_snapshot_collection_for_closing_run,
     is_monthly_closing_test_mode,
     monthly_closings_collection_for_closing_run,
@@ -3752,7 +3753,13 @@ def _aggregate_net_staff_jobcan_minutes_for_summary(start_date: datetime, end_da
     return agg
 
 
-def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: datetime, as_of: datetime) -> openpyxl.Workbook:
+def _build_net_staff_summary_excel_workbook(
+    start_date: datetime,
+    end_date: datetime,
+    as_of: datetime,
+    *,
+    include_error_row: bool = False,
+) -> openpyxl.Workbook:
     """
     スタッフ別（ネット）Excelのレイアウト骨子。
     - シート名: YYYY年MM月度（月度終了日ベース）
@@ -4028,72 +4035,77 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
             staff_ratio_acc[staff["id"]] += ratio_p
             staff_alloc_acc[staff["id"]] += alloc_int_p
 
-    # --- 誤差（丸め・未分類）行: 上記の累計との差で右列＝100%・左列＝人件費一致に寄せる ---
-    r_err = r_paid + 1
-    ws.cell(row=r_err, column=3).value = "誤差（丸め・未分類）"
-    ws.cell(row=r_err, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    if include_error_row:
+        # --- 誤差（丸め・未分類）行: 上記の累計との差で右列＝100%・左列＝人件費一致に寄せる ---
+        r_err = r_paid + 1
+        ws.cell(row=r_err, column=3).value = "誤差（丸め・未分類）"
+        ws.cell(row=r_err, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
-    denom_ok_total = all_staff_total_task_minutes > 0 or all_staff_total_jobcan_sum > 0
-    if denom_ok_total:
-        rem_tr = Decimal(1) - total_block_ratio_acc
-        if rem_tr < 0 and rem_tr > Decimal("-0.000001"):
+        denom_ok_total = all_staff_total_task_minutes > 0 or all_staff_total_jobcan_sum > 0
+        if denom_ok_total:
+            rem_tr = Decimal(1) - total_block_ratio_acc
+            if rem_tr < 0 and rem_tr > Decimal("-0.000001"):
+                rem_tr = Decimal(0)
+        else:
             rem_tr = Decimal(0)
-    else:
-        rem_tr = Decimal(0)
-    rem_td = int(total_labor_cost) - total_block_d_acc
-    trf = ws.cell(row=r_err, column=6)
-    trf.value = float(rem_tr)
-    trf.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-    trf.number_format = "0%"
-    tdc = ws.cell(row=r_err, column=4)
-    tdc.value = rem_td
-    tdc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-    tdc.number_format = "#,##0"
-    # E列: 誤差比率に対応する時間（時間換算の見積り = rem × 分母分 / 60）。分母はタスク合計優先。
-    denom_for_err_hours_total = (
-        all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
-    )
-    if denom_ok_total and denom_for_err_hours_total > 0:
-        err_hours_total = (rem_tr * Decimal(denom_for_err_hours_total)) / Decimal("60")
-        err_hours_total_q = err_hours_total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        ter_h = ws.cell(row=r_err, column=5)
-        ter_h.value = float(err_hours_total_q)
-        ter_h.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-        ter_h.number_format = "0.00"
-    else:
-        ws.cell(row=r_err, column=5).value = None
+        rem_td = int(total_labor_cost) - total_block_d_acc
+        trf = ws.cell(row=r_err, column=6)
+        trf.value = float(rem_tr)
+        trf.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+        trf.number_format = "0%"
+        tdc = ws.cell(row=r_err, column=4)
+        tdc.value = rem_td
+        tdc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+        tdc.number_format = "#,##0"
+        # E列: 誤差比率に対応する時間（時間換算の見積り = rem × 分母分 / 60）。分母はタスク合計優先。
+        denom_for_err_hours_total = (
+            all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
+        )
+        if denom_ok_total and denom_for_err_hours_total > 0:
+            err_hours_total = (rem_tr * Decimal(denom_for_err_hours_total)) / Decimal("60")
+            err_hours_total_q = err_hours_total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            ter_h = ws.cell(row=r_err, column=5)
+            ter_h.value = float(err_hours_total_q)
+            ter_h.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            ter_h.number_format = "0.00"
+        else:
+            ws.cell(row=r_err, column=5).value = None
 
-    for si, staff in enumerate(staff_list):
-        sid = staff["id"]
-        lc = int(staff.get("labor_cost") or 0)
-        wt_st = int(staff_total_work_minutes.get(sid, 0) or 0)
-        if wt_st > 0:
-            rem_sr = Decimal(1) - staff_ratio_acc[sid]
-            if rem_sr < 0 and rem_sr > Decimal("-0.000001"):
+        for si, staff in enumerate(staff_list):
+            sid = staff["id"]
+            lc = int(staff.get("labor_cost") or 0)
+            wt_st = int(staff_total_work_minutes.get(sid, 0) or 0)
+            if wt_st > 0:
+                rem_sr = Decimal(1) - staff_ratio_acc[sid]
+                if rem_sr < 0 and rem_sr > Decimal("-0.000001"):
+                    rem_sr = Decimal(0)
+            else:
                 rem_sr = Decimal(0)
-        else:
-            rem_sr = Decimal(0)
-        rem_sa = lc - staff_alloc_acc[sid]
-        bl_e = 7 + si * 3
-        bm_e = bl_e + 1
-        br_e = bl_e + 2
-        if wt_st > 0:
-            err_hours_st = (rem_sr * Decimal(wt_st)) / Decimal("60")
-            err_hours_st_q = err_hours_st.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            hc_err = ws.cell(row=r_err, column=bm_e)
-            hc_err.value = float(err_hours_st_q)
-            hc_err.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            hc_err.number_format = "0.00"
-        else:
-            ws.cell(row=r_err, column=bm_e).value = None
-        rcr = ws.cell(row=r_err, column=br_e)
-        rcr.value = float(rem_sr)
-        rcr.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-        rcr.number_format = "0%"
-        acl = ws.cell(row=r_err, column=bl_e)
-        acl.value = rem_sa
-        acl.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-        acl.number_format = "#,##0"
+            rem_sa = lc - staff_alloc_acc[sid]
+            bl_e = 7 + si * 3
+            bm_e = bl_e + 1
+            br_e = bl_e + 2
+            if wt_st > 0:
+                err_hours_st = (rem_sr * Decimal(wt_st)) / Decimal("60")
+                err_hours_st_q = err_hours_st.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                hc_err = ws.cell(row=r_err, column=bm_e)
+                hc_err.value = float(err_hours_st_q)
+                hc_err.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                hc_err.number_format = "0.00"
+            else:
+                ws.cell(row=r_err, column=bm_e).value = None
+            rcr = ws.cell(row=r_err, column=br_e)
+            rcr.value = float(rem_sr)
+            rcr.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            rcr.number_format = "0%"
+            acl = ws.cell(row=r_err, column=bl_e)
+            acl.value = rem_sa
+            acl.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            acl.number_format = "#,##0"
+
+        last_data_row = max(r_err, 2)
+    else:
+        last_data_row = max(r_paid, 2)
 
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 9
@@ -4107,8 +4119,7 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
         ws.column_dimensions[openpyxl.utils.get_column_letter(block_left + 1)].width = 9
         ws.column_dimensions[openpyxl.utils.get_column_letter(block_left + 2)].width = 9
 
-    # データ最終行 = 本体 + 有休 + 誤差（行番号は r_err）
-    last_data_row = max(r_err, 2)
+    # データ最終行 = 本体 + 有休（+ オプションで誤差行）
     total_row = last_data_row + 1
     last_col = max(6, 6 + len(staff_list) * 3)
 
@@ -4139,7 +4150,7 @@ def _build_net_staff_summary_excel_workbook(start_date: datetime, end_date: date
 def download_net_staff_summary_excel_placeholder():
     """
     ネット事業部「スタッフ別」集計 Excel。
-    テンプレートは使わずプログラム生成。ヘッダレイアウトのみ先行実装し、数値集計は後続。
+    JSON: target_month（current | previous）、省略可 include_error_row（誤差行。未指定時は config の既定）。
     """
     try:
         data = request.get_json() or {}
@@ -4153,13 +4164,21 @@ def download_net_staff_summary_excel_placeholder():
             prev_month_base = start_date - timedelta(days=1)
             start_date, end_date = calculate_monthly_period(prev_month_base)
 
+        if "include_error_row" in data:
+            include_error_row = bool(data.get("include_error_row"))
+        else:
+            include_error_row = NET_STAFF_SUMMARY_INCLUDE_ERROR_ROW
+
         current_app.logger.info(
-            "net-staff-summary/excel period: %s to %s",
+            "net-staff-summary/excel period: %s to %s include_error_row=%s",
             start_date.strftime("%Y-%m-%d"),
             end_date.strftime("%Y-%m-%d"),
+            include_error_row,
         )
 
-        wb = _build_net_staff_summary_excel_workbook(start_date, end_date, base_date)
+        wb = _build_net_staff_summary_excel_workbook(
+            start_date, end_date, base_date, include_error_row=include_error_row
+        )
 
         output = io.BytesIO()
         wb.save(output)
