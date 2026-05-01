@@ -34,6 +34,7 @@ from app_core.config import (
     COLLECTION_JOBCAN_RAW_RESPONSES,
     DAILY_REPORTS_SNAPSHOT_COLLECTION,
     MONTHLY_lABOR_COSTS_NET,
+    MONTHLY_lABOR_COSTS_NET_PART,
     MONTHLY_CLOSINGS_COLLECTION,
     NET_STAFF_SUMMARY_INCLUDE_ERROR_ROW,
     default_snapshot_collection_for_closing_run,
@@ -3599,13 +3600,16 @@ def _years_since_entered_day(entered_day: datetime | None, as_of: datetime) -> i
     return max(years, 0)
 
 
-def _net_work_kind_labor_factor(work_kind_raw) -> Decimal:
+def _net_staff_monthly_labor_base_and_factor(work_kind_raw) -> tuple[Decimal, Decimal]:
+    """基準月額と係数。判定は work_kind 3 / 10 / その他。"""
     wk = _norm_str_id(work_kind_raw)
+    base_full = Decimal(str(MONTHLY_lABOR_COSTS_NET))
+    base_part = Decimal(str(MONTHLY_lABOR_COSTS_NET_PART))
     if wk == "3":
-        return Decimal("1.0")
+        return base_full, Decimal("1")
     if wk == "10":
-        return Decimal("0.75")
-    return Decimal("0.67")
+        return base_full, Decimal("0.75")
+    return base_part, Decimal("1")
 
 
 def _round_to_nearest_10_half_up(v: Decimal) -> int:
@@ -3660,8 +3664,8 @@ def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employe
     if career_increment >= Decimal("1"):
         career_increment = career_increment - Decimal("1")
     tenure_factor = Decimal("1") + (career_increment * Decimal(years))
-    work_kind_factor = _net_work_kind_labor_factor(work_kind_raw)
-    cost = Decimal(str(MONTHLY_lABOR_COSTS_NET)) * tenure_factor * work_kind_factor
+    labor_base, labor_factor = _net_staff_monthly_labor_base_and_factor(work_kind_raw)
+    cost = labor_base * tenure_factor * labor_factor
     return _round_to_nearest_10_half_up(cost)
 
 
