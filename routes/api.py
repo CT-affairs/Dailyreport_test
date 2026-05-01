@@ -3473,18 +3473,11 @@ _NET_STAFF_SUMMARY_FONT_BODY = Font(name="Meiryo", size=8)
 # 見出し背景（合計ブロック D〜F）
 _NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW1 = "8B0000"
 _NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW2 = "FFB6C1"
+# 見出し背景（スタッフブロック各3列・1〜2行目）— 全員 work_kind 3 と同じ配色
+_NET_STAFF_SUMMARY_HDR_FILL_STAFF_ROW1 = "4169E1"
+_NET_STAFF_SUMMARY_HDR_FILL_STAFF_ROW2 = "ADD8E6"
 # データ行の金額列（合計 D・スタッフブロック各左列）
 _NET_STAFF_SUMMARY_BODY_AMOUNT_COL_FILL = "F2F2F2"
-
-
-def _net_staff_summary_staff_header_fill_hexes(work_kind_raw) -> tuple[str, str]:
-    """スタッフブロック見出し（1行目・2行目）の背景 RGB（6桁・#なし）。work_kind 3 / 10 / その他。"""
-    wk = _norm_str_id(work_kind_raw)
-    if wk == "3":
-        return ("4169E1", "ADD8E6")
-    if wk == "10":
-        return ("00BFFF", "E0FFFF")
-    return ("228B22", "F5F5DC")
 
 
 def _apply_net_staff_summary_sheet_font(ws, *, last_row: int, last_col: int = 6) -> None:
@@ -3639,7 +3632,7 @@ def _get_net_summary_officer_overrides() -> tuple[str | None, str | None, str | 
 
 
 def _effective_net_staff_work_kind_raw(user_data: dict, employee_id: str | None = None):
-    """人件費・ヘッダ色で共通。執行役員は work_kind 3 固定。"""
+    """人件費計算で使う work_kind。執行役員は work_kind 3 固定。"""
     officer_id, _, _ = _get_net_summary_officer_overrides()
     normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
     normalized_officer = _normalize_jobcan_employee_id_for_match(officer_id)
@@ -3904,9 +3897,8 @@ def _build_net_staff_summary_excel_workbook(
         cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
         cost_cell.number_format = "#,##0"
 
-        h1, h2 = _net_staff_summary_staff_header_fill_hexes(staff.get("work_kind"))
-        fs1 = PatternFill(fill_type="solid", fgColor=h1)
-        fs2 = PatternFill(fill_type="solid", fgColor=h2)
+        fs1 = PatternFill(fill_type="solid", fgColor=_NET_STAFF_SUMMARY_HDR_FILL_STAFF_ROW1)
+        fs2 = PatternFill(fill_type="solid", fgColor=_NET_STAFF_SUMMARY_HDR_FILL_STAFF_ROW2)
         for col_sb in (block_left, block_middle, block_right):
             ws.cell(row=1, column=col_sb).fill = fs1
             ws.cell(row=2, column=col_sb).fill = fs2

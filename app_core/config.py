@@ -65,7 +65,7 @@ CAREER_COEFFICIENT = 0.03  # キャリア係数
 
 OFFICER_NAME = "永田 智子"  # 管理職名
 OFFICER_ID = 210501  # 管理職ID
-OFFICER_ENTERED_DAY = "2006-04-25"  # 管理職入社日
+OFFICER_ENTERED_DAY = "2005-07-25"  # 管理職入社日
 
 # スタッフ別（ネット）Excel の「誤差（丸め・未分類）」行。平常は出さず、検証時のみ API で true にする。
 NET_STAFF_SUMMARY_INCLUDE_ERROR_ROW = False
