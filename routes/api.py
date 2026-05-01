@@ -3730,6 +3730,28 @@ def _net_summary_staff_ids_and_jobcan_display_names() -> tuple[list[str], dict[s
     return sorted(targets), display_from_jobcan
 
 
+def _load_users_data_by_normalized_jobcan_id() -> dict[str, dict]:
+    """
+    users はドキュメント ID が LINE の UID のことが多く、Jobcan 社員番号では取得できない。
+    jobcan_employee_id を Jobcan マスタと同じキーに正規化して索引する。
+    """
+    by_jc: dict[str, dict] = {}
+    for udoc in db.collection("users").stream():
+        udata = udoc.to_dict() or {}
+        jkey = _normalize_jobcan_employee_id_for_match(udata.get("jobcan_employee_id"))
+        if jkey:
+            by_jc[jkey] = udata
+    return by_jc
+
+
+def _net_summary_employee_key_from_daily_report(rep: dict, parsed_e: str | None) -> str | None:
+    """日報の company_employee_id（または doc id 由来）をスタッフ列・集計マップのキーと一致させる。"""
+    raw = _norm_str_id(rep.get("company_employee_id")) or parsed_e
+    if not raw:
+        return None
+    return _normalize_jobcan_employee_id_for_match(raw) or raw
+
+
 def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime, as_of: datetime) -> list[dict]:
     """
     スタッフ別（ネット）Excel 用の固定一覧。
@@ -3745,6 +3767,7 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
         return []
 
     target_set = set(sorted_ids)
+    users_by_jobcan = _load_users_data_by_normalized_jobcan_id()
 
     mapping_docs = (
         db.collection("employee_mappings")
@@ -3760,8 +3783,10 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
 
     staff = []
     for emp_id in sorted_ids:
-        user_snap = db.collection("users").document(emp_id).get()
-        user_data = user_snap.to_dict() if user_snap.exists else {}
+        user_data = users_by_jobcan.get(emp_id)
+        if user_data is None:
+            snap = db.collection("users").document(emp_id).get()
+            user_data = snap.to_dict() if snap.exists else {}
         display_name = name_map.get(emp_id) or display_from_jobcan.get(emp_id, "Unknown")
         staff.append(
             {
@@ -3791,7 +3816,7 @@ def _aggregate_net_staff_task_minutes_for_summary(start_date: datetime, end_date
             continue
 
         parsed_e, _ = _parse_daily_report_doc_id(doc.id)
-        emp_id = _norm_str_id(rep.get("company_employee_id")) or parsed_e
+        emp_id = _net_summary_employee_key_from_daily_report(rep, parsed_e)
         if not emp_id:
             continue
 
@@ -3852,7 +3877,7 @@ def _aggregate_net_staff_jobcan_minutes_for_summary(start_date: datetime, end_da
         if not _is_net_daily_report_group(rep.get("group_id")):
             continue
         parsed_e, _ = _parse_daily_report_doc_id(doc.id)
-        emp_id = _norm_str_id(rep.get("company_employee_id")) or parsed_e
+        emp_id = _net_summary_employee_key_from_daily_report(rep, parsed_e)
         if not emp_id:
             continue
         raw = rep.get("jobcan_work_minutes")
