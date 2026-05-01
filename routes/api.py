@@ -3949,7 +3949,7 @@ def _build_net_staff_summary_excel_workbook(
     """
     スタッフ別（ネット）Excelのレイアウト骨子。
     - シート名: YYYY年MM月度（月度終了日ベース）
-    - 列 D〜F: カテゴリは列挙しない（プレースホルダのみ。例: E1=合計、D2=累計人件費）。
+    - 列 D〜F: カテゴリは列挙しない（プレースホルダのみ。例: E1=合計）。D2 累計人件費は各スタッフ左列2行目の SUM 式。
       データ行の合計ブロック: E=当行の勤務時間合計、F=当行タスク分÷全スタッフ月度総勤務（タスク合計優先・なければJobcan）、
       D=各スタッフ左列（当業務人件費）の合計。
     - 列 A〜C: 行3〜 に左エリア。列Cに業務種別を縦に（集計項目ブロック数ぶん繰り返し）。
@@ -3996,11 +3996,8 @@ def _build_net_staff_summary_excel_workbook(
     # --- 右側 D〜F: カテゴリ列挙なし（プレースホルダ）---
     ws.cell(row=1, column=5).value = "合計"
     ws.cell(row=1, column=5).alignment = hdr_align
+    # 明細ブロックの配賦・誤差行用（D2 累計は各スタッフ左列2行目の合計を式で参照）
     total_labor_cost = sum(int(s.get("labor_cost") or 0) for s in staff_list)
-    total_cost_cell = ws.cell(row=2, column=4)
-    total_cost_cell.value = total_labor_cost
-    total_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-    total_cost_cell.number_format = "#,##0"
 
     fill_total_r1 = PatternFill(fill_type="solid", fgColor=_NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW1)
     fill_total_r2 = PatternFill(fill_type="solid", fgColor=_NET_STAFF_SUMMARY_HDR_FILL_TOTAL_ROW2)
@@ -4034,6 +4031,18 @@ def _build_net_staff_summary_excel_workbook(
         for col_sb in (block_left, block_middle, block_right):
             ws.cell(row=1, column=col_sb).fill = fs1
             ws.cell(row=2, column=col_sb).fill = fs2
+
+    total_cost_cell = ws.cell(row=2, column=4)
+    if staff_list:
+        staff_row2_refs = [
+            f"{openpyxl.utils.get_column_letter(staff_block_start_col + i * 3)}2"
+            for i in range(len(staff_list))
+        ]
+        total_cost_cell.value = f"=SUM({','.join(staff_row2_refs)})"
+    else:
+        total_cost_cell.value = 0
+    total_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+    total_cost_cell.number_format = "#,##0"
 
     # --- 左3列: 行3〜 縦リスト（列C=業務種別繰り返し、列B=全般行のみ集計項目名）---
     staff_ratio_acc = {s["id"]: Decimal(0) for s in staff_list}
