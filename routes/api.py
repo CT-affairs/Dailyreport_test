@@ -3833,7 +3833,9 @@ def _build_net_staff_summary_excel_workbook(
     """
     スタッフ別（ネット）Excelのレイアウト骨子。
     - シート名: YYYY年MM月度（月度終了日ベース）
-    - 列 D〜F: カテゴリは列挙しない（プレースホルダのみ。例: E1=合計、D2=累計人件費）
+    - 列 D〜F: カテゴリは列挙しない（プレースホルダのみ。例: E1=合計、D2=累計人件費）。
+      データ行の合計ブロック: E=当行の勤務時間合計、F=当行タスク分÷全スタッフ月度総勤務（タスク合計優先・なければJobcan）、
+      D=各スタッフ左列（当業務人件費）の合計。
     - 列 A〜C: 行3〜 に左エリア。列Cに業務種別を縦に（集計項目ブロック数ぶん繰り返し）。
       集計項目の並びは category_b.order 昇順。
       列Bは業務種別が「全般」の行のみ集計項目ラベル、それ以外は空。
@@ -3970,6 +3972,8 @@ def _build_net_staff_summary_excel_workbook(
         if hex_paid:
             a_cell_paid.fill = PatternFill(fill_type="solid", fgColor=hex_paid)
 
+        row_paid_alloc_sum = 0
+
         if row_total_minutes_all_staff_paid > 0:
             total_hours_p = (Decimal(row_total_minutes_all_staff_paid) / Decimal("60")).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -3978,25 +3982,6 @@ def _build_net_staff_summary_excel_workbook(
             thc.value = float(total_hours_p)
             thc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
             thc.number_format = "0.00"
-
-            denom_all_p = (
-                all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
-            )
-            if denom_all_p > 0:
-                total_ratio_p = Decimal(row_total_minutes_all_staff_paid) / Decimal(denom_all_p)
-                trc = ws.cell(row=pr, column=6)
-                trc.value = float(total_ratio_p)
-                trc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                trc.number_format = "0%"
-
-                tac_p = Decimal(total_labor_cost) * total_ratio_p
-                tac_int = int(tac_p.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-                tacc = ws.cell(row=pr, column=4)
-                tacc.value = tac_int
-                tacc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                tacc.number_format = "#,##0"
-                total_block_ratio_acc += total_ratio_p
-                total_block_d_acc += tac_int
 
         for si, staff in enumerate(staff_list):
             mins_p = per_staff_minutes_paid[si]
@@ -4027,6 +4012,28 @@ def _build_net_staff_summary_excel_workbook(
                 ac.number_format = "#,##0"
                 staff_ratio_acc[staff["id"]] += ratio_p
                 staff_alloc_acc[staff["id"]] += alloc_int_p
+                row_paid_alloc_sum += alloc_int_p
+
+        if row_total_minutes_all_staff_paid > 0:
+            tacc = ws.cell(row=pr, column=4)
+            tacc.value = row_paid_alloc_sum
+            tacc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            tacc.number_format = "#,##0"
+            total_block_d_acc += row_paid_alloc_sum
+
+            denom_all_p = (
+                all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
+            )
+            trc = ws.cell(row=pr, column=6)
+            trc.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            trc.number_format = "0%"
+            if denom_all_p > 0:
+                total_ratio_p = Decimal(row_total_minutes_all_staff_paid) / Decimal(denom_all_p)
+                trc.value = float(total_ratio_p)
+                total_block_ratio_acc += total_ratio_p
+            else:
+                trc.value = None
+
 
     r = 3
     paid_row_written = False
@@ -4068,33 +4075,15 @@ def _build_net_staff_summary_excel_workbook(
 
             # 合計ブロック（D:E:F）
             # - E列: タスク別累計時間（全スタッフ合算）
-            # - F列: タスク別累計時間 / 全スタッフ月度総勤務（jobcan 合計の合算）
-            # - D列: 全スタッフ累計人件費 × F列（タスク別経費）
+            # - F列: 当行タスク分 ÷ 全スタッフ月度総勤務（タスク合計優先、なければ Jobcan）
+            # - D列: 各スタッフ左列（当業務にかかった人件費）の合計
+            row_total_alloc_sum = 0
             if row_total_minutes_all_staff > 0:
                 total_hours = (Decimal(row_total_minutes_all_staff) / Decimal("60")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 total_hours_cell = ws.cell(row=r, column=5)
                 total_hours_cell.value = float(total_hours)
                 total_hours_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
                 total_hours_cell.number_format = "0.00"
-
-                denom_all = (
-                    all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
-                )
-                if denom_all > 0:
-                    total_ratio = Decimal(row_total_minutes_all_staff) / Decimal(denom_all)
-                    total_ratio_cell = ws.cell(row=r, column=6)
-                    total_ratio_cell.value = float(total_ratio)
-                    total_ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                    total_ratio_cell.number_format = "0%"
-
-                    total_alloc_cost = Decimal(total_labor_cost) * total_ratio
-                    total_alloc_int = int(total_alloc_cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-                    total_alloc_cost_cell = ws.cell(row=r, column=4)
-                    total_alloc_cost_cell.value = total_alloc_int
-                    total_alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                    total_alloc_cost_cell.number_format = "#,##0"
-                    total_block_ratio_acc += total_ratio
-                    total_block_d_acc += total_alloc_int
 
             for si, staff in enumerate(staff_list):
                 mins = per_staff_minutes[si]
@@ -4125,6 +4114,27 @@ def _build_net_staff_summary_excel_workbook(
                     alloc_cost_cell.number_format = "#,##0"
                     staff_ratio_acc[staff["id"]] += ratio
                     staff_alloc_acc[staff["id"]] += alloc_int
+                    row_total_alloc_sum += alloc_int
+
+            if row_total_minutes_all_staff > 0:
+                total_alloc_cost_cell = ws.cell(row=r, column=4)
+                total_alloc_cost_cell.value = row_total_alloc_sum
+                total_alloc_cost_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                total_alloc_cost_cell.number_format = "#,##0"
+                total_block_d_acc += row_total_alloc_sum
+
+                denom_all = (
+                    all_staff_total_task_minutes if all_staff_total_task_minutes > 0 else all_staff_total_jobcan_sum
+                )
+                total_ratio_cell = ws.cell(row=r, column=6)
+                total_ratio_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                total_ratio_cell.number_format = "0%"
+                if denom_all > 0:
+                    total_ratio_time = Decimal(row_total_minutes_all_staff) / Decimal(denom_all)
+                    total_ratio_cell.value = float(total_ratio_time)
+                    total_block_ratio_acc += total_ratio_time
+                else:
+                    total_ratio_cell.value = None
 
             r += 1
 
