@@ -3679,11 +3679,11 @@ def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employe
     return _round_to_nearest_10_half_up(cost)
 
 
-def _net_summary_staff_ids_and_jobcan_display_names() -> tuple[list[str], dict[str, str]]:
+def _net_summary_jobcan_net_employee_ids_and_display_names() -> tuple[set[str], dict[str, str]]:
     """
     管理画面スタッフ一覧（Jobcan master/v1/employees）と同一ソース。
-    work_kind 4（非常勤役員）除外、main_group がネット（3）の社員に加え、config の OFFICER_ID を必ず含める。
-    戻り値: (Jobcan 正規化 id の昇順リスト, id → Jobcan 氏名連結の表示候補)
+    work_kind 4（非常勤役員）除外、main_group がネット（3）の正規化社員 ID 集合と、氏名表示候補。
+    （一覧の確定は employee_mappings active と取り交ぜる。執行役員の強制出力は呼び出し側。）
     """
     from services.jobcan_service import JobcanService
 
@@ -3722,12 +3722,7 @@ def _net_summary_staff_ids_and_jobcan_display_names() -> tuple[list[str], dict[s
         fn = str(e.get("first_name") or "").strip()
         display_from_jobcan[ekey] = f"{ln} {fn}".strip() or "Unknown"
 
-    officer_id, _, _ = _get_net_summary_officer_overrides()
-    off_n = _normalize_jobcan_employee_id_for_match(officer_id)
-    if off_n:
-        targets.add(off_n)
-
-    return sorted(targets), display_from_jobcan
+    return targets, display_from_jobcan
 
 
 def _load_users_data_by_normalized_jobcan_id() -> dict[str, dict]:
@@ -3755,39 +3750,90 @@ def _net_summary_employee_key_from_daily_report(rep: dict, parsed_e: str | None)
 def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime, as_of: datetime) -> list[dict]:
     """
     スタッフ別（ネット）Excel 用の固定一覧。
-    Jobcan 従業員マスタで main_group がネット（3）、/manager/jobcan/employees と同様に work_kind 4（非常勤役員）を除外し、
-    app_core.config の OFFICER_ID を必ず含める。日報の有無に依存しない（休職などでも列が出力される）。
-    表示名は employee_mappings（active）を優先し、なければ Jobcan の氏名。
+    - Jobcan で main_group がネット（3）かつ work_kind 4 以外の **Jobcan 社員 id** に限定しつつ、
+      employee_mappings で status が active の行だけを対象とする。
+      所属判定はマッピングの **jobcan_employee_id**（Jobcan id）を jobcan_net_ids と突き合わせる。
+      列キー・日報集計との対応はマッピング **ドキュメント ID = company_employee_id** を正規化した値とする。
+    - jobcan_employee_id が無いレガシー行のみ、ドキュメント ID を Jobcan id とみなして jobcan_net_ids と照合する。
+    - 列の並びは employee_mappings のドキュメント ID 文字列昇順。
+    - config の OFFICER_ID（Jobcan id）に対応する active マッピングが無い場合のみ合成列を追加。
+      マッピングがあればその **company_employee_id** を列キーにする。
+    - users は jobcan_employee_id 索引を優先し、無ければ users.document(company_employee_id)。
+    表示名はマッピングの name を優先し、なければ Jobcan の氏名（執行役員は設定名）。
     start_date / end_date は後方互換のため引数に残す（一覧抽出には使わない）。
     """
     del start_date, end_date  # 明示的に未使用（呼び出し側シグネチャ維持）
 
-    sorted_ids, display_from_jobcan = _net_summary_staff_ids_and_jobcan_display_names()
-    if not sorted_ids:
-        return []
+    jobcan_net_ids, display_from_jobcan = _net_summary_jobcan_net_employee_ids_and_display_names()
 
-    target_set = set(sorted_ids)
+    officer_id_raw, _, officer_name = _get_net_summary_officer_overrides()
+    off_n = _normalize_jobcan_employee_id_for_match(officer_id_raw)
+
     users_by_jobcan = _load_users_data_by_normalized_jobcan_id()
 
-    mapping_docs = (
+    mapping_docs = list(
         db.collection("employee_mappings")
         .where(filter=FieldFilter("status", "==", "active"))
         .stream()
     )
-    name_map: dict[str, str] = {}
+
+    jobcan_id_to_company_norm: dict[str, str] = {}
+    company_norm_to_jobcan_id: dict[str, str] = {}
     for doc in mapping_docs:
-        mid = _normalize_jobcan_employee_id_for_match(doc.id)
-        if mid and mid in target_set:
-            d = doc.to_dict() or {}
-            name_map[mid] = d.get("name", "Unknown")
+        d = doc.to_dict() or {}
+        cn = _normalize_jobcan_employee_id_for_match(doc.id)
+        jj = _normalize_jobcan_employee_id_for_match(d.get("jobcan_employee_id"))
+        if cn and jj:
+            jobcan_id_to_company_norm[jj] = cn
+            company_norm_to_jobcan_id[cn] = jj
+
+    # (employee_mappings のドキュメント ID でソート用, 列キー = 正規化 company_employee_id)
+    ordered_entries: list[tuple[str, str]] = []
+    included_company_norm: set[str] = set()
+    name_map: dict[str, str] = {}
+
+    for doc in mapping_docs:
+        d = doc.to_dict() or {}
+        cn = _normalize_jobcan_employee_id_for_match(doc.id)
+        if not cn:
+            continue
+        jj = _normalize_jobcan_employee_id_for_match(d.get("jobcan_employee_id"))
+        if jj:
+            eligible = jj in jobcan_net_ids
+        else:
+            eligible = cn in jobcan_net_ids
+        if not eligible:
+            continue
+        name_map[cn] = d.get("name", "Unknown")
+        ordered_entries.append((doc.id, cn))
+        included_company_norm.add(cn)
+
+    if off_n:
+        company_for_officer = jobcan_id_to_company_norm.get(off_n)
+        officer_staff_key = company_for_officer if company_for_officer else off_n
+        if officer_staff_key not in included_company_norm:
+            sort_key = _norm_str_id(officer_id_raw) or officer_staff_key
+            ordered_entries.append((sort_key, officer_staff_key))
+            included_company_norm.add(officer_staff_key)
+            if officer_name:
+                name_map[officer_staff_key] = str(officer_name).strip() or name_map.get(officer_staff_key, "Unknown")
+
+    ordered_entries.sort(key=lambda t: t[0])
+    sorted_ids = [tp[1] for tp in ordered_entries]
+
+    if not sorted_ids:
+        return []
 
     staff = []
     for emp_id in sorted_ids:
-        user_data = users_by_jobcan.get(emp_id)
+        jc_lookup = company_norm_to_jobcan_id.get(emp_id)
+        user_data = users_by_jobcan.get(jc_lookup) if jc_lookup else None
+        if user_data is None:
+            user_data = users_by_jobcan.get(emp_id)
         if user_data is None:
             snap = db.collection("users").document(emp_id).get()
             user_data = snap.to_dict() if snap.exists else {}
-        display_name = name_map.get(emp_id) or display_from_jobcan.get(emp_id, "Unknown")
+        display_name = name_map.get(emp_id) or display_from_jobcan.get(jc_lookup or emp_id, "Unknown")
         staff.append(
             {
                 "id": emp_id,
