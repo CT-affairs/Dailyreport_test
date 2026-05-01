@@ -35,6 +35,7 @@ from app_core.config import (
     DAILY_REPORTS_SNAPSHOT_COLLECTION,
     MONTHLY_lABOR_COSTS_NET,
     MONTHLY_lABOR_COSTS_NET_PART,
+    REDUCED_EMPLOYEE,
     MONTHLY_CLOSINGS_COLLECTION,
     NET_STAFF_SUMMARY_INCLUDE_ERROR_ROW,
     default_snapshot_collection_for_closing_run,
@@ -3600,15 +3601,24 @@ def _years_since_entered_day(entered_day: datetime | None, as_of: datetime) -> i
     return max(years, 0)
 
 
-def _net_staff_monthly_labor_base_and_factor(work_kind_raw) -> tuple[Decimal, Decimal]:
-    """基準月額と係数。判定は work_kind 3 / 10 / その他。"""
-    wk = _norm_str_id(work_kind_raw)
+def _net_staff_monthly_labor_base_and_factor(work_kind_raw, employee_id: str | None = None) -> tuple[Decimal, Decimal]:
+    """
+    基準月額と係数（入社年係数は呼び出し側で別掛け）。
+    - REDUCED_EMPLOYEE: work_kind に関わず MONTHLY_lABOR_COSTS_NET × 0.75
+    - work_kind 3: MONTHLY_lABOR_COSTS_NET × 1
+    - 上記以外: MONTHLY_lABOR_COSTS_NET_PART × 1
+    """
     base_full = Decimal(str(MONTHLY_lABOR_COSTS_NET))
     base_part = Decimal(str(MONTHLY_lABOR_COSTS_NET_PART))
+    normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
+    reduced_norm = {
+        n for rid in REDUCED_EMPLOYEE if (n := _normalize_jobcan_employee_id_for_match(rid))
+    }
+    if normalized_emp and normalized_emp in reduced_norm:
+        return base_full, Decimal("0.75")
+    wk = _norm_str_id(work_kind_raw)
     if wk == "3":
         return base_full, Decimal("1")
-    if wk == "10":
-        return base_full, Decimal("0.75")
     return base_part, Decimal("1")
 
 
@@ -3664,7 +3674,7 @@ def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employe
     if career_increment >= Decimal("1"):
         career_increment = career_increment - Decimal("1")
     tenure_factor = Decimal("1") + (career_increment * Decimal(years))
-    labor_base, labor_factor = _net_staff_monthly_labor_base_and_factor(work_kind_raw)
+    labor_base, labor_factor = _net_staff_monthly_labor_base_and_factor(work_kind_raw, employee_id)
     cost = labor_base * tenure_factor * labor_factor
     return _round_to_nearest_10_half_up(cost)
 

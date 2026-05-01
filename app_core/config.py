@@ -60,8 +60,10 @@ PROJECT_ID = "dailyreport-480700"
 TARGET_EMPLOYEE_IDS = ["16"] # 取得対象の従業員IDリスト。例: ["16", "17", "18"]
 
 # --- Net labor costs ---
-MONTHLY_lABOR_COSTS_NET = 330000  # ネット用の月次人件費（円）
-MONTHLY_lABOR_COSTS_NET_PART = 220000  # work_kind 3・10 以外の基準月額（円）
+MONTHLY_lABOR_COSTS_NET = 330000  # ネット用の月次人件(正社員)費（円）
+MONTHLY_lABOR_COSTS_NET_PART = 220000  # ネット用の月次人件(パート)費（円）
+REDUCED_EMPLOYEE = {"230701", "231202", "232010"}  # 時短社員社員IDリスト
+
 CAREER_COEFFICIENT = 0.03  # キャリア係数
 
 OFFICER_NAME = "永田 智子"  # 管理職名
