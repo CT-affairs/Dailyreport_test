@@ -3679,29 +3679,72 @@ def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employe
     return _round_to_nearest_10_half_up(cost)
 
 
+def _net_summary_staff_ids_and_jobcan_display_names() -> tuple[list[str], dict[str, str]]:
+    """
+    管理画面スタッフ一覧（Jobcan master/v1/employees）と同一ソース。
+    work_kind 4（非常勤役員）除外、main_group がネット（3）の社員に加え、config の OFFICER_ID を必ず含める。
+    戻り値: (Jobcan 正規化 id の昇順リスト, id → Jobcan 氏名連結の表示候補)
+    """
+    from services.jobcan_service import JobcanService
+
+    app_env = os.environ.get("APP_ENV", "development")
+    is_sandbox = app_env != "production"
+    jobcan_service = JobcanService(
+        db=db,
+        sandbox=is_sandbox,
+        raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES,
+    )
+    result = jobcan_service.get_all_employees()
+    if result is None:
+        abort(502, "ネット集計Excel: Jobcan 従業員一覧の取得に失敗しました。")
+
+    raw_list = result.get("employees") or []
+    targets: set[str] = set()
+    display_from_jobcan: dict[str, str] = {}
+
+    for e in raw_list:
+        if not isinstance(e, dict):
+            continue
+        wk = e.get("work_kind")
+        if wk is not None:
+            try:
+                if int(wk) == 4:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        if not is_net_main_group(e.get("main_group")):
+            continue
+        ekey = _normalize_jobcan_employee_id_for_match(e.get("id"))
+        if not ekey:
+            continue
+        targets.add(ekey)
+        ln = str(e.get("last_name") or "").strip()
+        fn = str(e.get("first_name") or "").strip()
+        display_from_jobcan[ekey] = f"{ln} {fn}".strip() or "Unknown"
+
+    officer_id, _, _ = _get_net_summary_officer_overrides()
+    off_n = _normalize_jobcan_employee_id_for_match(officer_id)
+    if off_n:
+        targets.add(off_n)
+
+    return sorted(targets), display_from_jobcan
+
+
 def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime, as_of: datetime) -> list[dict]:
     """
-    対象月度の daily_reports（ネット日報）に出現する社員を抽出し、
-    工務スタッフ別と同様に employee_mappings の name を表示名として返す。
+    スタッフ別（ネット）Excel 用の固定一覧。
+    Jobcan 従業員マスタで main_group がネット（3）、/manager/jobcan/employees と同様に work_kind 4（非常勤役員）を除外し、
+    app_core.config の OFFICER_ID を必ず含める。日報の有無に依存しない（休職などでも列が出力される）。
+    表示名は employee_mappings（active）を優先し、なければ Jobcan の氏名。
+    start_date / end_date は後方互換のため引数に残す（一覧抽出には使わない）。
     """
-    query = (
-        db.collection(COLLECTION_DAILY_REPORTS)
-        .where(filter=FieldFilter("date", ">=", start_date))
-        .where(filter=FieldFilter("date", "<=", end_date))
-    )
+    del start_date, end_date  # 明示的に未使用（呼び出し側シグネチャ維持）
 
-    target_emp_ids: set[str] = set()
-    for doc in query.stream():
-        rep = doc.to_dict() or {}
-        if not _is_net_daily_report_group(rep.get("group_id")):
-            continue
-        parsed_e, _ = _parse_daily_report_doc_id(doc.id)
-        emp_id = _norm_str_id(rep.get("company_employee_id")) or parsed_e
-        if emp_id:
-            target_emp_ids.add(emp_id)
-
-    if not target_emp_ids:
+    sorted_ids, display_from_jobcan = _net_summary_staff_ids_and_jobcan_display_names()
+    if not sorted_ids:
         return []
+
+    target_set = set(sorted_ids)
 
     mapping_docs = (
         db.collection("employee_mappings")
@@ -3710,18 +3753,20 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
     )
     name_map: dict[str, str] = {}
     for doc in mapping_docs:
-        if doc.id in target_emp_ids:
+        mid = _normalize_jobcan_employee_id_for_match(doc.id)
+        if mid and mid in target_set:
             d = doc.to_dict() or {}
-            name_map[doc.id] = d.get("name", "Unknown")
+            name_map[mid] = d.get("name", "Unknown")
 
     staff = []
-    for emp_id in sorted(target_emp_ids):
+    for emp_id in sorted_ids:
         user_snap = db.collection("users").document(emp_id).get()
         user_data = user_snap.to_dict() if user_snap.exists else {}
+        display_name = name_map.get(emp_id) or display_from_jobcan.get(emp_id, "Unknown")
         staff.append(
             {
                 "id": emp_id,
-                "name": name_map.get(emp_id, "Unknown"),
+                "name": display_name,
                 "labor_cost": _calc_net_staff_monthly_labor_cost(user_data or {}, as_of, emp_id),
                 "work_kind": _effective_net_staff_work_kind_raw(user_data or {}, emp_id),
             }
