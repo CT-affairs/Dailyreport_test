@@ -3679,6 +3679,91 @@ def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employe
     return _round_to_nearest_10_half_up(cost)
 
 
+def _fmt_decimal_for_net_breakdown(d: Decimal) -> str:
+    """内訳シート用の数値文字列（末尾ゼロ省略）。"""
+    if d == d.to_integral():
+        return str(int(d))
+    s = format(d, "f").rstrip("0").rstrip(".")
+    return s if s else "0"
+
+
+def _net_staff_work_kind_label_for_breakdown(work_kind_raw, employee_id: str | None) -> str:
+    """内訳シート B 列: 基準月額の判定に使った区分の説明。"""
+    normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
+    reduced_norm = {n for rid in REDUCED_EMPLOYEE if (n := _normalize_jobcan_employee_id_for_match(rid))}
+    if normalized_emp and normalized_emp in reduced_norm:
+        return "時短（REDUCED・係数0.75）"
+    wk = _norm_str_id(work_kind_raw)
+    if wk == "3":
+        return "3（正社員基準）"
+    return f"{wk or '—'}（パート基準）"
+
+
+def _net_staff_labor_breakdown_for_sheet(user_data: dict, as_of: datetime, employee_id: str | None = None) -> dict:
+    """
+    内訳シート用。人件費は base×labor_factor×(1+キャリア年率×入社年数) と _calc_net_staff_monthly_labor_cost で一致。
+    式は日本語の「×」表記（Excel の数式ではなく表示用テキスト）。
+    """
+    entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
+    officer_id, officer_entered_day_raw, _ = _get_net_summary_officer_overrides()
+    normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
+    normalized_officer = _normalize_jobcan_employee_id_for_match(officer_id)
+    if normalized_emp and normalized_emp == normalized_officer:
+        officer_entered_day = _parse_user_entered_day_date(officer_entered_day_raw)
+        if officer_entered_day is not None:
+            entered_day = officer_entered_day
+    work_kind_raw = _effective_net_staff_work_kind_raw(user_data, employee_id)
+    years = _years_since_entered_day(entered_day, as_of)
+    career_increment = Decimal(str(CAREER_COEFFICIENT))
+    if career_increment >= Decimal("1"):
+        career_increment = career_increment - Decimal("1")
+    labor_base, labor_factor = _net_staff_monthly_labor_base_and_factor(work_kind_raw, employee_id)
+    base_s = _fmt_decimal_for_net_breakdown(labor_base)
+    lf_s = _fmt_decimal_for_net_breakdown(labor_factor)
+    ci_s = _fmt_decimal_for_net_breakdown(career_increment)
+    yi = int(years)
+    formula_jp = f"{base_s}×{lf_s}×(1+{ci_s}×{yi})"
+    return {
+        "work_kind_label": _net_staff_work_kind_label_for_breakdown(work_kind_raw, employee_id),
+        "years": yi,
+        "formula_jp": formula_jp,
+    }
+
+
+def _populate_net_staff_breakdown_sheet(ws_br, staff_list: list[dict]) -> int:
+    """内訳シートにヘッダとスタッフ行を書き込み、最終行番号を返す。"""
+    headers = ("スタッフ", "work_kind", "入社年数", "人件費の式")
+    hdr_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for col, title in enumerate(headers, start=1):
+        c = ws_br.cell(row=1, column=col)
+        c.value = title
+        c.alignment = hdr_align
+    last_r = 1
+    for row_idx, staff in enumerate(staff_list, start=2):
+        bd = staff.get("breakdown") or {}
+        ws_br.cell(row=row_idx, column=1).value = staff.get("name", "")
+        ws_br.cell(row=row_idx, column=1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws_br.cell(row=row_idx, column=2).value = bd.get("work_kind_label", "")
+        ws_br.cell(row=row_idx, column=2).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws_br.cell(row=row_idx, column=3).value = int(bd.get("years") or 0)
+        ws_br.cell(row=row_idx, column=3).alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+        ws_br.cell(row=row_idx, column=4).value = bd.get("formula_jp", "")
+        ws_br.cell(row=row_idx, column=4).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        last_r = row_idx
+    ws_br.column_dimensions["A"].width = 18
+    ws_br.column_dimensions["B"].width = 26
+    ws_br.column_dimensions["C"].width = 12
+    ws_br.column_dimensions["D"].width = 42
+    return last_r
+
+
+def _apply_net_staff_breakdown_sheet_style(ws_br, *, last_row: int, last_col: int = 4) -> None:
+    for r in range(1, last_row + 1):
+        font = _NET_STAFF_SUMMARY_FONT_HEADER if r == 1 else _NET_STAFF_SUMMARY_FONT_BODY
+        for c in range(1, last_col + 1):
+            ws_br.cell(row=r, column=c).font = font
+
+
 def _net_summary_jobcan_net_employee_ids_and_display_names() -> tuple[set[str], dict[str, str]]:
     """
     管理画面スタッフ一覧（Jobcan master/v1/employees）と同一ソース。
@@ -3840,6 +3925,7 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
                 "name": display_name,
                 "labor_cost": _calc_net_staff_monthly_labor_cost(user_data or {}, as_of, emp_id),
                 "work_kind": _effective_net_staff_work_kind_raw(user_data or {}, emp_id),
+                "breakdown": _net_staff_labor_breakdown_for_sheet(user_data or {}, as_of, emp_id),
             }
         )
     return staff
@@ -3948,8 +4034,9 @@ def _build_net_staff_summary_excel_workbook(
 ) -> openpyxl.Workbook:
     """
     スタッフ別（ネット）Excelのレイアウト骨子。
-    - シート名: YYYY年MM月度（月度終了日ベース）
-    - 列 D〜F: カテゴリは列挙しない（プレースホルダのみ。例: E1=合計）。D2 累計人件費は各スタッフ左列2行目の SUM 式。
+    - シート1: シート名 YYYY年MM月度（月度終了日ベース）の集計表
+    - シート2「内訳」: 対象スタッフの氏名・work_kind 区分・入社年数・人件費の乗算式（表示用テキスト）
+    - 列 D〜F（シート1）: カテゴリは列挙しない（プレースホルダのみ。例: E1=合計）。D2 累計人件費は各スタッフ左列2行目の SUM 式。
       データ行の合計ブロック: E=当行の勤務時間合計、F=当行タスク分÷全スタッフ月度総勤務（タスク合計優先・なければJobcan）、
       D=各スタッフ左列（当業務人件費）の合計。
     - 列 A〜C: 行3〜 に左エリア。列Cに業務種別を縦に（集計項目ブロック数ぶん繰り返し）。
@@ -4390,6 +4477,10 @@ def _build_net_staff_summary_excel_workbook(
     ws.freeze_panes = "G3"
 
     _apply_net_staff_summary_sheet_font(ws, last_row=total_row, last_col=last_col)
+
+    ws_break = wb.create_sheet(title="内訳", index=1)
+    last_br = _populate_net_staff_breakdown_sheet(ws_break, staff_list)
+    _apply_net_staff_breakdown_sheet_style(ws_break, last_row=max(last_br, 1))
 
     return wb
 
