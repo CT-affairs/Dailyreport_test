@@ -1579,7 +1579,8 @@ def get_manager_jobcan_employees_summary():
                 update_payload = {}
                 if user_obj.get("work_kind_id") != wk_val:
                     update_payload["work_kind_id"] = wk_val
-                if user_obj.get("entered_day") != entered_day_val:
+                # Jobcan が entered_day を返さない（休職などで null）とき、既存の users.entered_day を消さない
+                if entered_day_val is not None and user_obj.get("entered_day") != entered_day_val:
                     update_payload["entered_day"] = entered_day_val
                 if not update_payload:
                     continue
@@ -3764,10 +3765,11 @@ def _apply_net_staff_breakdown_sheet_style(ws_br, *, last_row: int, last_col: in
             ws_br.cell(row=r, column=c).font = font
 
 
-def _net_summary_jobcan_net_employee_ids_and_display_names() -> tuple[set[str], dict[str, str]]:
+def _net_summary_jobcan_net_employee_ids_and_display_names() -> tuple[set[str], dict[str, str], dict[str, str]]:
     """
     管理画面スタッフ一覧（Jobcan master/v1/employees）と同一ソース。
-    work_kind 4（非常勤役員）除外、main_group がネット（3）の正規化社員 ID 集合と、氏名表示候補。
+    work_kind 4（非常勤役員）除外、main_group がネット（3）の正規化社員 ID 集合と、氏名表示候補、
+    正規化 Jobcan id → entered_day 文字列（Firestore に無い／消えた場合の人件費計算用）。
     （一覧の確定は employee_mappings active と取り交ぜる。執行役員の強制出力は呼び出し側。）
     """
     from services.jobcan_service import JobcanService
@@ -3786,6 +3788,27 @@ def _net_summary_jobcan_net_employee_ids_and_display_names() -> tuple[set[str], 
     raw_list = result.get("employees") or []
     targets: set[str] = set()
     display_from_jobcan: dict[str, str] = {}
+    # main_group に依らず取得（休職で所属が変わっても入社日は同 API に載ることが多い）。非常勤役員(4)のみ除外。
+    entered_day_from_jobcan: dict[str, str] = {}
+
+    for e in raw_list:
+        if not isinstance(e, dict):
+            continue
+        wk = e.get("work_kind")
+        if wk is not None:
+            try:
+                if int(wk) == 4:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        ekey = _normalize_jobcan_employee_id_for_match(e.get("id"))
+        if not ekey:
+            continue
+        ed_raw = e.get("entered_day")
+        if ed_raw is not None:
+            ed_s = str(ed_raw).strip()
+            if ed_s:
+                entered_day_from_jobcan[ekey] = ed_s
 
     for e in raw_list:
         if not isinstance(e, dict):
@@ -3807,7 +3830,7 @@ def _net_summary_jobcan_net_employee_ids_and_display_names() -> tuple[set[str], 
         fn = str(e.get("first_name") or "").strip()
         display_from_jobcan[ekey] = f"{ln} {fn}".strip() or "Unknown"
 
-    return targets, display_from_jobcan
+    return targets, display_from_jobcan, entered_day_from_jobcan
 
 
 def _load_users_data_by_normalized_jobcan_id() -> dict[str, dict]:
@@ -3849,7 +3872,7 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
     """
     del start_date, end_date  # 明示的に未使用（呼び出し側シグネチャ維持）
 
-    jobcan_net_ids, display_from_jobcan = _net_summary_jobcan_net_employee_ids_and_display_names()
+    jobcan_net_ids, display_from_jobcan, entered_day_from_jobcan = _net_summary_jobcan_net_employee_ids_and_display_names()
 
     officer_id_raw, _, officer_name = _get_net_summary_officer_overrides()
     off_n = _normalize_jobcan_employee_id_for_match(officer_id_raw)
@@ -3918,14 +3941,21 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
         if user_data is None:
             snap = db.collection("users").document(emp_id).get()
             user_data = snap.to_dict() if snap.exists else {}
+        user_data = dict(user_data or {})
+        if _parse_user_entered_day_date(user_data.get("entered_day")) is None:
+            for cand in (jc_lookup, emp_id):
+                ck = _normalize_jobcan_employee_id_for_match(cand)
+                if ck and (ed_j := entered_day_from_jobcan.get(ck)):
+                    user_data["entered_day"] = ed_j
+                    break
         display_name = name_map.get(emp_id) or display_from_jobcan.get(jc_lookup or emp_id, "Unknown")
         staff.append(
             {
                 "id": emp_id,
                 "name": display_name,
-                "labor_cost": _calc_net_staff_monthly_labor_cost(user_data or {}, as_of, emp_id),
-                "work_kind": _effective_net_staff_work_kind_raw(user_data or {}, emp_id),
-                "breakdown": _net_staff_labor_breakdown_for_sheet(user_data or {}, as_of, emp_id),
+                "labor_cost": _calc_net_staff_monthly_labor_cost(user_data, as_of, emp_id),
+                "work_kind": _effective_net_staff_work_kind_raw(user_data, emp_id),
+                "breakdown": _net_staff_labor_breakdown_for_sheet(user_data, as_of, emp_id),
             }
         )
     return staff
