@@ -66,8 +66,8 @@
             '<div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #34495e;">' +
             '<button type="button" id="' +
             id +
-            '" style="width: 100%; padding: 6px; background-color: #6aaacf; color: white; border: none; ' +
-            'border-radius: 4px; cursor: pointer; font-size: 0.8em;">ログアウト</button>' +
+            '" type="button" style="width: 100%; padding: 6px; background-color: #06C755; color: white; border: none; ' +
+            'border-radius: 4px; cursor: pointer; font-size: 0.8em;">ログイン / ログアウト</button>' +
             '</div>'
         );
     }

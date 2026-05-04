@@ -218,15 +218,15 @@ async function updateUserInfo() {
             html += `<div style="font-size:0.8em; color:#f39c12;">ID未登録</div>`;
         }
 
-        // ログアウトボタンを追加
+        // ログイン / ログアウト（LINE ブランド緑 #06C755）
         html += `
             <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #34495e;">
-                <button id="logout-btn" style="width: 100%; padding: 6px; background-color: #6aaacf; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8em;">ログアウト</button>
+                <button id="logout-btn" type="button" style="width: 100%; padding: 6px; background-color: #06C755; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8em;">ログイン / ログアウト</button>
             </div>`;
 
         userInfoContainer.innerHTML = html;
 
-        // ログアウトボタンのイベントリスナー
+        // ログイン / ログアウト（セッション破棄後リロード）
         document.getElementById('logout-btn').addEventListener('click', async () => {
             try {
                 // PCセッション破棄（Cookie削除）
