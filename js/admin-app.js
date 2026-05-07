@@ -688,6 +688,10 @@ function _monthlyOverviewCellColorFromCalendarStatus(statusData) {
 }
 
 async function openMonthlyOverviewModal() {
+    const monthlyOverviewModalTitle =
+        document.querySelector('.nav-item.active')?.dataset?.target === 'dashboard_net'
+            ? '当月一覧(全員)'
+            : '当月一覧';
     const targetDate = document.getElementById('target-date')?.value;
     if (!targetDate) {
         alert('日付を選択してから実行してください。');
@@ -796,7 +800,7 @@ async function openMonthlyOverviewModal() {
     };
 
     const refreshPeriodOnly = () => {
-        titleEl.textContent = '当月一覧';
+        titleEl.textContent = monthlyOverviewModalTitle;
         const range = _monthlyOverviewFiscalRangeYmd(currentBaseDate);
         if (!range) {
             periodBlock.innerHTML = `<span style="color:#c0392b;">基準日「${escapeHTML(currentBaseDate)}」から対象期間を計算できませんでした。</span>`;
@@ -1530,6 +1534,11 @@ function handleNavigation(target, params = {}, options = { push: true }) {
         topBarActions.style.display = (target === 'dashboard' || target === 'dashboard_net') ? 'flex' : 'none';
     }
 
+    const monthlyOverviewBtn = document.getElementById('monthly-overview-button');
+    if (monthlyOverviewBtn) {
+        monthlyOverviewBtn.textContent = target === 'dashboard_net' ? '当月一覧(全員)' : '当月一覧';
+    }
+
     switch(target) {
         case 'home':
             pageTitle.textContent = 'ダッシュボード';
@@ -1615,16 +1624,17 @@ function handleNavigation(target, params = {}, options = { push: true }) {
                                 <th>工数合計</th>
                                 <th>差分</th>
                                 <th>操作</th>
+                                <th>当月一覧(個別)</th>
                             </tr>
                         </thead>
                         <tbody id="comparison-table-body">
-                            <tr><td colspan="6" style="text-align:center; padding: 2em;">データを読み込み中...</td></tr>
+                            <tr><td colspan="7" style="text-align:center; padding: 2em;">データを読み込み中...</td></tr>
                         </tbody>
                     </table>
                 </div>`;
             loadDashboardData();
             break;
-            
+
         case 'staff_calendar':
             pageTitle.textContent = '日報_スタッフ個別';
             dashboardListMode = 'koumu';
@@ -4147,14 +4157,17 @@ function formatDiffMinutesAsJaForComparison(diffMinutes) {
  */
 function renderTableRows(data) {
     const tbody = document.getElementById('comparison-table-body');
+    const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
+    const isNetDashboard = activeTarget === 'dashboard_net';
+    const rowColspan = isNetDashboard ? 7 : 6;
+
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2em;">データがありません</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${rowColspan}" style="text-align:center; padding: 2em;">データがありません</td></tr>`;
         return;
     }
 
     // 一覧の表示元に応じて、スタッフ名リンクの遷移先を切り替える
-    const activeTarget = document.querySelector('.nav-item.active')?.dataset?.target;
-    const isNetListView = (activeTarget === 'dashboard_net') || (dashboardListMode === 'net');
+    const isNetListView = isNetDashboard || (dashboardListMode === 'net');
     const calendarTarget = isNetListView ? 'staff_calendar_net' : 'staff_calendar';
 
     let html = '';
@@ -4190,6 +4203,9 @@ function renderTableRows(data) {
                 <td>
                     <button class="btn-secondary" style="padding:4px 8px; font-size:0.8em;" onclick="openProxyReport('${row.employeeId}', '${row.name}', '${row.date}', '${row.group_id || ''}')">詳細表示(代理入力)</button>
                 </td>
+                ${isNetDashboard ? `<td>
+                    <button type="button" class="btn-secondary" style="padding:4px 8px; font-size:0.8em;" onclick="handleLinkNavigation(event, () => handleNavigation('staff_calendar_net', { employeeId: '${row.employeeId}', pastReports: '1' }))" title="このスタッフの過去日報一覧モーダルを開く">当月一覧(個別)</button>
+                </td>` : ''}
             </tr>
         `;
     });
@@ -4431,10 +4447,18 @@ function renderStaffCalendarUI(container, params = {}) {
         }
     }
 
-     // パラメータがあれば自動検索
+     // パラメータがあれば自動検索（過去日報一覧モーダルを開く指定時はカレンダー準備後に開く）
      if (params.employeeId) {
          document.getElementById('staff-id-input').value = params.employeeId;
-         searchStaffAndRenderCalendar();
+         void (async () => {
+             await searchStaffAndRenderCalendar();
+             const openPast =
+                 dashboardListMode === 'net' &&
+                 (params.pastReports === '1' || params.pastReports === 'true');
+             if (openPast && currentCalendarEmployeeId) {
+                 openNetFiscalPastReportsModal();
+             }
+         })();
      }
  }
  
@@ -4481,7 +4505,7 @@ function renderStaffCalendarUI(container, params = {}) {
          staffInfoDisplay.textContent = `対象者: ${escapeHTML(staff.name)}`;
  
          // カレンダーの描画処理を呼び出す
-         initializeStaffCalendar();
+         await initializeStaffCalendar();
  
      } catch (error) {
          console.error(error);
