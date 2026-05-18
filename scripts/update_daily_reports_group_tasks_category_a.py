@@ -1,3 +1,52 @@
+"""
+daily_reports の tasks 内 categoryA を一括置換するメンテナンススクリプト
+================================================================================
+
+【概要】
+  group_id が一致する daily_reports ドキュメントを対象に、
+  tasks 配列内で条件に合う要素の categoryA_id / categoryA_label を置換する。
+
+【事前準備】
+  1. スクリプト先頭の定数（GROUP_ID, OLD_*, NEW_*）を書き換える
+  2. Firestore 認証を通す（GOOGLE_APPLICATION_CREDENTIALS または gcloud デフォルト）
+  3. 必ず dry-run で件数を確認してから apply する
+
+【実行例】
+  # 件数確認（Firestore は書き換えない）
+  python scripts/update_daily_reports_group_tasks_category_a.py --mode dry-run
+
+  # 本番実行（確認プロンプトあり・バックアップ自動保存）
+  python scripts/update_daily_reports_group_tasks_category_a.py --mode apply
+
+  # 確認プロンプトをスキップ
+  python scripts/update_daily_reports_group_tasks_category_a.py --mode apply --yes
+
+  # バックアップ保存先を指定
+  python scripts/update_daily_reports_group_tasks_category_a.py --mode apply --backup-file scripts/backup/my_backup.json
+
+  # ロールバック（apply 時に保存した JSON を指定）
+  python scripts/update_daily_reports_group_tasks_category_a.py --mode rollback --backup-file scripts/backup/daily_reports_group3_category_a_backup_YYYYMMDD_HHMMSS.json
+
+【影響範囲】
+  - 読み取り: daily_reports のうち group_id == GROUP_ID のドキュメントのみ
+  - 書き込み: 上記のうち、マッチした task が 1 件以上あったドキュメントのみ
+  - 更新フィールド: tasks のみ（他フィールドは変更しない）
+  - group_id != GROUP_ID のドキュメント・他コレクションには触れない
+
+【注意事項】
+  - OLD_CATEGORY_A_ID / NEW_* は実行前に必ず設定すること（未設定だとエラー終了）
+  - OLD_CATEGORY_A_LABEL を None にすると label では絞らない（id のみでマッチ）
+  - apply は Firestore 更新後にローカル JSON バックアップを保存する（更新成功後に
+    スクリプトが落ちるとバックアップが無い可能性あり）
+  - バックアップは tasks 配列のみ。ロールバックも tasks の復元のみ
+  - バッチ書き込みは 450 件ごとに分割（Firestore 上限 500 のマージン）
+  - 締め日後など、本番データへの影響を考慮して実行タイミングを選ぶこと
+  - 繰り返し実行する場合は、1 回ごとに定数を書き換え → dry-run → apply の順で行う
+
+【関連】
+  同系統: scripts/update_daily_reports_n20_category_b.py
+"""
+
 from __future__ import annotations
 
 import argparse
