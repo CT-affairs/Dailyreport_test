@@ -2,6 +2,22 @@
 const LIFF_ID = "2008638177-G9M9XKOd";
 const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
 
+/** カレンダー「完了」判定: 勤務と日報の差がこの分数以内なら一致（締め前の半端な勤務時間対策） */
+const CALENDAR_COMPLETION_TOLERANCE_MINUTES = 14;
+
+/**
+ * @param {number} jobcanMinutes
+ * @param {number} reportedMinutes
+ * @param {boolean} isExecutive
+ */
+function isWorkReportAlignedForCompletion(jobcanMinutes, reportedMinutes, isExecutive) {
+    if (isExecutive) {
+        return reportedMinutes >= jobcanMinutes && reportedMinutes > 0;
+    }
+    if (jobcanMinutes <= 0) return false;
+    return Math.abs(reportedMinutes - jobcanMinutes) <= CALENDAR_COMPLETION_TOLERANCE_MINUTES;
+}
+
 /**
  * ログイン状態を確認し、有効なIDトークンを取得する。
  * 取得できない場合は例外をスローする。
@@ -1552,11 +1568,7 @@ async function initializeCalendarScreen(calendarContainer) {
                     calendarStatuses[todayStr].status = null;
                 } else if (reportedMinutes === 0 && jobcanMinutes > 0) {
                     calendarStatuses[todayStr].status = 'pending';
-                } else if (isExecutive && reportedMinutes >= jobcanMinutes && reportedMinutes > 0) {
-                    // 役員ロジック
-                    calendarStatuses[todayStr].status = 'completed';
-                } else if (!isExecutive && jobcanMinutes > 0 && jobcanMinutes === reportedMinutes) {
-                    // 一般ユーザーロジック
+                } else if (isWorkReportAlignedForCompletion(jobcanMinutes, reportedMinutes, isExecutive)) {
                     calendarStatuses[todayStr].status = 'completed';
                 } else {
                     calendarStatuses[todayStr].status = 'inconsistent';

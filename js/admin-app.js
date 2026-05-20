@@ -666,6 +666,22 @@ function _monthlyOverviewFiscalRangeYmd(baseDateStr) {
     return { start: dates[0], end: dates[dates.length - 1] };
 }
 
+/** カレンダー「完了」判定: 勤務と日報の差がこの分数以内なら一致（締め前の半端な勤務時間対策） */
+const CALENDAR_COMPLETION_TOLERANCE_MINUTES = 14;
+
+/**
+ * @param {number} jobcanMinutes
+ * @param {number} reportedMinutes
+ * @param {boolean} isExecutive
+ */
+function isWorkReportAlignedForCompletion(jobcanMinutes, reportedMinutes, isExecutive) {
+    if (isExecutive) {
+        return reportedMinutes >= jobcanMinutes && reportedMinutes > 0;
+    }
+    if (jobcanMinutes <= 0) return false;
+    return Math.abs(reportedMinutes - jobcanMinutes) <= CALENDAR_COMPLETION_TOLERANCE_MINUTES;
+}
+
 function _monthlyOverviewCellColorFromCalendarStatus(statusData) {
     const NAVY = '#083969';
     const GRAY = '#9e9e9e';
@@ -4749,11 +4765,7 @@ function renderStaffCalendar() {
                             finalStatus = null; // 表示なし
                         } else if (reportedMinutes === 0 && jobcanMinutes > 0) {
                             finalStatus = 'pending';
-                        } else if (isExecutive && reportedMinutes >= jobcanMinutes && reportedMinutes > 0) {
-                            // 役員ロジック: 報告 >= 勤務 なら完了
-                            finalStatus = 'completed';
-                        } else if (!isExecutive && jobcanMinutes > 0 && jobcanMinutes === reportedMinutes) {
-                            // 一般ユーザーロジック: 報告 === 勤務 なら完了
+                        } else if (isWorkReportAlignedForCompletion(jobcanMinutes, reportedMinutes, isExecutive)) {
                             finalStatus = 'completed';
                         } else {
                             // 上記以外は不一致

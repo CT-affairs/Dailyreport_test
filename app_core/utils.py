@@ -123,6 +123,25 @@ def _get_realtime_work_minutes(jobcan_service, jobcan_employee_id: str) -> int:
         current_app.logger.error(f"Failed to get realtime work time. Error: {e}")
         return 0
 
+# カレンダー「完了」判定: 勤務時間と日報入力の差がこの分数以内なら一致とみなす（締め前の半端な勤務時間対策）
+CALENDAR_COMPLETION_TOLERANCE_MINUTES = 14
+
+
+def is_work_report_aligned_for_completion(
+    jobcan_minutes: int,
+    reported_minutes: int,
+    *,
+    is_executive: bool = False,
+    tolerance: int = CALENDAR_COMPLETION_TOLERANCE_MINUTES,
+) -> bool:
+    """一般: |勤務−日報| <= tolerance。役員: 日報 >= 勤務 かつ 日報 > 0。"""
+    if is_executive:
+        return reported_minutes >= jobcan_minutes and reported_minutes > 0
+    if jobcan_minutes <= 0:
+        return False
+    return abs(reported_minutes - jobcan_minutes) <= tolerance
+
+
 def get_calendar_statuses(jobcan_employee_id: str, company_employee_id: str, dates: list[str], is_executive: bool = False) -> dict:
     """
     指定された期間のJobcan勤務時間とFirestoreの報告時間を比較し、
@@ -279,8 +298,10 @@ def get_calendar_statuses(jobcan_employee_id: str, company_employee_id: str, dat
             elif is_executive and report_time >= effective_jobcan_time and report_time > 0:
                 # 役員特別ロジック: 報告時間が実績以上なら完了 (報告が0より大きい場合のみ)
                 status_data["status"] = "completed"
-            elif not is_executive and effective_jobcan_time > 0 and effective_jobcan_time == report_time:
-                # 一般ユーザーロジック: 実績と報告が一致すれば完了
+            elif is_work_report_aligned_for_completion(
+                effective_jobcan_time, report_time, is_executive=is_executive
+            ):
+                # 一般: ±tolerance 分以内。役員: 報告 >= 実績
                 status_data["status"] = "completed"
             else:
                 # 上記以外はすべて不一致
