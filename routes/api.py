@@ -4477,7 +4477,7 @@ def _build_net_staff_summary_excel_workbook(
 
     ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 9
-    ws.column_dimensions["C"].width = 16
+    ws.column_dimensions["C"].width = 18
     ws.column_dimensions["D"].width = 9
     ws.column_dimensions["E"].width = 9
     ws.column_dimensions["F"].width = 9

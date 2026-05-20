@@ -79,12 +79,12 @@ COLLECTION_NAME = "daily_reports"
 GROUP_ID = 3  # int
 
 # マッチ条件（tasks 配列内の要素）
-OLD_CATEGORY_A_ID = ""
-OLD_CATEGORY_A_LABEL: Optional[str] = None  # None のときは label では絞らない
+OLD_CATEGORY_A_ID = "N02"
+OLD_CATEGORY_A_LABEL = "新商品アップ"
 
 # 置換先
-NEW_CATEGORY_A_ID = ""
-NEW_CATEGORY_A_LABEL = ""
+NEW_CATEGORY_A_ID = "N03"
+NEW_CATEGORY_A_LABEL = "新商品ページ制作"
 # =============================================================================
 
 BATCH_COMMIT_LIMIT = 450  # Firestore 上限 500 未満のマージン
@@ -326,7 +326,7 @@ def confirm_or_exit(mode: str, yes: bool) -> None:
     print("--- 実行条件 ---")
     print(f"  group_id              : {GROUP_ID}")
     print(f"  OLD categoryA_id      : {OLD_CATEGORY_A_ID}")
-    print(f"  OLD categoryA_label   : {OLD_CATEGORY_A_LABEL!r} (None=条件に含めない)")
+    print(f"  OLD categoryA_label   : {OLD_CATEGORY_A_LABEL} (None のときは label で絞らない)")
     print(f"  NEW categoryA_id      : {NEW_CATEGORY_A_ID}")
     print(f"  NEW categoryA_label   : {NEW_CATEGORY_A_LABEL}")
     print("----------------")
