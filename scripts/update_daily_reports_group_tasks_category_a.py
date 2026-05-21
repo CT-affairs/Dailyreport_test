@@ -79,12 +79,12 @@ COLLECTION_NAME = "daily_reports"
 GROUP_ID = 3  # int
 
 # マッチ条件（tasks 配列内の要素）
-OLD_CATEGORY_A_ID = "N02"
-OLD_CATEGORY_A_LABEL = "新商品アップ"
+OLD_CATEGORY_A_ID = "N03"
+OLD_CATEGORY_A_LABEL = "発注・在庫"
 
 # 置換先
-NEW_CATEGORY_A_ID = "N03"
-NEW_CATEGORY_A_LABEL = "新商品ページ制作"
+NEW_CATEGORY_A_ID = "N04"
+NEW_CATEGORY_A_LABEL = "発注"
 # =============================================================================
 
 BATCH_COMMIT_LIMIT = 450  # Firestore 上限 500 未満のマージン

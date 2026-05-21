@@ -669,6 +669,9 @@ function _monthlyOverviewFiscalRangeYmd(baseDateStr) {
 /** カレンダー「完了」判定: 勤務と日報の差がこの分数以内なら一致（締め前の半端な勤務時間対策） */
 const CALENDAR_COMPLETION_TOLERANCE_MINUTES = 14;
 
+/** カレンダー・当月一覧: 未入力（pending）の表示色 */
+const CALENDAR_STATUS_COLOR_PENDING = '#f8b500';
+
 /**
  * @param {number} jobcanMinutes
  * @param {number} reportedMinutes
@@ -698,7 +701,7 @@ function _monthlyOverviewCellColorFromCalendarStatus(statusData) {
 
     if (jobcanMinutes === 0) return WHITE; // 勤務時間ゼロ
     if (status === 'completed') return NAVY; // 完了
-    if (status === 'pending') return GRAY; // 未入力
+    if (status === 'pending') return CALENDAR_STATUS_COLOR_PENDING; // 未入力
     if (status === 'inconsistent') return DARK_ORANGE; // 不一致
     return GRAY;
 }
@@ -777,7 +780,7 @@ async function openMonthlyOverviewModal() {
     foot.innerHTML = `
         <span><span style="display:inline-block;width:12px;height:12px;border:1px solid #ccc;background:#fff;vertical-align:middle;margin-right:4px;"></span>勤務時間ゼロ</span>
         <span><span style="display:inline-block;width:12px;height:12px;border:1px solid #ccc;background:#083969;vertical-align:middle;margin-right:4px;"></span>完了</span>
-        <span><span style="display:inline-block;width:12px;height:12px;border:1px solid #ccc;background:#9e9e9e;vertical-align:middle;margin-right:4px;"></span>未入力</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border:1px solid #ccc;background:${CALENDAR_STATUS_COLOR_PENDING};vertical-align:middle;margin-right:4px;"></span>未入力</span>
         <span><span style="display:inline-block;width:12px;height:12px;border:1px solid #ccc;background:#b25e00;vertical-align:middle;margin-right:4px;"></span>不一致</span>
     `;
 
@@ -4780,7 +4783,7 @@ function renderStaffCalendar() {
                     switch (finalStatus) {
                         case 'completed': statusText = '完了'; bgColor = '#083969'; break;
                         case 'inconsistent': statusText = '不一致'; bgColor = '#d9534f'; break;
-                        case 'pending': statusText = '未入力'; bgColor = '#777'; break;
+                        case 'pending': statusText = '未入力'; bgColor = CALENDAR_STATUS_COLOR_PENDING; break;
                     }
                 }
                 
