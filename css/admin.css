@@ -945,8 +945,8 @@ th.sortable-th:hover {
     min-width: 0;
 }
 .timetable-task .proxy-net-task-comment {
-    flex: 0 0 70%;
-    max-width: 70%;
+    flex: 0 0 62%;
+    max-width: 62%;
     min-width: 0;
     text-align: left;
     white-space: nowrap;
@@ -954,8 +954,8 @@ th.sortable-th:hover {
     text-overflow: ellipsis;
 }
 .timetable-task .proxy-net-task-meta {
-    flex: 0 0 30%;
-    max-width: 30%;
+    flex: 0 0 38%;
+    max-width: 38%;
     min-width: 0;
     text-align: right;
     white-space: nowrap;

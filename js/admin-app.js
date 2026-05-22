@@ -7360,7 +7360,7 @@ const isDarkColor = (color) => {
 
 /**
  * ネット事業部タイムテーブル用: タスク内テキストを
- * 左70%(コメント) / 右30%(集計項目 / 業務種別) で表示する
+ * 左62%(コメント) / 右38%(集計項目 / 業務種別) で表示する
  * @returns {string} innerHTML
  */
 function buildProxyNetTaskBlockHtml(categoryBLabel, categoryALabel, comment) {
@@ -7759,8 +7759,11 @@ function handleEditTask() {
     currentlyEditingTaskElement.style.backgroundColor = newBgColor;
     currentlyEditingTaskElement.style.color = newTextColor;
 
-    const displayText = [categoryB_label, categoryA_label, comment].filter(Boolean).join(' / ');
-    currentlyEditingTaskElement.innerHTML = `<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHTML(displayText)}">${escapeHTML(displayText)}</div>`;
+    currentlyEditingTaskElement.innerHTML = buildProxyNetTaskBlockHtml(
+        categoryB_label,
+        categoryA_label,
+        comment,
+    );
 
     // ★ 変更されたタスクなので、未送信を示す赤色バーに更新
     currentlyEditingTaskElement.style.borderLeftColor = '#d9534f';
