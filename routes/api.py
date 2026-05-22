@@ -140,16 +140,96 @@ def _is_monthly_closing_completed(
     return status == "completed", snapshot_collection
 
 
-def _resolve_summary_source_collection(target_month: str, start_date: datetime, end_date: datetime, division: str) -> str:
+def _get_closing_day() -> int:
+    return int(os.environ.get("CLOSING_DAY", "20"))
+
+
+def _monthly_period_from_period_end(year: int, month: int) -> tuple[datetime, datetime]:
+    """締め年月（月度終了日の年・月）から月度の開始日・終了日を返す。calculate_monthly_period と同型。"""
+    closing_day = _get_closing_day()
+    end_date = datetime(year, month, closing_day)
+    if month == 1:
+        start_date = datetime(year - 1, 12, closing_day + 1)
+    else:
+        start_date = datetime(year, month - 1, closing_day + 1)
+    return start_date, end_date
+
+
+def _is_same_calendar_date(a: datetime, b: datetime) -> bool:
+    return a.year == b.year and a.month == b.month and a.day == b.day
+
+
+def _is_current_monthly_period(start_date: datetime, end_date: datetime, now_jst: datetime) -> bool:
+    cur_start, cur_end = calculate_monthly_period(now_jst)
+    return _is_same_calendar_date(start_date, cur_start) and _is_same_calendar_date(end_date, cur_end)
+
+
+def _resolve_summary_period_from_request(data: dict) -> tuple[datetime, datetime, bool]:
     """
-    前月度のみ管理ドキュメントを参照して日報ソースを切り替える。
-    - current: 常に daily_reports
-    - previous:
+    集計ダウンロード API 共通: JSON から月度の開始・終了を解決する。
+
+    - target_month: ``current`` | ``previous``（既存。省略時 current）
+    - period_end_year + period_end_month: 締め年月で任意月度を指定（指定月プルダウン）
+
+    Returns:
+        (start_date, end_date, allow_snapshot) — allow_snapshot が True のとき締め完了ならスナップショット参照
+    """
+    jst = timezone(timedelta(hours=9))
+    now_jst = datetime.now(jst)
+
+    has_year = data.get("period_end_year") is not None
+    has_month = data.get("period_end_month") is not None
+    if has_year or has_month:
+        if not (has_year and has_month):
+            abort(400, "period_end_year and period_end_month must be provided together")
+        try:
+            y = int(data["period_end_year"])
+            m = int(data["period_end_month"])
+        except (TypeError, ValueError):
+            abort(400, "period_end_year and period_end_month must be integers")
+        if not (1 <= m <= 12):
+            abort(400, "period_end_month must be between 1 and 12")
+        if not (1900 <= y <= 2100):
+            abort(400, "period_end_year out of range")
+        start_date, end_date = _monthly_period_from_period_end(y, m)
+        allow_snapshot = not _is_current_monthly_period(start_date, end_date, now_jst)
+        return start_date, end_date, allow_snapshot
+
+    target_month = str(data.get("target_month", "current")).strip().lower()
+    if target_month not in ("current", "previous"):
+        abort(400, "target_month must be 'current' or 'previous'")
+
+    start_date, end_date = calculate_monthly_period(now_jst)
+    if target_month == "previous":
+        prev_base = start_date - timedelta(days=1)
+        start_date, end_date = calculate_monthly_period(prev_base)
+        return start_date, end_date, True
+    return start_date, end_date, False
+
+
+def _normalize_allowance_period_bounds(start_date: datetime, end_date: datetime) -> tuple[datetime, datetime]:
+    """宿泊/現場 Excel: 月度を日付境界（00:00〜23:59:59.999999）で扱う。"""
+    start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return start_date, end_date
+
+
+def _resolve_summary_source_collection(
+    start_date: datetime,
+    end_date: datetime,
+    division: str,
+    *,
+    allow_snapshot: bool = False,
+) -> str:
+    """
+    締め済みの過去月度では管理ドキュメントを参照して日報ソースを切り替える。
+    - allow_snapshot=False: 常に daily_reports（当月度相当）
+    - allow_snapshot=True:
       - net: 常に daily_reports（ネット向け集計は締め後スナップショットを使わない）
       - enj: 該当 division が completed のときのみ snapshot
       - all: enj/net の両方 completed のときのみ snapshot
     """
-    if target_month != "previous":
+    if not allow_snapshot:
         return COLLECTION_DAILY_REPORTS
 
     if division == "net":
@@ -2847,6 +2927,48 @@ def get_project_summary():
         current_app.logger.error(f"Error fetching project summary for '{project_label}': {e}")
         abort(500, f"Internal Server Error: {str(e)}")
 
+
+@api_bp.route("/manager/daily-reports/report-dates-in-range", methods=["GET"])
+@token_required
+@login_required
+def get_daily_report_dates_in_range():
+    """
+    指定期間内に日報が1件以上ある日付（YYYY-MM-DD）の一覧。
+    ダッシュボード「指定月」プルダウンの活性/不活性判定用。
+    """
+    start_date_str = request.args.get("start_date")
+    end_date_str = request.args.get("end_date")
+    if not start_date_str or not end_date_str:
+        abort(400, "Query parameters 'start_date' and 'end_date' are required.")
+
+    try:
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+        if start_date > end_date:
+            abort(400, "'start_date' must be before or the same as 'end_date'.")
+    except ValueError:
+        abort(400, "Invalid date format. Please use YYYY-MM-DD.")
+
+    try:
+        query = (
+            db.collection(COLLECTION_DAILY_REPORTS)
+            .where(filter=FieldFilter("date", ">=", start_date))
+            .where(filter=FieldFilter("date", "<=", end_date))
+        )
+        dates = set()
+        for doc in query.stream():
+            report_date = doc.to_dict().get("date")
+            if isinstance(report_date, datetime):
+                dates.add(report_date.strftime("%Y-%m-%d"))
+        return jsonify({"dates": sorted(dates)}), 200
+    except Exception as e:
+        current_app.logger.error(
+            f"get_daily_report_dates_in_range failed ({start_date_str}..{end_date_str}): {e}",
+            exc_info=True,
+        )
+        abort(500, "日報日付一覧の取得中にエラーが発生しました。")
+
+
 @api_bp.route("/manager/project-summary/excel", methods=["POST"])
 @token_required
 @login_required
@@ -2857,22 +2979,14 @@ def download_project_summary_excel():
     """
     try:
         data = request.get_json() or {}
-        target_month = data.get('target_month', 'current') # 'current' or 'previous'
+        start_date, end_date, allow_snapshot = _resolve_summary_period_from_request(data)
 
-        # --- 1. 集計期間の決定 ---
-        jst = timezone(timedelta(hours=9))
-        base_date = datetime.now(jst)
-        
-        # まず基準日（今日）の月度範囲を取得
-        start_date, end_date = calculate_monthly_period(base_date)
-
-        if target_month == 'previous':
-            # 当月度の開始日の前日を基準にして、前月度の範囲を再取得
-            # これにより、締め日がいつであっても正確に前月度を取得できる
-            prev_month_base = start_date - timedelta(days=1)
-            start_date, end_date = calculate_monthly_period(prev_month_base)
-
-        current_app.logger.info(f"Excel generation period for '{target_month}': {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        current_app.logger.info(
+            "Excel generation period: %s to %s allow_snapshot=%s",
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+            allow_snapshot,
+        )
 
         # --- categoryA_id に基づく工数分類の定義 ---
         KAKO_IDS = set()
@@ -2893,9 +3007,11 @@ def download_project_summary_excel():
             current_app.logger.error(f"Failed to load category_a work_types: {e}")
 
         # --- 2. 期間内の日報データを取得し、集計 ---
-        source_collection = _resolve_summary_source_collection(target_month, start_date, end_date, "enj")
+        source_collection = _resolve_summary_source_collection(
+            start_date, end_date, "enj", allow_snapshot=allow_snapshot
+        )
         current_app.logger.info(
-            f"project-summary/excel source collection for '{target_month}': {source_collection}"
+            "project-summary/excel source collection: %s", source_collection
         )
         query = db.collection(source_collection).where(filter=FieldFilter("date", ">=", start_date)).where(filter=FieldFilter("date", "<=", end_date))
         docs = list(query.stream()) # リスト化して保持
@@ -2958,7 +3074,7 @@ def download_project_summary_excel():
             output.seek(0)
             excel_data = output.read()
             b64_data = base64.b64encode(excel_data).decode('utf-8')
-            file_name = f"工番別集計_{target_month}_no_data.xlsx"
+            file_name = f"工番別集計_{end_date.strftime('%Y年%m月度')}_no_data.xlsx"
             return jsonify({"file_name": file_name, "file_content": b64_data}), 200
 
         # 'e_240001' -> '240001'
@@ -3192,18 +3308,14 @@ def download_staff_summary_excel():
     """
     try:
         data = request.get_json() or {}
-        target_month = data.get('target_month', 'current') # 'current' or 'previous'
+        start_date, end_date, allow_snapshot = _resolve_summary_period_from_request(data)
 
-        # 1. 集計期間の決定
-        jst = timezone(timedelta(hours=9))
-        base_date = datetime.now(jst)
-        start_date, end_date = calculate_monthly_period(base_date)
-
-        if target_month == 'previous':
-            prev_month_base = start_date - timedelta(days=1)
-            start_date, end_date = calculate_monthly_period(prev_month_base)
-
-        current_app.logger.info(f"Staff summary Excel period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        current_app.logger.info(
+            "Staff summary Excel period: %s to %s allow_snapshot=%s",
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+            allow_snapshot,
+        )
 
         # 2. 全アクティブ従業員を取得
         mappings_ref = db.collection('employee_mappings')
@@ -3220,9 +3332,11 @@ def download_staff_summary_excel():
         employees.sort(key=lambda x: x['id']) # ID順
 
         # 3. 日報データを取得
-        source_collection = _resolve_summary_source_collection(target_month, start_date, end_date, "enj")
+        source_collection = _resolve_summary_source_collection(
+            start_date, end_date, "enj", allow_snapshot=allow_snapshot
+        )
         current_app.logger.info(
-            f"staff-summary/excel source collection for '{target_month}': {source_collection}"
+            "staff-summary/excel source collection: %s", source_collection
         )
         query = db.collection(source_collection).where(filter=FieldFilter("date", ">=", start_date)).where(filter=FieldFilter("date", "<=", end_date))
         docs = query.stream()
@@ -4526,19 +4640,16 @@ def _build_net_staff_summary_excel_workbook(
 def download_net_staff_summary_excel_placeholder():
     """
     ネット事業部「スタッフ別」集計 Excel。
-    JSON: target_month（current | previous）、省略可 include_error_row（誤差行。未指定時は config の既定）。
+    JSON: target_month（current | previous）、または period_end_year + period_end_month。
+    省略可 include_error_row（誤差行。未指定時は config の既定）。
     """
     try:
         data = request.get_json() or {}
-        target_month = data.get("target_month", "current")
+        start_date, end_date, allow_snapshot = _resolve_summary_period_from_request(data)
 
         jst = timezone(timedelta(hours=9))
-        base_date = datetime.now(jst)
-        start_date, end_date = calculate_monthly_period(base_date)
-
-        if target_month == "previous":
-            prev_month_base = start_date - timedelta(days=1)
-            start_date, end_date = calculate_monthly_period(prev_month_base)
+        now_jst = datetime.now(jst)
+        as_of = now_jst if not allow_snapshot else end_date
 
         if "include_error_row" in data:
             include_error_row = bool(data.get("include_error_row"))
@@ -4553,7 +4664,7 @@ def download_net_staff_summary_excel_placeholder():
         )
 
         wb = _build_net_staff_summary_excel_workbook(
-            start_date, end_date, base_date, include_error_row=include_error_row
+            start_date, end_date, as_of, include_error_row=include_error_row
         )
 
         output = io.BytesIO()
@@ -4580,23 +4691,20 @@ def download_net_task_summary_csv():
     """
     try:
         data = request.get_json() or {}
-        target_month = data.get("target_month", "current")
-
-        jst = timezone(timedelta(hours=9))
-        base_date = datetime.now(jst)
-        start_date, end_date = calculate_monthly_period(base_date)
-
-        if target_month == "previous":
-            prev_month_base = start_date - timedelta(days=1)
-            start_date, end_date = calculate_monthly_period(prev_month_base)
+        start_date, end_date, allow_snapshot = _resolve_summary_period_from_request(data)
 
         current_app.logger.info(
-            f"Net task summary CSV period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+            "Net task summary CSV period: %s to %s allow_snapshot=%s",
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+            allow_snapshot,
         )
 
-        source_collection = _resolve_summary_source_collection(target_month, start_date, end_date, "net")
+        source_collection = _resolve_summary_source_collection(
+            start_date, end_date, "net", allow_snapshot=allow_snapshot
+        )
         current_app.logger.info(
-            f"net-task-summary/csv source collection for '{target_month}': {source_collection}"
+            "net-task-summary/csv source collection: %s", source_collection
         )
 
         query = (
@@ -4708,27 +4816,13 @@ def _date_to_allowance_row(day: int) -> int:
     return 0
 
 
-def _calculate_allowance_period_date_only(target_month: str, now_jst: datetime) -> tuple[datetime, datetime]:
+def _calculate_allowance_period_from_request(data: dict) -> tuple[datetime, datetime, bool]:
     """
-    宿泊/現場(全社)Excel専用の期間計算。
-    月度の開始・終了日は既存 calculate_monthly_period を流用しつつ、時刻は日付境界に正規化する。
-    - start_date: 00:00:00.000000
-    - end_date:   23:59:59.999999
-
-    NOTE:
-    calculate_monthly_period は「日」のみを切り替える関数で、時刻は保持される。
-    そのため datetime.now(...) をそのまま渡すと、例えば start_date が 2026-02-21 14:37 になり、
-    2026-02-21 09:00 の日報が「月度先頭日なのに範囲外」になるケースがある。
-    月度を日付単位で扱いたい集計では、必ず時刻を日付境界に正規化すること。
+    宿泊/現場(全社)Excel専用: 共通期間解決のあと時刻を日付境界に正規化する。
     """
-    start_date, end_date = calculate_monthly_period(now_jst)
-    if target_month == "previous":
-        prev_base = start_date - timedelta(days=1)
-        start_date, end_date = calculate_monthly_period(prev_base)
-
-    start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-    return start_date, end_date
+    start_date, end_date, allow_snapshot = _resolve_summary_period_from_request(data)
+    start_date, end_date = _normalize_allowance_period_bounds(start_date, end_date)
+    return start_date, end_date, allow_snapshot
 
 
 @api_bp.route("/manager/allowance/excel", methods=["POST"])
@@ -4744,15 +4838,7 @@ def download_allowance_excel():
         from openpyxl.utils import get_column_letter
 
         data = request.get_json() or {}
-        target_month = data.get("target_month", "current")
-
-        jst = timezone(timedelta(hours=9))
-        base_date = datetime.now(jst)
-        # NOTE:
-        # この集計は「月度を日付単位」で扱う必要があるため、時刻つき now を直接
-        # calculate_monthly_period に渡さない。専用関数で 00:00〜23:59:59.999999 に正規化する。
-        # （月度先頭日の朝データが漏れる再発防止）
-        start_date, end_date = _calculate_allowance_period_date_only(target_month, base_date)
+        start_date, end_date, allow_snapshot = _calculate_allowance_period_from_request(data)
 
         # 出力ファイル名: 手当集計_2026年03月度.xlsx
         file_name = f"手当集計_{end_date.strftime('%Y')}年{end_date.strftime('%m')}月度.xlsx"
@@ -4766,9 +4852,11 @@ def download_allowance_excel():
         employee_ids = [e[0] for e in all_employees]
         id_to_name = {e[0]: e[1] for e in all_employees}
 
-        source_collection = _resolve_summary_source_collection(target_month, start_date, end_date, "all")
+        source_collection = _resolve_summary_source_collection(
+            start_date, end_date, "all", allow_snapshot=allow_snapshot
+        )
         current_app.logger.info(
-            f"allowance/excel source collection for '{target_month}': {source_collection}"
+            "allowance/excel source collection: %s", source_collection
         )
 
         # 宿泊・現場データ取得

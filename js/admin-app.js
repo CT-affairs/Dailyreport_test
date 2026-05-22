@@ -666,6 +666,367 @@ function _monthlyOverviewFiscalRangeYmd(baseDateStr) {
     return { start: dates[0], end: dates[dates.length - 1] };
 }
 
+// --- ダッシュボード「指定月」: 年度・月度プルダウン ---
+
+const DASHBOARD_SPECIFIED_MONTH_YEAR_RADIUS = 4;
+const DASHBOARD_SPECIFIED_MONTH_MONTH_RADIUS = 6;
+
+/** JST の現在日時（target-date 初期値と同型） */
+function getDashboardJstNow() {
+    return new Date(Date.now() + 9 * 60 * 60 * 1000);
+}
+
+/** JST の当年（暦年） */
+function getDashboardCurrentCalendarYear() {
+    return getDashboardJstNow().getFullYear();
+}
+
+/**
+ * 基準日が属する月度の締め日（closingDay 日）。calculate_monthly_period / 当月一覧と同型。
+ * @param {Date} refDate
+ * @returns {Date}
+ */
+function getDashboardFiscalClosingEndForDate(refDate) {
+    const y = refDate.getFullYear();
+    const m = refDate.getMonth();
+    const day = refDate.getDate();
+    const openingDay = closingDay + 1;
+    let endY;
+    let endM;
+    if (day >= openingDay) {
+        endM = m + 1;
+        endY = y + Math.floor(endM / 12);
+        endM = endM % 12;
+    } else {
+        endY = y;
+        endM = m;
+    }
+    return new Date(endY, endM, closingDay);
+}
+
+/** @param {Date} closingEndDate */
+function shiftDashboardFiscalClosingEnd(closingEndDate, deltaMonths) {
+    const y = closingEndDate.getFullYear();
+    const m = closingEndDate.getMonth();
+    return new Date(y, m + deltaMonths, closingDay);
+}
+
+/** @param {Date} closingEndDate */
+function dashboardFiscalClosingEndToYearMonth(closingEndDate) {
+    return {
+        year: closingEndDate.getFullYear(),
+        month: closingEndDate.getMonth() + 1,
+    };
+}
+
+function getDashboardCurrentFiscalClosingEnd() {
+    return getDashboardFiscalClosingEndForDate(getDashboardJstNow());
+}
+
+/** 指定月プルダウンの初期値: 当年 × 前々月度（当月度の2つ前） */
+function getDashboardSpecifiedMonthDefaultYearMonth() {
+    const currentEnd = getDashboardCurrentFiscalClosingEnd();
+    const defaultEnd = shiftDashboardFiscalClosingEnd(currentEnd, -2);
+    return dashboardFiscalClosingEndToYearMonth(defaultEnd);
+}
+
+function buildDashboardSpecifiedMonthYearOptions(yearRadius = DASHBOARD_SPECIFIED_MONTH_YEAR_RADIUS) {
+    const centerYear = getDashboardCurrentCalendarYear();
+    const years = [];
+    for (let y = centerYear - yearRadius; y <= centerYear + yearRadius; y += 1) {
+        years.push(y);
+    }
+    return { centerYear, years };
+}
+
+/** 当月度を中心に ±monthRadius の締め月キー（"YYYY-M"） */
+function buildDashboardSpecifiedMonthSelectablePeriodKeys(
+    monthRadius = DASHBOARD_SPECIFIED_MONTH_MONTH_RADIUS,
+) {
+    const currentEnd = getDashboardCurrentFiscalClosingEnd();
+    const keys = new Set();
+    for (let delta = -monthRadius; delta <= monthRadius; delta += 1) {
+        const end = shiftDashboardFiscalClosingEnd(currentEnd, delta);
+        const ym = dashboardFiscalClosingEndToYearMonth(end);
+        keys.add(`${ym.year}-${ym.month}`);
+    }
+    return keys;
+}
+
+function dashboardFiscalPeriodKey(year, month) {
+    return `${year}-${month}`;
+}
+
+/**
+ * 集計ダウンロード API 共通リクエスト body。
+ * 指定月: period_end_year / period_end_month。当月/前月度: target_month。
+ */
+function buildSummaryDownloadRequestBody({ targetMonth, year, month } = {}) {
+    if (Number.isFinite(year) && Number.isFinite(month)) {
+        return { period_end_year: year, period_end_month: month };
+    }
+    return { target_month: targetMonth || 'current' };
+}
+
+/** 締め月 (year, month) の月度開始・終了（YYYY-MM-DD） */
+function getDashboardFiscalRangeYmdForPeriodEnd(year, month) {
+    const closingEnd = new Date(year, month - 1, closingDay);
+    const periodStart = new Date(year, month - 2, closingDay + 1);
+    const toYmd = (dt) => {
+        const yy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getDate()).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
+    };
+    return { start: toYmd(periodStart), end: toYmd(closingEnd) };
+}
+
+/** 日報API取得範囲（年度±4 × 月度±6 の選択肢をすべてカバー） */
+function getDashboardSpecifiedMonthFetchDateRange(
+    yearRadius = DASHBOARD_SPECIFIED_MONTH_YEAR_RADIUS,
+    monthRadius = DASHBOARD_SPECIFIED_MONTH_MONTH_RADIUS,
+) {
+    const { years } = buildDashboardSpecifiedMonthYearOptions(yearRadius);
+    const selectableKeys = buildDashboardSpecifiedMonthSelectablePeriodKeys(monthRadius);
+    let minStart = null;
+    let maxEnd = null;
+    for (const y of years) {
+        for (let m = 1; m <= 12; m += 1) {
+            if (!selectableKeys.has(dashboardFiscalPeriodKey(y, m))) continue;
+            const { start, end } = getDashboardFiscalRangeYmdForPeriodEnd(y, m);
+            if (!minStart || start < minStart) minStart = start;
+            if (!maxEnd || end > maxEnd) maxEnd = end;
+        }
+    }
+    return { start: minStart, end: maxEnd };
+}
+
+/**
+ * 締め月に日報が1日でもあるか（reportDatesSet: YYYY-MM-DD の Set）
+ */
+function dashboardFiscalPeriodHasAnyReportDate(periodEndYear, periodEndMonth, reportDatesSet) {
+    if (!reportDatesSet || reportDatesSet.size === 0) return false;
+    const range = getDashboardFiscalRangeYmdForPeriodEnd(periodEndYear, periodEndMonth);
+    let cursor = new Date(`${range.start}T00:00:00`);
+    const end = new Date(`${range.end}T00:00:00`);
+    while (cursor <= end) {
+        const y = cursor.getFullYear();
+        const mm = String(cursor.getMonth() + 1).padStart(2, '0');
+        const dd = String(cursor.getDate()).padStart(2, '0');
+        if (reportDatesSet.has(`${y}-${mm}-${dd}`)) return true;
+        cursor.setDate(cursor.getDate() + 1);
+    }
+    return false;
+}
+
+async function fetchDashboardSpecifiedMonthReportDatesSet(
+    yearRadius = DASHBOARD_SPECIFIED_MONTH_YEAR_RADIUS,
+    monthRadius = DASHBOARD_SPECIFIED_MONTH_MONTH_RADIUS,
+) {
+    const { start, end } = getDashboardSpecifiedMonthFetchDateRange(yearRadius, monthRadius);
+    if (!start || !end) return new Set();
+    const url = `${API_BASE_URL}/api/manager/daily-reports/report-dates-in-range?start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`;
+    const res = await fetchWithAuth(url);
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || `日報日付一覧の取得に失敗しました: ${res.status}`);
+    }
+    const data = await res.json();
+    return new Set(Array.isArray(data.dates) ? data.dates : []);
+}
+
+/**
+ * 年度 option の disabled 判定
+ * @param {number} year
+ * @param {Set<string>} selectableKeys
+ * @param {Set<string>} reportDatesSet
+ */
+function isDashboardSpecifiedMonthYearEnabled(year, selectableKeys, reportDatesSet) {
+    for (let m = 1; m <= 12; m += 1) {
+        if (!selectableKeys.has(dashboardFiscalPeriodKey(year, m))) continue;
+        if (dashboardFiscalPeriodHasAnyReportDate(year, m, reportDatesSet)) return true;
+    }
+    return false;
+}
+
+/**
+ * 月度 option の disabled 判定
+ */
+function isDashboardSpecifiedMonthMonthEnabled(year, month, selectableKeys, reportDatesSet) {
+    if (!selectableKeys.has(dashboardFiscalPeriodKey(year, month))) return false;
+    return dashboardFiscalPeriodHasAnyReportDate(year, month, reportDatesSet);
+}
+
+function populateDashboardSpecifiedMonthYearSelect(yearSelect, years, selectableKeys, reportDatesSet, selectedYear) {
+    yearSelect.innerHTML = '';
+    for (const y of years) {
+        const opt = document.createElement('option');
+        opt.value = String(y);
+        opt.textContent = `${y}年`;
+        const enabled = isDashboardSpecifiedMonthYearEnabled(y, selectableKeys, reportDatesSet);
+        opt.disabled = !enabled;
+        if (y === selectedYear && enabled) opt.selected = true;
+        yearSelect.appendChild(opt);
+    }
+    if (!yearSelect.value || yearSelect.selectedOptions[0]?.disabled) {
+        const firstEnabled = [...yearSelect.options].find((o) => !o.disabled);
+        if (firstEnabled) firstEnabled.selected = true;
+    }
+}
+
+function populateDashboardSpecifiedMonthMonthSelect(
+    monthSelect,
+    year,
+    selectableKeys,
+    reportDatesSet,
+    selectedMonth,
+) {
+    monthSelect.innerHTML = '';
+    for (let m = 1; m <= 12; m += 1) {
+        const opt = document.createElement('option');
+        opt.value = String(m);
+        opt.textContent = `${m}月`;
+        const enabled = isDashboardSpecifiedMonthMonthEnabled(year, m, selectableKeys, reportDatesSet);
+        opt.disabled = !enabled;
+        if (m === selectedMonth && enabled) opt.selected = true;
+        monthSelect.appendChild(opt);
+    }
+    if (!monthSelect.value || monthSelect.selectedOptions[0]?.disabled) {
+        const firstEnabled = [...monthSelect.options].find((o) => !o.disabled);
+        if (firstEnabled) firstEnabled.selected = true;
+    }
+}
+
+/**
+ * 指定月モーダルを開く（5種の「指定月」ボタン共通）
+ * @param {string} downloadKind - 将来のダウンロード種別識別子
+ * @param {() => void|Promise<void>} [onConfirm] - 確定時コールバック（未実装時は省略可）
+ */
+async function openDashboardSpecifiedMonthModal(downloadKind, onConfirm) {
+    const defaults = getDashboardSpecifiedMonthDefaultYearMonth();
+    const { years } = buildDashboardSpecifiedMonthYearOptions();
+    const selectableKeys = buildDashboardSpecifiedMonthSelectablePeriodKeys();
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+        'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:120000;display:flex;align-items:center;justify-content:center;padding:20px;';
+
+    const panel = document.createElement('div');
+    panel.style.cssText =
+        'background:#fff;border-radius:10px;padding:20px 24px;min-width:320px;max-width:96vw;box-shadow:0 10px 30px rgba(0,0,0,0.25);';
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'margin:0 0 12px;font-size:1.1em;';
+    title.textContent = '指定月を選択';
+
+    const hint = document.createElement('p');
+    hint.style.cssText = 'margin:0 0 14px;font-size:12px;color:#666;line-height:1.5;';
+    hint.textContent =
+        `初期値は当年・前々月度です。年度は±${DASHBOARD_SPECIFIED_MONTH_YEAR_RADIUS}年、月度は当月度を中心に±${DASHBOARD_SPECIFIED_MONTH_MONTH_RADIUS}か月から選べます。日報のない年度・月度は選択できません。`;
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;';
+
+    const yearLabel = document.createElement('label');
+    yearLabel.textContent = '年度';
+    yearLabel.style.fontWeight = 'bold';
+    const yearSelect = document.createElement('select');
+    yearSelect.id = 'dashboard-specified-month-year';
+    yearSelect.style.cssText = 'padding:6px 8px;border-radius:4px;border:1px solid #ccc;min-width:100px;';
+
+    const monthLabel = document.createElement('label');
+    monthLabel.textContent = '月度';
+    monthLabel.style.fontWeight = 'bold';
+    const monthSelect = document.createElement('select');
+    monthSelect.id = 'dashboard-specified-month-month';
+    monthSelect.style.cssText = 'padding:6px 8px;border-radius:4px;border:1px solid #ccc;min-width:90px;';
+
+    row.append(yearLabel, yearSelect, monthLabel, monthSelect);
+
+    const status = document.createElement('p');
+    status.style.cssText = 'margin:0 0 12px;font-size:12px;color:#888;';
+    status.textContent = '日報の有無を確認しています…';
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn-secondary';
+    cancelBtn.textContent = 'キャンセル';
+
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'btn-primary';
+    okBtn.textContent = 'ダウンロード';
+    okBtn.disabled = true;
+
+    const close = () => overlay.remove();
+    cancelBtn.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) close();
+    });
+
+    btnRow.append(cancelBtn, okBtn);
+    panel.append(title, hint, row, status, btnRow);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    let reportDatesSet = new Set();
+    try {
+        reportDatesSet = await fetchDashboardSpecifiedMonthReportDatesSet();
+        status.textContent = '';
+        populateDashboardSpecifiedMonthYearSelect(
+            yearSelect,
+            years,
+            selectableKeys,
+            reportDatesSet,
+            defaults.year,
+        );
+        const syncMonths = () => {
+            const y = Number(yearSelect.value);
+            const prevMonth = Number(monthSelect.value) || defaults.month;
+            populateDashboardSpecifiedMonthMonthSelect(
+                monthSelect,
+                y,
+                selectableKeys,
+                reportDatesSet,
+                prevMonth,
+            );
+            okBtn.disabled = !monthSelect.value || monthSelect.selectedOptions[0]?.disabled;
+        };
+        yearSelect.addEventListener('change', syncMonths);
+        syncMonths();
+        okBtn.disabled = false;
+    } catch (e) {
+        console.error('openDashboardSpecifiedMonthModal', e);
+        status.textContent = '';
+        status.style.color = '#c00';
+        status.textContent = `読み込みに失敗しました: ${e.message}`;
+        okBtn.disabled = true;
+    }
+
+    okBtn.addEventListener('click', async () => {
+        const year = Number(yearSelect.value);
+        const month = Number(monthSelect.value);
+        if (!year || !month) return;
+        if (typeof onConfirm === 'function') {
+            okBtn.disabled = true;
+            try {
+                await onConfirm({ year, month, downloadKind });
+                close();
+            } catch (err) {
+                console.error(err);
+                alert(`エラーが発生しました: ${err.message}`);
+            } finally {
+                okBtn.disabled = false;
+            }
+        } else {
+            alert('指定月ダウンロードの処理が未設定です。');
+        }
+    });
+}
+
 /** カレンダー「完了」判定: 勤務と日報の差がこの分数以内なら一致（締め前の半端な勤務時間対策） */
 const CALENDAR_COMPLETION_TOLERANCE_MINUTES = 14;
 
@@ -2519,6 +2880,7 @@ async function renderDashboardHome(container) {
                         <div style="display: flex; gap: 10px;">
                             <button id="koumu-kouban-curr-btn" class="btn-dashboard-action" style="background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">当月度</button>
                             <button id="koumu-kouban-prev-btn" class="btn-dashboard-action" style="background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">前月度</button>
+                            <button id="koumu-kouban-spec-btn" class="btn-dashboard-action" style="background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">指定月</button>
                         </div>
                     </div>
                     <!-- スタッフ別(工務) -->
@@ -2527,6 +2889,7 @@ async function renderDashboardHome(container) {
                         <div style="display: flex; gap: 10px;">
                             <button id="koumu-staff-curr-btn" class="btn-dashboard-action" style="background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">当月度</button>
                             <button id="koumu-staff-prev-btn" class="btn-dashboard-action" style="background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">前月度</button>
+                            <button id="koumu-staff-spec-btn" class="btn-dashboard-action" style="background-color: ${greenColor}; border-color: ${greenBorderColor}; ${buttonSizeStyle}">指定月</button>
                         </div>
                     </div>
                     <!-- 宿泊/現場(全社) -->
@@ -2535,6 +2898,7 @@ async function renderDashboardHome(container) {
                         <div style="display: flex; gap: 10px;">
                             <button id="shukuhaku-zenkoku-curr-btn" class="btn-dashboard-action" style="background-color: ${grayColor}; border-color: ${grayBorderColor}; ${buttonSizeStyle}">当月度</button>
                             <button id="shukuhaku-zenkoku-prev-btn" class="btn-dashboard-action" style="background-color: ${grayColor}; border-color: ${grayBorderColor}; ${buttonSizeStyle}">前月度</button>
+                            <button id="shukuhaku-zenkoku-spec-btn" class="btn-dashboard-action" style="background-color: ${grayColor}; border-color: ${grayBorderColor}; ${buttonSizeStyle}">指定月</button>
                         </div>
                     </div>
                 </div>
@@ -2547,6 +2911,7 @@ async function renderDashboardHome(container) {
                         <div style="display: flex; gap: 10px;">
                             <button id="net-gyomu-curr-btn" class="btn-dashboard-action" style="background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">当月度</button>
                             <button id="net-gyomu-prev-btn" class="btn-dashboard-action" style="background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">前月度</button>
+                            <button id="net-gyomu-spec-btn" class="btn-dashboard-action" style="background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">指定月</button>
                         </div>
                     </div>
                     <!-- スタッフ別(ネット) -->
@@ -2555,6 +2920,7 @@ async function renderDashboardHome(container) {
                         <div style="display: flex; gap: 10px;">
                             <button id="net-staff-curr-btn" class="btn-dashboard-action" style="background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">当月度</button>
                             <button id="net-staff-prev-btn" class="btn-dashboard-action" style="background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">前月度</button>
+                            <button id="net-staff-spec-btn" class="btn-dashboard-action" style="background-color: ${wineRedColor}; border-color: ${wineRedBorderColor}; ${buttonSizeStyle}">指定月</button>
                         </div>
                         <label style="display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.85em; color: #555;">
                             <input type="checkbox" id="net-staff-include-error-row" />
@@ -2662,8 +3028,8 @@ async function renderDashboardHome(container) {
     }
 
     // Excelダウンロードボタン（API経由）
-    const handleExcelDownload = async (targetMonth, btnId) => {
-        if (targetMonth === 'previous') {
+    const handleExcelDownload = async (targetMonth, btnId, periodEnd = null) => {
+        if (!periodEnd && targetMonth === 'previous') {
             const ok = await confirmPreviousMonthDownloadMode('enj');
             if (!ok) return;
         }
@@ -2675,7 +3041,11 @@ async function renderDashboardHome(container) {
         try {
             const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/project-summary/excel`, {
                 method: 'POST',
-                body: JSON.stringify({ target_month: targetMonth })
+                body: JSON.stringify(buildSummaryDownloadRequestBody({
+                    targetMonth,
+                    year: periodEnd?.year,
+                    month: periodEnd?.month,
+                })),
             });
 
             if (!response.ok) {
@@ -2696,8 +3066,8 @@ async function renderDashboardHome(container) {
     };
 
     // スタッフ別集計表ダウンロード処理（工番別をコピー）
-    const handleStaffSummaryDownload = async (targetMonth, btnId, previousScope = 'enj') => {
-        if (targetMonth === 'previous') {
+    const handleStaffSummaryDownload = async (targetMonth, btnId, previousScope = 'enj', periodEnd = null) => {
+        if (!periodEnd && targetMonth === 'previous') {
             const ok = await confirmPreviousMonthDownloadMode(previousScope);
             if (!ok) return;
         }
@@ -2707,10 +3077,13 @@ async function renderDashboardHome(container) {
         btn.textContent = '生成中...';
 
         try {
-            // NOTE: バックエンドに /api/manager/staff-summary/excel の実装が必要です。
             const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/staff-summary/excel`, {
                 method: 'POST',
-                body: JSON.stringify({ target_month: targetMonth })
+                body: JSON.stringify(buildSummaryDownloadRequestBody({
+                    targetMonth,
+                    year: periodEnd?.year,
+                    month: periodEnd?.month,
+                })),
             });
 
             if (!response.ok) {
@@ -2731,8 +3104,8 @@ async function renderDashboardHome(container) {
     };
 
     // 宿泊/現場(全社) 手当集計Excelダウンロード（template_allowance → allowance_YYYYMM.xlsx）
-    const handleAllowanceDownload = async (targetMonth, btnId) => {
-        if (targetMonth === 'previous') {
+    const handleAllowanceDownload = async (targetMonth, btnId, periodEnd = null) => {
+        if (!periodEnd && targetMonth === 'previous') {
             const ok = await confirmPreviousMonthDownloadMode('all');
             if (!ok) return;
         }
@@ -2744,7 +3117,11 @@ async function renderDashboardHome(container) {
         try {
             const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/allowance/excel`, {
                 method: 'POST',
-                body: JSON.stringify({ target_month: targetMonth })
+                body: JSON.stringify(buildSummaryDownloadRequestBody({
+                    targetMonth,
+                    year: periodEnd?.year,
+                    month: periodEnd?.month,
+                })),
             });
 
             if (!response.ok) {
@@ -2763,21 +3140,43 @@ async function renderDashboardHome(container) {
         }
     };
 
+    const DASHBOARD_SPEC_DOWNLOAD_KIND = {
+        'koumu-kouban-spec-btn': 'koumu-kouban',
+        'koumu-staff-spec-btn': 'koumu-staff',
+        'shukuhaku-zenkoku-spec-btn': 'shukuhaku-zenkoku',
+        'net-gyomu-spec-btn': 'net-gyomu',
+        'net-staff-spec-btn': 'net-staff',
+    };
+    const attachDashboardSpecifiedMonthPicker = (btnId, onConfirm) => {
+        const btn = document.getElementById(btnId);
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            const kind = DASHBOARD_SPEC_DOWNLOAD_KIND[btnId] || btnId;
+            openDashboardSpecifiedMonthModal(kind, onConfirm);
+        });
+    };
+
     // --- 新しいボタンIDに対応したイベントリスナー ---
     // 工番別(工務)
     document.getElementById('koumu-kouban-curr-btn').addEventListener('click', () => handleExcelDownload('current', 'koumu-kouban-curr-btn'));
     document.getElementById('koumu-kouban-prev-btn').addEventListener('click', () => handleExcelDownload('previous', 'koumu-kouban-prev-btn'));
+    attachDashboardSpecifiedMonthPicker('koumu-kouban-spec-btn', ({ year, month }) =>
+        handleExcelDownload(null, 'koumu-kouban-spec-btn', { year, month }));
 
     // スタッフ別(工務)
     document.getElementById('koumu-staff-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'koumu-staff-curr-btn'));
     document.getElementById('koumu-staff-prev-btn').addEventListener('click', () => handleStaffSummaryDownload('previous', 'koumu-staff-prev-btn'));
+    attachDashboardSpecifiedMonthPicker('koumu-staff-spec-btn', ({ year, month }) =>
+        handleStaffSummaryDownload(null, 'koumu-staff-spec-btn', 'enj', { year, month }));
 
     // 宿泊/現場(全社) - 手当集計Excel（template_allowance → allowance_YYYYMM.xlsx）
     document.getElementById('shukuhaku-zenkoku-curr-btn').addEventListener('click', () => handleAllowanceDownload('current', 'shukuhaku-zenkoku-curr-btn'));
     document.getElementById('shukuhaku-zenkoku-prev-btn').addEventListener('click', () => handleAllowanceDownload('previous', 'shukuhaku-zenkoku-prev-btn'));
+    attachDashboardSpecifiedMonthPicker('shukuhaku-zenkoku-spec-btn', ({ year, month }) =>
+        handleAllowanceDownload(null, 'shukuhaku-zenkoku-spec-btn', { year, month }));
 
     // 業務別(ネット): ピボット用縦持ちCSV（/api/manager/net-task-summary/csv）
-    const handleNetGyomuCsvDownload = async (targetMonth, btnId) => {
+    const handleNetGyomuCsvDownload = async (targetMonth, btnId, periodEnd = null) => {
         const btn = document.getElementById(btnId);
         const originalText = btn.textContent;
         btn.disabled = true;
@@ -2786,7 +3185,11 @@ async function renderDashboardHome(container) {
         try {
             const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/net-task-summary/csv`, {
                 method: 'POST',
-                body: JSON.stringify({ target_month: targetMonth }),
+                body: JSON.stringify(buildSummaryDownloadRequestBody({
+                    targetMonth,
+                    year: periodEnd?.year,
+                    month: periodEnd?.month,
+                })),
             });
 
             if (!response.ok) {
@@ -2806,9 +3209,11 @@ async function renderDashboardHome(container) {
     };
     document.getElementById('net-gyomu-curr-btn').addEventListener('click', () => handleNetGyomuCsvDownload('current', 'net-gyomu-curr-btn'));
     document.getElementById('net-gyomu-prev-btn').addEventListener('click', () => handleNetGyomuCsvDownload('previous', 'net-gyomu-prev-btn'));
+    attachDashboardSpecifiedMonthPicker('net-gyomu-spec-btn', ({ year, month }) =>
+        handleNetGyomuCsvDownload(null, 'net-gyomu-spec-btn', { year, month }));
 
     // スタッフ別(ネット): Excel（仮: 空ブック。テンプレートなし）
-    const handleNetStaffExcelDownload = async (targetMonth, btnId) => {
+    const handleNetStaffExcelDownload = async (targetMonth, btnId, periodEnd = null) => {
         const btn = document.getElementById(btnId);
         const originalText = btn.textContent;
         btn.disabled = true;
@@ -2818,7 +3223,14 @@ async function renderDashboardHome(container) {
                 document.getElementById('net-staff-include-error-row')?.checked ?? false;
             const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/net-staff-summary/excel`, {
                 method: 'POST',
-                body: JSON.stringify({ target_month: targetMonth, include_error_row: includeErrorRow }),
+                body: JSON.stringify({
+                    ...buildSummaryDownloadRequestBody({
+                        targetMonth,
+                        year: periodEnd?.year,
+                        month: periodEnd?.month,
+                    }),
+                    include_error_row: includeErrorRow,
+                }),
             });
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
@@ -2836,6 +3248,8 @@ async function renderDashboardHome(container) {
     };
     document.getElementById('net-staff-curr-btn').addEventListener('click', () => handleNetStaffExcelDownload('current', 'net-staff-curr-btn'));
     document.getElementById('net-staff-prev-btn').addEventListener('click', () => handleNetStaffExcelDownload('previous', 'net-staff-prev-btn'));
+    attachDashboardSpecifiedMonthPicker('net-staff-spec-btn', ({ year, month }) =>
+        handleNetStaffExcelDownload(null, 'net-staff-spec-btn', { year, month }));
 
     // 残業/休出(全社) - 非表示だが念のためリスナーを追加
     document.getElementById('zankyu-zensha-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'zankyu-zensha-curr-btn'));
