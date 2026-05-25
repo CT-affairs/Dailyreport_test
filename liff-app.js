@@ -234,6 +234,25 @@ let activeSliderInput = null; // スライダーで操作中の入力フィー�
 let isReportNetPage = false;
 
 /**
+ * ネット日報の開始/終了時刻: 15分刻み（秒）。
+ * step は Android 等で効くことがあるが、iOS/LINE WebView のピッカーUIは無視されることが多い。
+ * 刻みの正は roundNetTaskTimeTo15（change 時・初期値セット時）に任せる。
+ */
+const NET_TASK_TIME_STEP_SECONDS = 900;
+
+/** @param {string} value HH:mm */
+function roundNetTaskTimeTo15(value) {
+    if (!value || typeof value !== 'string') return '';
+    const [h, m] = value.split(':').map((v) => parseInt(v, 10));
+    if (Number.isNaN(h) || Number.isNaN(m)) return value;
+    const total = h * 60 + m;
+    const rounded = Math.round(total / 15) * 15;
+    const rh = Math.floor(rounded / 60) % 24;
+    const rm = rounded % 60;
+    return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
+}
+
+/**
  * ユーザーの所属グループに基づいて、小分類（Category B）の表示ラベルを決定する
  * @returns {string} 表示ラベル ('店舗名' または '工事番号・案件名')
  */
@@ -273,8 +292,8 @@ function addTaskEntry(task = null) {
             <input type="text" class="task-category-minor" placeholder="集計" style="flex: 0 0 86px; min-width: 0; align-self: center;" required readonly>
             <input type="text" class="task-category-major" placeholder="業務" style="flex: 1 1 0; min-width: 0; align-self: center;" required readonly>
             <div class="task-time-range-wrap" style="flex: 0 0 84px; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
-                <input type="time" class="task-start-time" style="width: 100%; box-sizing: border-box;">
-                <input type="time" class="task-end-time" style="width: 100%; box-sizing: border-box;">
+                <input type="time" class="task-start-time" step="${NET_TASK_TIME_STEP_SECONDS}" style="width: 100%; box-sizing: border-box;">
+                <input type="time" class="task-end-time" step="${NET_TASK_TIME_STEP_SECONDS}" style="width: 100%; box-sizing: border-box;">
             </div>
             <input type="number" class="task-time time-input" inputmode="numeric" placeholder="分" style="flex: 0 0 48px; align-self: center;" required>
             <div class="net-task-remove-wrap"><button type="button" class="remove-task-button net-task-remove-btn">－</button></div>
@@ -308,8 +327,16 @@ function addTaskEntry(task = null) {
         if (isReportNetPage) {
             const startEl = entryDiv.querySelector('.task-start-time');
             const endEl = entryDiv.querySelector('.task-end-time');
-            if (startEl && task.startTime) { startEl.value = task.startTime; entryDiv.dataset.startTime = task.startTime; }
-            if (endEl && task.endTime) { endEl.value = task.endTime; entryDiv.dataset.endTime = task.endTime; }
+            if (startEl && task.startTime) {
+                const st = roundNetTaskTimeTo15(task.startTime);
+                startEl.value = st;
+                entryDiv.dataset.startTime = st;
+            }
+            if (endEl && task.endTime) {
+                const et = roundNetTaskTimeTo15(task.endTime);
+                endEl.value = et;
+                entryDiv.dataset.endTime = et;
+            }
         }
         if (task.comment) entryDiv.dataset.comment = task.comment;
     }
@@ -318,16 +345,6 @@ function addTaskEntry(task = null) {
     // - 既存日報由来(lockedTime=1): DB分数を維持
     // - 入力中タスク(lockedTime!=1): 開始/終了から分数を再計算
     if (isReportNetPage && (startTimeInput || endTimeInput)) {
-        const roundTimeTo15 = (value) => {
-            if (!value || typeof value !== 'string') return '';
-            const [h, m] = value.split(':').map(v => parseInt(v, 10));
-            if (isNaN(h) || isNaN(m)) return value;
-            const total = h * 60 + m;
-            const rounded = Math.round(total / 15) * 15;
-            const rh = Math.floor(rounded / 60) % 24;
-            const rm = rounded % 60;
-            return String(rh).padStart(2, '0') + ':' + String(rm).padStart(2, '0');
-        };
         const timeToMinutes = (value) => {
             if (!value || typeof value !== 'string') return null;
             const [h, m] = value.split(':').map(v => parseInt(v, 10));
@@ -349,7 +366,7 @@ function addTaskEntry(task = null) {
             if (!input) return;
             input.addEventListener('change', () => {
                 if (input.value) {
-                    input.value = roundTimeTo15(input.value);
+                    input.value = roundNetTaskTimeTo15(input.value);
                     if (input.classList.contains('task-start-time')) entryDiv.dataset.startTime = input.value;
                     if (input.classList.contains('task-end-time')) entryDiv.dataset.endTime = input.value;
                     // 既存日報由来の行でも、時刻を編集した時点で再計算モードへ移行
@@ -365,6 +382,13 @@ function addTaskEntry(task = null) {
         };
         applyRoundAndMinutes(startTimeInput);
         applyRoundAndMinutes(endTimeInput);
+        if (
+            entryDiv.dataset.lockedTime !== '1'
+            && startTimeInput?.value
+            && endTimeInput?.value
+        ) {
+            updateMinutesFromRange();
+        }
     }
 
     // イベントリスナーを新しい要素に設定
@@ -2921,18 +2945,7 @@ async function showReportPageNet(urlParams) {
             newEntry = addTaskEntry(lastDeletedTask);
             lastDeletedTask = null;
         } else {
-            const entries = document.querySelectorAll('#task-entries-container .task-entry');
-            let prevEnd = '';
-            for (let i = entries.length - 1; i >= 0; i--) {
-                const entry = entries[i];
-                const endInput = entry.querySelector('.task-end-time');
-                const endVal = (endInput && endInput.value) || entry.dataset.endTime || '';
-                if (endVal) {
-                    prevEnd = endVal;
-                    break;
-                }
-            }
-            newEntry = addTaskEntry(prevEnd ? { startTime: prevEnd } : null);
+            newEntry = addTaskEntry(null);
         }
         updateWorkTimeSummary();
         focusAndRevealNewTaskEntry(newEntry);
