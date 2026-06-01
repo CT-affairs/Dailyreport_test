@@ -1067,6 +1067,11 @@ function _monthlyOverviewCellColorFromCalendarStatus(statusData) {
     return GRAY;
 }
 
+/** 当月一覧モーダル: 社員名・差分の固定列幅（px） */
+const MONTHLY_OVERVIEW_STICKY_COL_PX = 90;
+/** 当月一覧モーダル最大幅（1400 + 差分列1本分） */
+const MONTHLY_OVERVIEW_MODAL_MAX_WIDTH_PX = 1400 + MONTHLY_OVERVIEW_STICKY_COL_PX;
+
 async function openMonthlyOverviewModal() {
     const monthlyOverviewModalTitle =
         document.querySelector('.nav-item.active')?.dataset?.target === 'dashboard_net'
@@ -1090,7 +1095,7 @@ async function openMonthlyOverviewModal() {
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:120000;display:flex;align-items:center;justify-content:center;padding:20px;';
     const modal = document.createElement('div');
-    modal.style.cssText = 'width:min(96vw,1400px);height:min(88vh,900px);background:#fff;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.25);';
+    modal.style.cssText = `width:min(96vw,${MONTHLY_OVERVIEW_MODAL_MAX_WIDTH_PX}px);height:min(88vh,900px);background:#fff;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.25);`;
     const head = document.createElement('div');
     head.style.cssText = 'padding:10px 14px;border-bottom:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center;';
     const titleEl = document.createElement('div');
@@ -1249,15 +1254,22 @@ async function openMonthlyOverviewModal() {
             return;
         }
 
+        const stickyColW = MONTHLY_OVERVIEW_STICKY_COL_PX;
+        const stickyColBox = `width:${stickyColW}px;min-width:${stickyColW}px;max-width:${stickyColW}px;box-sizing:border-box;`;
+        const stickyHeadBase = `position:sticky;background:#fff;z-index:4;border:1px solid #ddd;padding:4px 6px;white-space:nowrap;${stickyColBox}`;
+        const stickyBodyBase = `position:sticky;background:#fff;z-index:2;border:1px solid #ddd;padding:3px 6px;white-space:nowrap;${stickyColBox}`;
+
         let html = '<table style="border-collapse:collapse;font-size:10px;min-width:100%;">';
-        html += '<thead><tr><th style="position:sticky;left:0;background:#fff;z-index:2;border:1px solid #ddd;padding:4px 6px;white-space:nowrap;">社員名</th>';
+        html += `<thead><tr><th style="${stickyHeadBase}left:0;">社員名</th>`;
+        html += `<th style="${stickyHeadBase}left:${stickyColW}px;">差分</th>`;
         columns.forEach((c) => {
             html += `<th style="border:1px solid #ddd;padding:3px 5px;text-align:center;min-width:22px;">${escapeHTML(c.label)}</th>`;
         });
         html += '</tr></thead><tbody>';
 
         shownUsers.forEach((u) => {
-            html += `<tr><td style="position:sticky;left:0;background:#fff;z-index:1;border:1px solid #ddd;padding:3px 6px;white-space:nowrap;">${escapeHTML(u.name)}</td>`;
+            html += `<tr><td style="${stickyBodyBase}left:0;">${escapeHTML(u.name)}</td>`;
+            html += `<td style="${stickyBodyBase}left:${stickyColW}px;"></td>`;
             columns.forEach((c) => {
                 if (!c.ymd) {
                     html += '<td style="border:1px solid #ddd;background:#fff;"></td>';
