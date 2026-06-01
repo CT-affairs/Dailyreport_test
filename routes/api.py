@@ -3847,9 +3847,82 @@ def _net_staff_labor_breakdown_for_sheet(user_data: dict, as_of: datetime, emplo
     }
 
 
+def _aggregate_net_staff_breakdown_sheet_times(
+    start_date: datetime, end_date: datetime
+) -> dict[str, dict[str, int]]:
+    """
+    内訳シート用の月度合計（分）。
+    - report_input_minutes: 日報 task_total_minutes の合計
+    - non_work_minutes: category_a が N00 / N14 / N20 のタスク time 合計
+    """
+    query = (
+        db.collection(COLLECTION_DAILY_REPORTS)
+        .where(filter=FieldFilter("date", ">=", start_date))
+        .where(filter=FieldFilter("date", "<=", end_date))
+    )
+    agg: dict[str, dict[str, int]] = {}
+    for doc in query.stream():
+        rep = doc.to_dict() or {}
+        if not _is_net_daily_report_group(rep.get("group_id")):
+            continue
+        parsed_e, _ = _parse_daily_report_doc_id(doc.id)
+        emp_id = _net_summary_employee_key_from_daily_report(rep, parsed_e)
+        if not emp_id:
+            continue
+        entry = agg.setdefault(
+            emp_id, {"report_input_minutes": 0, "non_work_minutes": 0}
+        )
+        raw_total = rep.get("task_total_minutes")
+        try:
+            entry["report_input_minutes"] += int(raw_total) if raw_total is not None else 0
+        except (TypeError, ValueError):
+            pass
+        for task in _iter_tasks_for_net_csv(rep.get("tasks")):
+            if not isinstance(task, dict):
+                continue
+            cat_a_id = _norm_str_id(task.get("categoryA_id"))
+            if not cat_a_id or cat_a_id not in _NET_BREAKDOWN_NON_WORK_CAT_A_IDS:
+                continue
+            mins = _safe_int_minutes(task.get("time")) or 0
+            if mins > 0:
+                entry["non_work_minutes"] += mins
+    return agg
+
+
+def _attach_net_staff_breakdown_time_columns(
+    staff_list: list[dict], time_by_staff: dict[str, dict[str, int]]
+) -> None:
+    """内訳シート用の時間列・人件費(見込額)を各 staff.breakdown に付与する。"""
+    for staff in staff_list:
+        emp_id = staff.get("id")
+        t = time_by_staff.get(emp_id, {})
+        report_input = int(t.get("report_input_minutes") or 0)
+        non_work = int(t.get("non_work_minutes") or 0)
+        actual_work = max(0, report_input - non_work)
+        bd = dict(staff.get("breakdown") or {})
+        bd["report_input_minutes"] = report_input
+        bd["non_work_minutes"] = non_work
+        bd["actual_work_minutes"] = actual_work
+        if report_input == 0 and non_work == 0 and actual_work == 0:
+            bd["labor_cost_estimate"] = 0
+        else:
+            bd["labor_cost_estimate"] = int(staff.get("labor_cost") or 0)
+        staff["breakdown"] = bd
+
+
 def _populate_net_staff_breakdown_sheet(ws_br, staff_list: list[dict]) -> int:
     """内訳シートにヘッダとスタッフ行を書き込み、最終行番号を返す。"""
-    headers = ("スタッフ", "スタッフ種別", "work_kind", "入社年数", "人件費(資料用の概算式)")
+    headers = (
+        "スタッフ",
+        "スタッフ種別",
+        "work_kind",
+        "入社年数",
+        "人件費(見込額)",
+        "人件費(資料用の概算式)",
+        "実働時間",
+        "有休・工務・休憩",
+        "日報入力時間",
+    )
     hdr_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for col, title in enumerate(headers, start=1):
         c = ws_br.cell(row=1, column=col)
@@ -3866,18 +3939,31 @@ def _populate_net_staff_breakdown_sheet(ws_br, staff_list: list[dict]) -> int:
         ws_br.cell(row=row_idx, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         ws_br.cell(row=row_idx, column=4).value = int(bd.get("years") or 0)
         ws_br.cell(row=row_idx, column=4).alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-        ws_br.cell(row=row_idx, column=5).value = bd.get("formula_jp", "")
-        ws_br.cell(row=row_idx, column=5).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        est_cell = ws_br.cell(row=row_idx, column=5)
+        est_cell.value = int(bd.get("labor_cost_estimate") or 0)
+        est_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+        est_cell.number_format = "#,##0"
+        ws_br.cell(row=row_idx, column=6).value = bd.get("formula_jp", "")
+        ws_br.cell(row=row_idx, column=6).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        for col_idx, key in ((7, "actual_work_minutes"), (8, "non_work_minutes"), (9, "report_input_minutes")):
+            c = ws_br.cell(row=row_idx, column=col_idx)
+            c.value = int(bd.get(key) or 0)
+            c.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            c.number_format = "#,##0"
         last_r = row_idx
     ws_br.column_dimensions["A"].width = 18
     ws_br.column_dimensions["B"].width = 12
     ws_br.column_dimensions["C"].width = 10
     ws_br.column_dimensions["D"].width = 12
-    ws_br.column_dimensions["E"].width = 42
+    ws_br.column_dimensions["E"].width = 14
+    ws_br.column_dimensions["F"].width = 42
+    ws_br.column_dimensions["G"].width = 12
+    ws_br.column_dimensions["H"].width = 16
+    ws_br.column_dimensions["I"].width = 14
     return last_r
 
 
-def _apply_net_staff_breakdown_sheet_style(ws_br, *, last_row: int, last_col: int = 5) -> None:
+def _apply_net_staff_breakdown_sheet_style(ws_br, *, last_row: int, last_col: int = 9) -> None:
     for r in range(1, last_row + 1):
         font = _NET_STAFF_SUMMARY_FONT_HEADER if r == 1 else _NET_STAFF_SUMMARY_FONT_BODY
         for c in range(1, last_col + 1):
@@ -4141,6 +4227,9 @@ def _net_summary_minutes_for_cat_b_a_scan(
 _NET_SUMMARY_PAID_LEAVE_ROW_CAT_B_ID = "e_000000"
 _NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID = "A00"
 
+# 内訳シート「有休・工務・休憩」: category_a の合計対象
+_NET_BREAKDOWN_NON_WORK_CAT_A_IDS = frozenset({"N00", "N14", "N20"})
+
 
 def _aggregate_net_staff_jobcan_minutes_for_summary(start_date: datetime, end_date: datetime) -> dict[str, int]:
     """
@@ -4184,7 +4273,7 @@ def _build_net_staff_summary_excel_workbook(
     """
     スタッフ別（ネット）Excelのレイアウト骨子。
     - シート1: シート名 YYYY年MM月度（月度終了日ベース）の集計表
-    - シート2「内訳」: 氏名・スタッフ種別（正社員/時短社員/パート）・work_kind 値・入社年数・人件費の乗算式（表示用テキスト）
+    - シート2「内訳」: 氏名・スタッフ種別・work_kind・入社年数・人件費(見込額)・概算式・実働/有休工務休憩/日報入力時間（分）
     - 列 D〜F（シート1）: カテゴリは列挙しない（プレースホルダのみ。例: E1=合計）。D2 累計人件費は各スタッフ左列2行目の SUM 式。
       データ行の合計ブロック: E=当行の勤務時間合計、F=当行タスク分÷全スタッフ月度総勤務（タスク合計優先・なければJobcan）、
       D=各スタッフ左列（当業務人件費）の合計。
@@ -4199,6 +4288,8 @@ def _build_net_staff_summary_excel_workbook(
     cat_a_list = _fetch_net_category_a_for_staff_summary_excel()
     cat_b_list = _fetch_net_category_b_for_staff_summary_excel()
     staff_list = _fetch_net_staff_for_summary_blocks(start_date, end_date, as_of)
+    breakdown_times = _aggregate_net_staff_breakdown_sheet_times(start_date, end_date)
+    _attach_net_staff_breakdown_time_columns(staff_list, breakdown_times)
     task_minutes_map = _aggregate_net_staff_task_minutes_for_summary(start_date, end_date)
     jobcan_minutes_by_staff = _aggregate_net_staff_jobcan_minutes_for_summary(start_date, end_date)
     staff_total_task_minutes = {
