@@ -3595,6 +3595,8 @@ _NET_STAFF_SUMMARY_HDR_FILL_STAFF_ROW1 = "4169E1"
 _NET_STAFF_SUMMARY_HDR_FILL_STAFF_ROW2 = "ADD8E6"
 # データ行の金額列（合計 D・スタッフブロック各左列）
 _NET_STAFF_SUMMARY_BODY_AMOUNT_COL_FILL = "F2F2F2"
+# 内訳シート G〜I（時間列）: ユーザー定義ではなく標準（General）書式で出力
+_NET_STAFF_BREAKDOWN_HOURS_NUMBER_FORMAT = "General"
 
 
 def _apply_net_staff_summary_sheet_font(ws, *, last_row: int, last_col: int = 6) -> None:
@@ -3950,7 +3952,7 @@ def _populate_net_staff_breakdown_sheet(ws_br, staff_list: list[dict]) -> int:
             mins = int(bd.get(key) or 0)
             c.value = mins / 60.0 if mins else 0
             c.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            c.number_format = "0.##"
+            c.number_format = _NET_STAFF_BREAKDOWN_HOURS_NUMBER_FORMAT
         last_r = row_idx
     ws_br.column_dimensions["A"].width = 18
     ws_br.column_dimensions["B"].width = 12
@@ -4069,7 +4071,7 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
       所属判定はマッピングの **jobcan_employee_id**（Jobcan id）を jobcan_net_ids と突き合わせる。
       列キー・日報集計との対応はマッピング **ドキュメント ID = company_employee_id** を正規化した値とする。
     - jobcan_employee_id が無いレガシー行のみ、ドキュメント ID を Jobcan id とみなして jobcan_net_ids と照合する。
-    - 列の並びは employee_mappings のドキュメント ID 文字列昇順。
+    - 列の並びは users.entered_day（入社日）昇順。未取得は末尾、同日は社員 ID 昇順。
     - config の OFFICER_ID（Jobcan id）に対応する active マッピングが無い場合のみ合成列を追加。
       マッピングがあればその **company_employee_id** を列キーにする。
     - users は jobcan_employee_id 索引を優先し、無ければ users.document(company_employee_id)。
@@ -4132,14 +4134,13 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
             if officer_name:
                 name_map[officer_staff_key] = str(officer_name).strip() or name_map.get(officer_staff_key, "Unknown")
 
-    ordered_entries.sort(key=lambda t: t[0])
-    sorted_ids = [tp[1] for tp in ordered_entries]
+    candidate_ids = [tp[1] for tp in ordered_entries]
 
-    if not sorted_ids:
+    if not candidate_ids:
         return []
 
     staff = []
-    for emp_id in sorted_ids:
+    for emp_id in candidate_ids:
         jc_lookup = company_norm_to_jobcan_id.get(emp_id)
         user_data = users_by_jobcan.get(jc_lookup) if jc_lookup else None
         if user_data is None:
@@ -4154,6 +4155,7 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
                 if ck and (ed_j := entered_day_from_jobcan.get(ck)):
                     user_data["entered_day"] = ed_j
                     break
+        entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
         display_name = name_map.get(emp_id) or display_from_jobcan.get(jc_lookup or emp_id, "Unknown")
         staff.append(
             {
@@ -4162,8 +4164,19 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
                 "labor_cost": _calc_net_staff_monthly_labor_cost(user_data, as_of, emp_id),
                 "work_kind": _effective_net_staff_work_kind_raw(user_data, emp_id),
                 "breakdown": _net_staff_labor_breakdown_for_sheet(user_data, as_of, emp_id),
+                "_entered_day": entered_day,
             }
         )
+
+    def _net_staff_hire_sort_key(row: dict) -> tuple:
+        ed = row.get("_entered_day")
+        if ed is None:
+            return (1, datetime.max, row.get("id") or "")
+        return (0, ed, row.get("id") or "")
+
+    staff.sort(key=_net_staff_hire_sort_key)
+    for row in staff:
+        row.pop("_entered_day", None)
     return staff
 
 
