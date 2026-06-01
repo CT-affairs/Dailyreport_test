@@ -3762,6 +3762,45 @@ def _get_net_summary_officer_overrides() -> tuple[str | None, str | None, str | 
         return None, None, None
 
 
+def _resolve_net_staff_entered_day(
+    user_data: dict,
+    employee_id: str | None,
+    *,
+    entered_day_from_jobcan: dict[str, str] | None = None,
+    jobcan_lookup_keys: tuple[str | None, ...] | None = None,
+) -> datetime | None:
+    """
+    ネット・スタッフ別集計 Excel 用の入社日解決（この経路のみで使用）。
+
+    1. users.entered_day
+    2. 無い場合: Jobcan 従業員 API の entered_day（entered_day_from_jobcan）
+    3. まだ無く OFFICER_ID と一致: config.OFFICER_ENTERED_DAY（users があるときは使わない）
+    """
+    entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
+
+    if entered_day is None and entered_day_from_jobcan:
+        keys = jobcan_lookup_keys if jobcan_lookup_keys is not None else (employee_id,)
+        for key in keys:
+            ck = _normalize_jobcan_employee_id_for_match(key)
+            if not ck:
+                continue
+            ed_raw = entered_day_from_jobcan.get(ck)
+            if not ed_raw:
+                continue
+            entered_day = _parse_user_entered_day_date(ed_raw)
+            if entered_day is not None:
+                break
+
+    if entered_day is None:
+        officer_id, officer_entered_day_raw, _ = _get_net_summary_officer_overrides()
+        normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
+        normalized_officer = _normalize_jobcan_employee_id_for_match(officer_id)
+        if normalized_emp and normalized_officer and normalized_emp == normalized_officer:
+            entered_day = _parse_user_entered_day_date(officer_entered_day_raw)
+
+    return entered_day
+
+
 def _effective_net_staff_work_kind_raw(user_data: dict, employee_id: str | None = None):
     """人件費計算で使う work_kind。執行役員は work_kind 3 固定。"""
     officer_id, _, _ = _get_net_summary_officer_overrides()
@@ -3772,17 +3811,14 @@ def _effective_net_staff_work_kind_raw(user_data: dict, employee_id: str | None 
     return user_data.get("work_kind_id") or user_data.get("work_kind")
 
 
-def _calc_net_staff_monthly_labor_cost(user_data: dict, as_of: datetime, employee_id: str | None = None) -> int:
-    entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
-    officer_id, officer_entered_day_raw, _ = _get_net_summary_officer_overrides()
-    # OFFICER_ID は int / str / "210501.0" など表現ゆれがあり得るため、
-    # Jobcan 突合せと同じ正規化で比較する。
-    normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
-    normalized_officer = _normalize_jobcan_employee_id_for_match(officer_id)
-    if normalized_emp and normalized_emp == normalized_officer:
-        officer_entered_day = _parse_user_entered_day_date(officer_entered_day_raw)
-        if officer_entered_day is not None:
-            entered_day = officer_entered_day
+def _calc_net_staff_monthly_labor_cost(
+    user_data: dict,
+    as_of: datetime,
+    employee_id: str | None = None,
+    *,
+    resolved_entered_day: datetime | None = None,
+) -> int:
+    entered_day = resolved_entered_day
     work_kind_raw = _effective_net_staff_work_kind_raw(user_data, employee_id)
     years = _years_since_entered_day(entered_day, as_of)
     # CAREER_COEFFICIENT は 0.03 形式を想定。
@@ -3816,19 +3852,18 @@ def _net_staff_type_label_for_breakdown(work_kind_raw, employee_id: str | None) 
     return "パート"
 
 
-def _net_staff_labor_breakdown_for_sheet(user_data: dict, as_of: datetime, employee_id: str | None = None) -> dict:
+def _net_staff_labor_breakdown_for_sheet(
+    user_data: dict,
+    as_of: datetime,
+    employee_id: str | None = None,
+    *,
+    resolved_entered_day: datetime | None = None,
+) -> dict:
     """
     内訳シート用。人件費は base×labor_factor×(1+キャリア年率×入社年数) と _calc_net_staff_monthly_labor_cost で一致。
     式は日本語の「×」表記（Excel の数式ではなく表示用テキスト）。
     """
-    entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
-    officer_id, officer_entered_day_raw, _ = _get_net_summary_officer_overrides()
-    normalized_emp = _normalize_jobcan_employee_id_for_match(employee_id)
-    normalized_officer = _normalize_jobcan_employee_id_for_match(officer_id)
-    if normalized_emp and normalized_emp == normalized_officer:
-        officer_entered_day = _parse_user_entered_day_date(officer_entered_day_raw)
-        if officer_entered_day is not None:
-            entered_day = officer_entered_day
+    entered_day = resolved_entered_day
     work_kind_raw = _effective_net_staff_work_kind_raw(user_data, employee_id)
     years = _years_since_entered_day(entered_day, as_of)
     career_increment = Decimal(str(CAREER_COEFFICIENT))
@@ -4071,7 +4106,7 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
       所属判定はマッピングの **jobcan_employee_id**（Jobcan id）を jobcan_net_ids と突き合わせる。
       列キー・日報集計との対応はマッピング **ドキュメント ID = company_employee_id** を正規化した値とする。
     - jobcan_employee_id が無いレガシー行のみ、ドキュメント ID を Jobcan id とみなして jobcan_net_ids と照合する。
-    - 列の並びは users.entered_day（入社日）昇順。未取得は末尾、同日は社員 ID 昇順。
+    - 列の並びは _resolve_net_staff_entered_day で得た入社日昇順。未取得は末尾、同日は社員 ID 昇順。
     - config の OFFICER_ID（Jobcan id）に対応する active マッピングが無い場合のみ合成列を追加。
       マッピングがあればその **company_employee_id** を列キーにする。
     - users は jobcan_employee_id 索引を優先し、無ければ users.document(company_employee_id)。
@@ -4149,21 +4184,24 @@ def _fetch_net_staff_for_summary_blocks(start_date: datetime, end_date: datetime
             snap = db.collection("users").document(emp_id).get()
             user_data = snap.to_dict() if snap.exists else {}
         user_data = dict(user_data or {})
-        if _parse_user_entered_day_date(user_data.get("entered_day")) is None:
-            for cand in (jc_lookup, emp_id):
-                ck = _normalize_jobcan_employee_id_for_match(cand)
-                if ck and (ed_j := entered_day_from_jobcan.get(ck)):
-                    user_data["entered_day"] = ed_j
-                    break
-        entered_day = _parse_user_entered_day_date(user_data.get("entered_day"))
+        entered_day = _resolve_net_staff_entered_day(
+            user_data,
+            emp_id,
+            entered_day_from_jobcan=entered_day_from_jobcan,
+            jobcan_lookup_keys=(jc_lookup, emp_id),
+        )
         display_name = name_map.get(emp_id) or display_from_jobcan.get(jc_lookup or emp_id, "Unknown")
         staff.append(
             {
                 "id": emp_id,
                 "name": display_name,
-                "labor_cost": _calc_net_staff_monthly_labor_cost(user_data, as_of, emp_id),
+                "labor_cost": _calc_net_staff_monthly_labor_cost(
+                    user_data, as_of, emp_id, resolved_entered_day=entered_day
+                ),
                 "work_kind": _effective_net_staff_work_kind_raw(user_data, emp_id),
-                "breakdown": _net_staff_labor_breakdown_for_sheet(user_data, as_of, emp_id),
+                "breakdown": _net_staff_labor_breakdown_for_sheet(
+                    user_data, as_of, emp_id, resolved_entered_day=entered_day
+                ),
                 "_entered_day": entered_day,
             }
         )
