@@ -3947,9 +3947,10 @@ def _populate_net_staff_breakdown_sheet(ws_br, staff_list: list[dict]) -> int:
         ws_br.cell(row=row_idx, column=6).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         for col_idx, key in ((7, "actual_work_minutes"), (8, "non_work_minutes"), (9, "report_input_minutes")):
             c = ws_br.cell(row=row_idx, column=col_idx)
-            c.value = int(bd.get(key) or 0)
+            mins = int(bd.get(key) or 0)
+            c.value = mins / 60.0 if mins else 0
             c.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            c.number_format = "#,##0"
+            c.number_format = "0.##"
         last_r = row_idx
     ws_br.column_dimensions["A"].width = 18
     ws_br.column_dimensions["B"].width = 12
