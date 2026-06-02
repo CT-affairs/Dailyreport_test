@@ -147,9 +147,9 @@ class JobcanService:
         """
         月次勤務実績（work / shift 等）を取得する。
         GET /attendance/v1/employees/{employee_id}/work-time/results/monthly
-        scope: workTimeResults.read（Jobcan 管理画面の API クライアント設定要）
+        scope: monthlyWorkTimeResults.read（Jobcan 管理画面の API クライアント設定要）
         """
-        scope = "workTimeResults.read"
+        scope = "monthlyWorkTimeResults.read"
         url = f"{self.ATTENDANCE_API_BASE_URL}/employees/{employee_id}/work-time/results/monthly"
         params = [("year", str(int(year))), ("month", str(int(month)))]
         return self._request("GET", url, scope, params=params)

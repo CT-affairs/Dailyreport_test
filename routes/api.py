@@ -2680,14 +2680,22 @@ def get_manager_calendar_statuses():
 
 
 def _pick_monthly_work_time_result_row(
-    data: dict | None, year: int, month: int
+    data: dict | None, year: int, month: int, *, period_end_date: str | None = None
 ) -> dict | None:
-    """Jobcan monthly_work_time_results から year/month に一致する行を選ぶ。"""
+    """Jobcan monthly_work_time_results から year/month（または period_end_date）に一致する行を選ぶ。"""
     if not data or not isinstance(data, dict):
         return None
     rows = data.get("monthly_work_time_results")
     if not isinstance(rows, list) or not rows:
         return None
+
+    def _row_month_no(row: dict) -> int | None:
+        month_obj = row.get("month") if isinstance(row.get("month"), dict) else {}
+        try:
+            return int(month_obj.get("month_no"))
+        except (TypeError, ValueError):
+            return None
+
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -2695,14 +2703,32 @@ def _pick_monthly_work_time_result_row(
             row_year = int(row.get("year"))
         except (TypeError, ValueError):
             continue
-        month_obj = row.get("month") if isinstance(row.get("month"), dict) else {}
-        try:
-            row_month = int(month_obj.get("month_no"))
-        except (TypeError, ValueError):
-            row_month = None
+        row_month = _row_month_no(row)
         if row_year == int(year) and row_month == int(month):
             return row
+
+    if period_end_date:
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            month_obj = row.get("month") if isinstance(row.get("month"), dict) else {}
+            if month_obj.get("to") == period_end_date or month_obj.get("from") == period_end_date:
+                return row
+
     return rows[0] if len(rows) == 1 else None
+
+
+def _work_shift_diff_unavailable_response(*, jobcan_api_failed: bool = False, monthly_data_missing: bool = False) -> dict:
+    out = {
+        "diff_minutes": None,
+        "work_minutes": None,
+        "shift_minutes": None,
+    }
+    if jobcan_api_failed:
+        out["jobcan_api_failed"] = True
+    if monthly_data_missing:
+        out["monthly_data_missing"] = True
+    return out
 
 
 def _work_shift_diff_minutes_from_monthly_result(row: dict | None) -> dict:
@@ -2755,6 +2781,7 @@ def get_manager_monthly_overview_work_shift_diff():
     target_employee_id = request.args.get("employee_id")
     year_str = request.args.get("year")
     month_str = request.args.get("month")
+    period_end_date = request.args.get("period_end_date")
 
     if not all([target_employee_id, year_str, month_str]):
         abort(400, "Missing required parameters: employee_id, year, month")
@@ -2790,20 +2817,28 @@ def get_manager_monthly_overview_work_shift_diff():
     raw = jobcan_service.get_monthly_work_time_results(jobcan_key, year, month)
     if raw is None:
         current_app.logger.warning(
-            "monthly-overview/work-shift-diff: Jobcan API failed employee=%s year=%s month=%s",
+            "monthly-overview/work-shift-diff: Jobcan API failed employee=%s year=%s month=%s "
+            "(check OAuth scope monthlyWorkTimeResults.read)",
             target_employee_id,
             year,
             month,
         )
-        return jsonify(
-            {
-                "diff_minutes": None,
-                "work_minutes": None,
-                "shift_minutes": None,
-            }
-        ), 200
+        return jsonify(_work_shift_diff_unavailable_response(jobcan_api_failed=True)), 200
 
-    row = _pick_monthly_work_time_result_row(raw, year, month)
+    row = _pick_monthly_work_time_result_row(
+        raw, year, month, period_end_date=period_end_date
+    )
+    if row is None:
+        row_count = len(raw.get("monthly_work_time_results") or [])
+        current_app.logger.info(
+            "monthly-overview/work-shift-diff: no matching monthly row employee=%s year=%s month=%s rows=%s",
+            target_employee_id,
+            year,
+            month,
+            row_count,
+        )
+        return jsonify(_work_shift_diff_unavailable_response(monthly_data_missing=True)), 200
+
     return jsonify(_work_shift_diff_minutes_from_monthly_result(row)), 200
 
 
