@@ -1230,9 +1230,6 @@ async function openMonthlyOverviewModal() {
         }
         const startDateStr = uniqueDates[0];
         const endDateStr = uniqueDates[uniqueDates.length - 1];
-        const periodEndParts = endDateStr.split('-').map(Number);
-        const periodEndYear = periodEndParts[0];
-        const periodEndMonth = periodEndParts[1];
 
         const statusByEmployee = {};
         const workShiftDiffByEmployee = {};
@@ -1248,7 +1245,7 @@ async function openMonthlyOverviewModal() {
                         `${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${empKey}&start_date=${startDateStr}&end_date=${endDateStr}&_ts=${cacheBuster}`,
                     ),
                     fetchWithAuth(
-                        `${API_BASE_URL}/api/manager/monthly-overview/work-shift-diff?employee_id=${empKey}&year=${periodEndYear}&month=${periodEndMonth}&period_end_date=${encodeURIComponent(endDateStr)}&start_date=${encodeURIComponent(startDateStr)}&end_date=${encodeURIComponent(endDateStr)}&_ts=${cacheBuster}`,
+                        `${API_BASE_URL}/api/manager/monthly-overview/work-shift-diff?employee_id=${empKey}&start_date=${encodeURIComponent(startDateStr)}&end_date=${encodeURIComponent(endDateStr)}&_ts=${cacheBuster}`,
                     ),
                 ]);
                 if (!calRes.ok) {
@@ -1290,14 +1287,14 @@ async function openMonthlyOverviewModal() {
                 : null;
             const diffLabel = formatDiffMinutesAsJaForComparison(diffMinutes);
             const diffTitle = diffData.jobcan_id_missing
-                ? 'Jobcan IDなし（差分0）'
-                : diffData.jobcan_api_failed
-                    ? 'Jobcan API取得失敗（monthlyWorkTimeResults.read を確認）'
-                    : diffData.monthly_data_missing
-                        ? 'Jobcan月次実績なし（集計も取得不可）'
-                        : diffMinutes !== null && diffData.work_minutes != null && diffData.shift_minutes != null
-                            ? `勤務:${diffData.work_minutes}分 シフト:${diffData.shift_minutes}分 差:${diffMinutes}分${diffData.source === 'period_aggregate' ? '（期間集計）' : ''}`
-                            : 'Jobcan月次実績なし';
+                ? 'Jobcan IDなし（シフト外0）'
+                : diffData.monthly_data_missing
+                    ? 'Jobcan月次サマリー取得不可'
+                    : diffMinutes !== null
+                        ? (diffData.work_minutes != null
+                            ? `勤務:${diffData.work_minutes}分 シフト外:${diffData.shift_over_minutes ?? diffMinutes}分`
+                            : `シフト外労働:${diffData.shift_over_minutes ?? diffMinutes}分`)
+                        : 'Jobcan月次サマリーなし';
             html += `<td title="${escapeHTML(diffTitle)}" style="${stickyBodyBase}left:${stickyColW}px;text-align:right;">${escapeHTML(diffLabel)}</td>`;
             columns.forEach((c) => {
                 if (!c.ymd) {

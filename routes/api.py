@@ -2679,159 +2679,49 @@ def get_manager_calendar_statuses():
     return jsonify(statuses), 200
 
 
-def _pick_monthly_work_time_result_row(
-    data: dict | None, year: int, month: int, *, period_end_date: str | None = None
-) -> dict | None:
-    """Jobcan monthly_work_time_results から year/month（または period_end_date）に一致する行を選ぶ。"""
-    if not data or not isinstance(data, dict):
-        return None
-    rows = data.get("monthly_work_time_results")
-    if not isinstance(rows, list) or not rows:
-        return None
-
-    def _row_month_no(row: dict) -> int | None:
-        month_obj = row.get("month") if isinstance(row.get("month"), dict) else {}
-        try:
-            return int(month_obj.get("month_no"))
-        except (TypeError, ValueError):
-            return None
-
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        try:
-            row_year = int(row.get("year"))
-        except (TypeError, ValueError):
-            continue
-        row_month = _row_month_no(row)
-        if row_year == int(year) and row_month == int(month):
-            return row
-
-    if period_end_date:
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            month_obj = row.get("month") if isinstance(row.get("month"), dict) else {}
-            if month_obj.get("to") == period_end_date or month_obj.get("from") == period_end_date:
-                return row
-
-    return rows[0] if len(rows) == 1 else None
-
-
-def _dates_inclusive(start_date_str: str, end_date_str: str) -> list[str]:
-    start = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-    end = datetime.strptime(end_date_str, "%Y-%m-%d").date()
-    if end < start:
-        return []
-    dates = []
-    current = start
-    while current <= end:
-        dates.append(current.isoformat())
-        current += timedelta(days=1)
-    return dates
-
-
-def _hhmm_to_minutes(hhmm: str) -> int | None:
-    if not hhmm or not isinstance(hhmm, str) or ":" not in hhmm:
-        return None
-    try:
-        hour_str, minute_str = hhmm.split(":", 1)
-        return int(hour_str) * 60 + int(minute_str)
-    except (TypeError, ValueError):
-        return None
-
-
-def _shift_minutes_from_confirmed_shift_row(row: dict) -> int:
-    total = 0
-    for segment in row.get("shifts") or []:
-        if not isinstance(segment, dict):
-            continue
-        start_minutes = _hhmm_to_minutes(segment.get("start"))
-        end_minutes = _hhmm_to_minutes(segment.get("end"))
-        if start_minutes is None or end_minutes is None:
-            continue
-        if end_minutes >= start_minutes:
-            total += end_minutes - start_minutes
-    return total
-
-
-def _work_shift_diff_from_period_aggregate(
+def _shift_over_from_monthly_summary(
     jobcan_service, jobcan_employee_id: str, start_date: str, end_date: str
 ) -> dict | None:
     """
-    月次 work-time/results が空のときの代替。
-    summaries/monthly の work.all と、期間内確定シフト合計から work - shift を算出する。
+    summaries/monthly の shift_over.all（シフト外労働時間）を差分列用に返す。
     """
     summary = jobcan_service.get_monthly_summary(jobcan_employee_id, start_date, end_date)
     if not summary or not isinstance(summary, dict):
         return None
 
-    work_block = summary.get("work")
-    if not isinstance(work_block, dict):
+    shift_over_block = summary.get("shift_over")
+    if not isinstance(shift_over_block, dict):
         return None
     try:
-        work_minutes = int(work_block.get("all", 0))
+        shift_over_minutes = int(shift_over_block.get("all", 0))
     except (TypeError, ValueError):
         return None
 
-    dates = _dates_inclusive(start_date, end_date)
-    if not dates:
-        return None
-
-    shift_minutes = 0
-    shifts_data = jobcan_service.get_confirmed_shifts(jobcan_employee_id, dates)
-    if shifts_data is None:
-        return None
-    for row in shifts_data.get("shifts") or []:
-        if isinstance(row, dict):
-            shift_minutes += _shift_minutes_from_confirmed_shift_row(row)
+    work_minutes = None
+    work_block = summary.get("work")
+    if isinstance(work_block, dict):
+        try:
+            work_minutes = int(work_block.get("all", 0))
+        except (TypeError, ValueError):
+            work_minutes = None
 
     return {
-        "diff_minutes": work_minutes - shift_minutes,
+        "diff_minutes": shift_over_minutes,
         "work_minutes": work_minutes,
-        "shift_minutes": shift_minutes,
-        "source": "period_aggregate",
+        "shift_over_minutes": shift_over_minutes,
+        "source": "monthly_summary_shift_over",
     }
 
 
-def _work_shift_diff_unavailable_response(*, jobcan_api_failed: bool = False, monthly_data_missing: bool = False) -> dict:
+def _work_shift_diff_unavailable_response(*, monthly_data_missing: bool = False) -> dict:
     out = {
         "diff_minutes": None,
         "work_minutes": None,
-        "shift_minutes": None,
+        "shift_over_minutes": None,
     }
-    if jobcan_api_failed:
-        out["jobcan_api_failed"] = True
     if monthly_data_missing:
         out["monthly_data_missing"] = True
     return out
-
-
-def _work_shift_diff_minutes_from_monthly_result(row: dict | None) -> dict:
-    """
-    work(分) - shift(分) を返す。取得不可時は diff_minutes 等を null。
-    """
-    if not row or not isinstance(row, dict):
-        return {
-            "diff_minutes": None,
-            "work_minutes": None,
-            "shift_minutes": None,
-        }
-    try:
-        work = int(row.get("work"))
-        shift = int(row.get("shift"))
-    except (TypeError, ValueError):
-        return {
-            "diff_minutes": None,
-            "work_minutes": None,
-            "shift_minutes": None,
-        }
-    return {
-        "diff_minutes": work - shift,
-        "work_minutes": work,
-        "shift_minutes": shift,
-        "source": "monthly_work_time_results",
-    }
 
 
 def _monthly_overview_work_shift_diff_zero_response(*, jobcan_id_missing: bool = False) -> dict:
@@ -2839,7 +2729,7 @@ def _monthly_overview_work_shift_diff_zero_response(*, jobcan_id_missing: bool =
     out = {
         "diff_minutes": 0,
         "work_minutes": 0,
-        "shift_minutes": 0,
+        "shift_over_minutes": 0,
     }
     if jobcan_id_missing:
         out["jobcan_id_missing"] = True
@@ -2852,26 +2742,15 @@ def _monthly_overview_work_shift_diff_zero_response(*, jobcan_id_missing: bool =
 def get_manager_monthly_overview_work_shift_diff():
     """
     当月一覧モーダル「差分」列用。
-    Jobcan 月次勤務実績の work(分) - shift(分) を返す（表示はフロントで時間換算）。
-    employee_mappings に Jobcan ID が無い場合（執行役員等）は Jobcan を呼ばず差分 0 分。
+    Jobcan summaries/monthly の shift_over.all（シフト外労働時間・分）を返す。
+    employee_mappings に Jobcan ID が無い場合（執行役員等）は Jobcan を呼ばず 0 分。
     """
     target_employee_id = request.args.get("employee_id")
-    year_str = request.args.get("year")
-    month_str = request.args.get("month")
-    period_end_date = request.args.get("period_end_date")
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
 
-    if not all([target_employee_id, year_str, month_str]):
-        abort(400, "Missing required parameters: employee_id, year, month")
-
-    try:
-        year = int(year_str)
-        month = int(month_str)
-        if not (1 <= month <= 12):
-            abort(400, "month must be between 1 and 12")
-    except ValueError:
-        abort(400, "year and month must be integers")
+    if not all([target_employee_id, start_date, end_date]):
+        abort(400, "Missing required parameters: employee_id, start_date, end_date")
 
     mapping_ref = db.collection("employee_mappings").document(target_employee_id)
     mapping_doc = mapping_ref.get()
@@ -2893,44 +2772,18 @@ def get_manager_monthly_overview_work_shift_diff():
         raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES,
     )
     jobcan_key = str(jobcan_employee_id).strip()
-    raw = jobcan_service.get_monthly_work_time_results(jobcan_key, year, month)
+    result = _shift_over_from_monthly_summary(
+        jobcan_service, jobcan_key, start_date, end_date
+    )
+    if result is not None:
+        return jsonify(result), 200
 
-    if raw is not None:
-        row = _pick_monthly_work_time_result_row(
-            raw, year, month, period_end_date=period_end_date
-        )
-        if row is not None:
-            return jsonify(_work_shift_diff_minutes_from_monthly_result(row)), 200
-
-    if start_date and end_date:
-        aggregated = _work_shift_diff_from_period_aggregate(
-            jobcan_service, jobcan_key, start_date, end_date
-        )
-        if aggregated is not None:
-            return jsonify(aggregated), 200
-        current_app.logger.warning(
-            "monthly-overview/work-shift-diff: period aggregate failed employee=%s %s..%s",
-            target_employee_id,
-            start_date,
-            end_date,
-        )
-
-    if raw is None:
-        current_app.logger.warning(
-            "monthly-overview/work-shift-diff: Jobcan monthly API failed employee=%s year=%s month=%s",
-            target_employee_id,
-            year,
-            month,
-        )
-        return jsonify(_work_shift_diff_unavailable_response(jobcan_api_failed=True)), 200
-
-    row_count = len(raw.get("monthly_work_time_results") or [])
-    current_app.logger.info(
-        "monthly-overview/work-shift-diff: no monthly row employee=%s year=%s month=%s rows=%s",
+    current_app.logger.warning(
+        "monthly-overview/work-shift-diff: summaries/monthly shift_over unavailable "
+        "employee=%s %s..%s",
         target_employee_id,
-        year,
-        month,
-        row_count,
+        start_date,
+        end_date,
     )
     return jsonify(_work_shift_diff_unavailable_response(monthly_data_missing=True)), 200
 
