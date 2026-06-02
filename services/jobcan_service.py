@@ -154,6 +154,19 @@ class JobcanService:
         params = [("year", str(int(year))), ("month", str(int(month)))]
         return self._request("GET", url, scope, params=params)
 
+    def get_monthly_summary(
+        self, employee_id: str, start_date: str, end_date: str
+    ) -> Optional[Dict]:
+        """
+        月度サマリー（work 等）を取得する。
+        GET /attendance/v1/summaries/monthly/{employee_id}?start_date=&end_date=
+        scope: summaries.read
+        """
+        scope = "summaries.read"
+        url = f"{self.ATTENDANCE_API_BASE_URL}/summaries/monthly/{employee_id}"
+        params = [("start_date", start_date), ("end_date", end_date)]
+        return self._request("GET", url, scope, params=params)
+
     def refresh_daily_summary(self, employee_id: str, date: str) -> Optional[Dict]:
         """指定した日の勤務サマリーの再計算をリクエストする (POST)"""
         scope = "summaries.create" # 仕様書で確認した正しい書き込みスコープ

@@ -1,0 +1,11 @@
+﻿python : Traceback (most recent call last):
+発生場所 C:\Users\mizuno\AppData\Local\Temp\ps-script-31850a5e-4805-4128-92ee-d292ca534b5a.ps1:83 文字:40
++ ... eport_test"; python scripts/_extract_monthly_api_spec.py 2>&1 | Out-F ...
++                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "scripts/_extract_monthly_api_spec.py", line 14, in <module>
+    print("DESC:", m.group(1)[:500])
+UnicodeEncodeError: 'cp932' codec can't encode character '\xe5' in position 0: illegal multibyte sequence
+DESC: 
