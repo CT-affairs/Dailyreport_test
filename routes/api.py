@@ -2678,6 +2678,135 @@ def get_manager_calendar_statuses():
     
     return jsonify(statuses), 200
 
+
+def _pick_monthly_work_time_result_row(
+    data: dict | None, year: int, month: int
+) -> dict | None:
+    """Jobcan monthly_work_time_results から year/month に一致する行を選ぶ。"""
+    if not data or not isinstance(data, dict):
+        return None
+    rows = data.get("monthly_work_time_results")
+    if not isinstance(rows, list) or not rows:
+        return None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            row_year = int(row.get("year"))
+        except (TypeError, ValueError):
+            continue
+        month_obj = row.get("month") if isinstance(row.get("month"), dict) else {}
+        try:
+            row_month = int(month_obj.get("month_no"))
+        except (TypeError, ValueError):
+            row_month = None
+        if row_year == int(year) and row_month == int(month):
+            return row
+    return rows[0] if len(rows) == 1 else None
+
+
+def _work_shift_diff_minutes_from_monthly_result(row: dict | None) -> dict:
+    """
+    work(分) - shift(分) を返す。取得不可時は diff_minutes 等を null。
+    """
+    if not row or not isinstance(row, dict):
+        return {
+            "diff_minutes": None,
+            "work_minutes": None,
+            "shift_minutes": None,
+        }
+    try:
+        work = int(row.get("work"))
+        shift = int(row.get("shift"))
+    except (TypeError, ValueError):
+        return {
+            "diff_minutes": None,
+            "work_minutes": None,
+            "shift_minutes": None,
+        }
+    return {
+        "diff_minutes": work - shift,
+        "work_minutes": work,
+        "shift_minutes": shift,
+    }
+
+
+def _monthly_overview_work_shift_diff_zero_response(*, jobcan_id_missing: bool = False) -> dict:
+    """Jobcan ID なし等: 差分列は常に 0 分として返す。"""
+    out = {
+        "diff_minutes": 0,
+        "work_minutes": 0,
+        "shift_minutes": 0,
+    }
+    if jobcan_id_missing:
+        out["jobcan_id_missing"] = True
+    return out
+
+
+@api_bp.route("/manager/monthly-overview/work-shift-diff", methods=["GET"])
+@token_required
+@login_required
+def get_manager_monthly_overview_work_shift_diff():
+    """
+    当月一覧モーダル「差分」列用。
+    Jobcan 月次勤務実績の work(分) - shift(分) を返す（表示はフロントで時間換算）。
+    employee_mappings に Jobcan ID が無い場合（執行役員等）は Jobcan を呼ばず差分 0 分。
+    """
+    target_employee_id = request.args.get("employee_id")
+    year_str = request.args.get("year")
+    month_str = request.args.get("month")
+
+    if not all([target_employee_id, year_str, month_str]):
+        abort(400, "Missing required parameters: employee_id, year, month")
+
+    try:
+        year = int(year_str)
+        month = int(month_str)
+        if not (1 <= month <= 12):
+            abort(400, "month must be between 1 and 12")
+    except ValueError:
+        abort(400, "year and month must be integers")
+
+    mapping_ref = db.collection("employee_mappings").document(target_employee_id)
+    mapping_doc = mapping_ref.get()
+    if not mapping_doc.exists:
+        abort(404, "Target user not found.")
+
+    mapping_data = mapping_doc.to_dict() or {}
+    jobcan_employee_id = mapping_data.get("jobcan_employee_id")
+    if _is_effectively_no_jobcan_id(jobcan_employee_id):
+        return jsonify(_monthly_overview_work_shift_diff_zero_response(jobcan_id_missing=True)), 200
+
+    from services.jobcan_service import JobcanService
+
+    app_env = os.environ.get("APP_ENV", "development")
+    is_sandbox = app_env != "production"
+    jobcan_service = JobcanService(
+        db=db,
+        sandbox=is_sandbox,
+        raw_responses_collection=COLLECTION_JOBCAN_RAW_RESPONSES,
+    )
+    jobcan_key = str(jobcan_employee_id).strip()
+    raw = jobcan_service.get_monthly_work_time_results(jobcan_key, year, month)
+    if raw is None:
+        current_app.logger.warning(
+            "monthly-overview/work-shift-diff: Jobcan API failed employee=%s year=%s month=%s",
+            target_employee_id,
+            year,
+            month,
+        )
+        return jsonify(
+            {
+                "diff_minutes": None,
+                "work_minutes": None,
+                "shift_minutes": None,
+            }
+        ), 200
+
+    row = _pick_monthly_work_time_result_row(raw, year, month)
+    return jsonify(_work_shift_diff_minutes_from_monthly_result(row)), 200
+
+
 @api_bp.route("/manager/past-reports", methods=["GET"])
 @token_required
 @login_required

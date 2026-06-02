@@ -1230,22 +1230,37 @@ async function openMonthlyOverviewModal() {
         }
         const startDateStr = uniqueDates[0];
         const endDateStr = uniqueDates[uniqueDates.length - 1];
+        const periodEndParts = endDateStr.split('-').map(Number);
+        const periodEndYear = periodEndParts[0];
+        const periodEndMonth = periodEndParts[1];
 
         const statusByEmployee = {};
+        const workShiftDiffByEmployee = {};
         try {
             let done = 0;
             for (const u of shownUsers) {
                 done += 1;
                 tableMount.innerHTML = `<div style="font-size:12px;color:#666;">データ集計中... (${done}/${shownUsers.length})</div>`;
                 const cacheBuster = Date.now() + done;
-                const res = await fetchWithAuth(
-                    `${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${encodeURIComponent(u.employeeId)}&start_date=${startDateStr}&end_date=${endDateStr}&_ts=${cacheBuster}`,
-                );
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    throw new Error(err.message || `calendar-statuses取得失敗: ${res.status}`);
+                const empKey = encodeURIComponent(u.employeeId);
+                const [calRes, diffRes] = await Promise.all([
+                    fetchWithAuth(
+                        `${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${empKey}&start_date=${startDateStr}&end_date=${endDateStr}&_ts=${cacheBuster}`,
+                    ),
+                    fetchWithAuth(
+                        `${API_BASE_URL}/api/manager/monthly-overview/work-shift-diff?employee_id=${empKey}&year=${periodEndYear}&month=${periodEndMonth}&_ts=${cacheBuster}`,
+                    ),
+                ]);
+                if (!calRes.ok) {
+                    const err = await calRes.json().catch(() => ({}));
+                    throw new Error(err.message || `calendar-statuses取得失敗: ${calRes.status}`);
                 }
-                statusByEmployee[String(u.employeeId)] = await res.json();
+                statusByEmployee[String(u.employeeId)] = await calRes.json();
+                if (diffRes.ok) {
+                    workShiftDiffByEmployee[String(u.employeeId)] = await diffRes.json();
+                } else {
+                    workShiftDiffByEmployee[String(u.employeeId)] = { diff_minutes: null };
+                }
             }
         } catch (e) {
             tableMount.innerHTML = `<div style="font-size:12px;color:#c0392b;">取得失敗: ${escapeHTML(e.message || String(e))}</div>`;
@@ -1269,7 +1284,17 @@ async function openMonthlyOverviewModal() {
 
         shownUsers.forEach((u) => {
             html += `<tr><td style="${stickyBodyBase}left:0;">${escapeHTML(u.name)}</td>`;
-            html += `<td style="${stickyBodyBase}left:${stickyColW}px;"></td>`;
+            const diffData = workShiftDiffByEmployee[String(u.employeeId)] || {};
+            const diffMinutes = Number.isFinite(Number(diffData.diff_minutes))
+                ? Number(diffData.diff_minutes)
+                : null;
+            const diffLabel = formatDiffMinutesAsJaForComparison(diffMinutes);
+            const diffTitle = diffData.jobcan_id_missing
+                ? 'Jobcan IDなし（差分0）'
+                : diffMinutes !== null && diffData.work_minutes != null && diffData.shift_minutes != null
+                    ? `勤務:${diffData.work_minutes}分 シフト:${diffData.shift_minutes}分 差:${diffMinutes}分`
+                    : 'Jobcan月次実績なし';
+            html += `<td title="${escapeHTML(diffTitle)}" style="${stickyBodyBase}left:${stickyColW}px;text-align:right;">${escapeHTML(diffLabel)}</td>`;
             columns.forEach((c) => {
                 if (!c.ymd) {
                     html += '<td style="border:1px solid #ddd;background:#fff;"></td>';

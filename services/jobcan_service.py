@@ -141,6 +141,19 @@ class JobcanService:
                     self._save_raw_response(employee_id, summary["date"], "summaries/daily", summary)
         return response_data
 
+    def get_monthly_work_time_results(
+        self, employee_id: str, year: int, month: int
+    ) -> Optional[Dict]:
+        """
+        月次勤務実績（work / shift 等）を取得する。
+        GET /attendance/v1/employees/{employee_id}/work-time/results/monthly
+        scope: workTimeResults.read（Jobcan 管理画面の API クライアント設定要）
+        """
+        scope = "workTimeResults.read"
+        url = f"{self.ATTENDANCE_API_BASE_URL}/employees/{employee_id}/work-time/results/monthly"
+        params = [("year", str(int(year))), ("month", str(int(month)))]
+        return self._request("GET", url, scope, params=params)
+
     def refresh_daily_summary(self, employee_id: str, date: str) -> Optional[Dict]:
         """指定した日の勤務サマリーの再計算をリクエストする (POST)"""
         scope = "summaries.create" # 仕様書で確認した正しい書き込みスコープ
