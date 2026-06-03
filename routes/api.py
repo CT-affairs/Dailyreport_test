@@ -4000,7 +4000,7 @@ def _aggregate_net_staff_breakdown_sheet_times(
     """
     内訳シート用の月度合計（分）。
     - report_input_minutes: 日報 task_total_minutes の合計
-    - non_work_minutes: category_a が N00 / N14 / N20 のタスク time 合計
+    - non_work_minutes: category_a が A00/A99(有休)・N14/N20(工務・休憩) の time 合計（昼休憩 N99 は含めない）
     """
     query = (
         db.collection(COLLECTION_DAILY_REPORTS)
@@ -4389,8 +4389,8 @@ def _net_summary_minutes_for_cat_b_a_scan(
 _NET_SUMMARY_PAID_LEAVE_ROW_CAT_B_ID = "e_000000"
 _NET_SUMMARY_PAID_LEAVE_ROW_CAT_A_ID = "A00"
 
-# 内訳シート「有休・工務・休憩」: category_a の合計対象
-_NET_BREAKDOWN_NON_WORK_CAT_A_IDS = frozenset({"N00", "N14", "N20"})
+# 内訳シート「有休・工務・休憩」: 有休(A00/A99)・工務(N14)・休憩(N20)。昼休憩(N99)は含めない。
+_NET_BREAKDOWN_NON_WORK_CAT_A_IDS = frozenset({"A00", "A99", "N14", "N20"})
 
 
 def _aggregate_net_staff_jobcan_minutes_for_summary(start_date: datetime, end_date: datetime) -> dict[str, int]:
