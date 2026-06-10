@@ -16,6 +16,44 @@ function handleLinkNavigation(event, callback) {
     event.preventDefault();
     callback();
 }
+
+/** ハッシュルート用のクエリ付き URL 断片（例: #staff_calendar_net?employeeId=...&date=...） */
+function buildNavigationHash(target, params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+        if (value == null) return;
+        const s = String(value).trim();
+        if (s) searchParams.set(key, s);
+    });
+    const qs = searchParams.toString();
+    return `#${target}${qs ? `?${qs}` : ''}`;
+}
+
+/** 画面状態を URL / history.state に同期（再読み込み・共有リンク用） */
+function updateBrowserNavigationState(target, params = {}, { push = false } = {}) {
+    const state = { target, params: { ...params } };
+    const newUrl = `${window.location.pathname}${window.location.search}${buildNavigationHash(target, params)}`;
+    if (push) {
+        history.pushState(state, '', newUrl);
+    } else {
+        history.replaceState(state, '', newUrl);
+    }
+}
+
+/** 代理入力（タイムテーブル）画面の URL を employeeId + date で保持する */
+function syncStaffProxyReportUrl(proxyTarget, { push = false } = {}) {
+    if (!proxyTarget || !proxyTarget.employeeId || !proxyTarget.date) return;
+    const urlTarget = String(proxyTarget.groupId) === '3' ? 'staff_calendar_net' : 'staff_calendar';
+    const params = {
+        employeeId: String(proxyTarget.employeeId),
+        date: proxyTarget.date,
+    };
+    const rt = proxyTarget.returnTarget;
+    if (rt && rt !== urlTarget) {
+        params.returnTarget = rt;
+    }
+    updateBrowserNavigationState(urlTarget, params, { push });
+}
 /**
  * 認証情報付きでAPIにリクエストを送信するfetchのラッパー関数
  * (liff-app.jsから複製。後で共通化する)
@@ -4918,11 +4956,25 @@ function renderStaffCalendarUI(container, params = {}) {
         }
     }
 
-     // パラメータがあれば自動検索（過去日報一覧モーダルを開く指定時はカレンダー準備後に開く）
+     // パラメータがあれば自動検索（date 指定時はその日の代理入力画面へ復元）
      if (params.employeeId) {
          document.getElementById('staff-id-input').value = params.employeeId;
          void (async () => {
              await searchStaffAndRenderCalendar();
+             if (params.date && currentCalendarEmployeeId && staffList[0]) {
+                 const staff = staffList[0];
+                 const defaultReturn =
+                     dashboardListMode === 'net' ? 'staff_calendar_net' : 'staff_calendar';
+                 const returnTarget = params.returnTarget || defaultReturn;
+                 await openProxyReport(
+                     String(staff.employeeId),
+                     staff.name || '',
+                     params.date,
+                     staff.groupId != null ? String(staff.groupId) : '',
+                     { returnTarget, skipUrlUpdate: true, skipProxyStack: true },
+                 );
+                 return;
+             }
              const openPast =
                  dashboardListMode === 'net' &&
                  (params.pastReports === '1' || params.pastReports === 'true');
@@ -4974,7 +5026,10 @@ function renderStaffCalendarUI(container, params = {}) {
          currentCalendarEmployeeId = staff.employeeId;
          
          staffInfoDisplay.textContent = `対象者: ${escapeHTML(staff.name)}`;
- 
+
+         const calTarget = dashboardListMode === 'net' ? 'staff_calendar_net' : 'staff_calendar';
+         updateBrowserNavigationState(calTarget, { employeeId: String(staff.employeeId) }, { push: false });
+
          // カレンダーの描画処理を呼び出す
          await initializeStaffCalendar();
  
@@ -5641,6 +5696,11 @@ async function openProxyReport(employeeId, name, date, groupId, openOptions) {
 
         // 画面初期化
         await initializeProxyReportScreen(isNetTemplate);
+
+        if (!(openOptions && openOptions.skipUrlUpdate)) {
+            const pushUrl = !(openOptions && openOptions.skipProxyStack);
+            syncStaffProxyReportUrl(currentProxyTarget, { push: pushUrl });
+        }
     } catch (error) {
         console.error('代理入力画面の読み込みエラー:', error);
         alert('画面の読み込みに失敗しました。');
@@ -7137,10 +7197,12 @@ function isTypingInTextField() {
 }
 
 function loadProxyNetTaskClipboard() {
-    if (proxyNetTaskClipboard) return proxyNetTaskClipboard;
     try {
         const raw = localStorage.getItem(PROXY_NET_TASK_CLIPBOARD_STORAGE_KEY);
-        if (!raw) return null;
+        if (!raw) {
+            proxyNetTaskClipboard = null;
+            return null;
+        }
         const obj = JSON.parse(raw);
         if (!obj || typeof obj !== 'object') return null;
         if (!obj.categoryA_id || !obj.categoryB_id) return null;
