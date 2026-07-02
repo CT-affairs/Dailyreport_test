@@ -267,6 +267,84 @@ function getCategoryBLabel() {
 }
 
 /**
+ * 【ネット事業部・梱包室(n_logistics)専用】工数入力コメントの選択肢。
+ * - 発火条件: 集計B(categoryB_id) が n_logistics かつ 業務A(categoryA_id) が下記キーのときのみ。
+ * - 各配列の先頭要素が既定値（条件成立時に未設定なら自動選択）。
+ * - キーは categoryA_id（ラベルは将来リネームされ得るため id で判定する）。
+ *   N16=出荷 / N15=入荷 / N26=ラッピング
+ * - この機能はネット画面(isReportNetPage)専用。工務入力・/api/reports には影響しない。
+ */
+const NET_LOGISTICS_COMMENT_CATEGORY_B_ID = 'n_logistics';
+const NET_LOGISTICS_COMMENT_OPTIONS = {
+    'N16': ['通常出荷', 'レビュー対応', 'FBA'],       // 出荷
+    'N15': ['入庫作業', 'FS(通常)'],                  // 入荷
+    'N26': ['ラッピング', 'FS(ギフト)', '熨斗'],      // ラッピング
+};
+
+/**
+ * 本機能が設定し得るコメント値の全集合。
+ * 「機能が入れた既定/選択値」と「PC入力等の自由文コメント」を区別するために使う。
+ */
+const NET_LOGISTICS_ALL_COMMENT_VALUES = new Set(
+    Object.values(NET_LOGISTICS_COMMENT_OPTIONS).reduce((acc, arr) => acc.concat(arr), [])
+);
+
+/**
+ * 現在の集計B/業務A の組み合わせに対応するコメント選択肢を返す。
+ * 条件に合致しなければ null。
+ * @param {string} categoryBId
+ * @param {string} categoryAId
+ * @returns {string[]|null}
+ */
+function getNetLogisticsCommentOptions(categoryBId, categoryAId) {
+    if (categoryBId !== NET_LOGISTICS_COMMENT_CATEGORY_B_ID) return null;
+    return NET_LOGISTICS_COMMENT_OPTIONS[categoryAId] || null;
+}
+
+/**
+ * ネット行のコメント選択UI（業務A欄の下の小さなテキスト）を、現在の選択状態に合わせて更新する。
+ * - 条件成立: 表示。未設定なら先頭を既定にセット。別カテゴリの機能値が残っていれば新先頭にリセット。
+ *   PC入力の自由文や当カテゴリで有効な選択値は保持する。
+ * - 条件不成立: 非表示。本機能が入れた値のみクリアし、既存の自由文コメントは保持（データ消失防止）。
+ * ネット画面以外（.net-comment-wrap が無い行）では何もしない。
+ * @param {HTMLElement} entryDiv
+ */
+function updateNetCommentUI(entryDiv) {
+    const commentWrap = entryDiv.querySelector('.net-comment-wrap');
+    if (!commentWrap) return; // 工務行など: 対象外
+    const label = commentWrap.querySelector('.net-comment-select');
+    const majorInput = entryDiv.querySelector('.task-category-major');
+    const minorInput = entryDiv.querySelector('.task-category-minor');
+    const bId = minorInput ? (minorInput.dataset.id || '') : '';
+    const aId = majorInput ? (majorInput.dataset.id || '') : '';
+    const options = getNetLogisticsCommentOptions(bId, aId);
+
+    if (!options) {
+        commentWrap.style.display = 'none';
+        // 本機能が入れた既定/選択値のみクリアする。
+        // PC入力等の既存自由文コメントは、非logistics行に残っていても保持する（データ消失防止）。
+        if (NET_LOGISTICS_ALL_COMMENT_VALUES.has(entryDiv.dataset.comment)) {
+            delete entryDiv.dataset.comment;
+        }
+        if (label) label.textContent = '';
+        return;
+    }
+
+    // 既定/選択の反映ルール:
+    // - 未設定 → 先頭を既定にする（要望: 先頭がデフォルト）
+    // - 別カテゴリの機能値が残っている（例: 出荷→ラッピングに変更後の「通常出荷」）→ 新カテゴリの先頭にリセット
+    // - それ以外の既存値（PC入力の自由文や、当カテゴリで有効な選択値）は保持する
+    let current = entryDiv.dataset.comment || '';
+    const isStaleFeatureValue = current && !options.includes(current) && NET_LOGISTICS_ALL_COMMENT_VALUES.has(current);
+    if (!current || isStaleFeatureValue) {
+        current = options[0];
+        entryDiv.dataset.comment = current;
+    }
+    commentWrap.style.display = 'block';
+    if (label) label.textContent = current;
+}
+
+/**
  * 新しいタスク入力行を追加する
  * @param {{categoryA_label: string, categoryA_id: string, categoryB_label: string, categoryB_id: string, time: number}|null} task - (オプション) 初期表示するタスクデータ
  */
@@ -290,7 +368,12 @@ function addTaskEntry(task = null) {
         entryDiv.style.alignItems = 'stretch';
         entryDiv.innerHTML = `
             <input type="text" class="task-category-minor" placeholder="集計" style="flex: 0 0 86px; min-width: 0; align-self: center;" required readonly>
-            <input type="text" class="task-category-major" placeholder="業務" style="flex: 1 1 0; min-width: 0; align-self: center;" required readonly>
+            <div class="net-task-major-wrap" style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
+                <input type="text" class="task-category-major" placeholder="業務" style="width: 100%; box-sizing: border-box;" required readonly>
+                <div class="net-comment-wrap" style="display: none;">
+                    <span class="net-comment-select" style="font-size: 0.7rem; color: #06c755; text-decoration: underline; cursor: pointer; line-height: 1.2; word-break: break-all;"></span>
+                </div>
+            </div>
             <div class="task-time-range-wrap" style="flex: 0 0 84px; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
                 <input type="time" class="task-start-time" step="${NET_TASK_TIME_STEP_SECONDS}" style="width: 100%; box-sizing: border-box;">
                 <input type="time" class="task-end-time" step="${NET_TASK_TIME_STEP_SECONDS}" style="width: 100%; box-sizing: border-box;">
@@ -445,6 +528,7 @@ function addTaskEntry(task = null) {
                 minorInput.value = '';
                 minorInput.dataset.id = '';
             }
+            if (isReportNetPage) updateNetCommentUI(entryDiv); // 業務A確定 → コメント選択の表示/既定を更新
             updateWorkTimeSummary();
         } catch (error) { /* キャンセル時は何もしない */ }
     });
@@ -467,6 +551,7 @@ function addTaskEntry(task = null) {
                 // ネット: 集計(B)を変更したら業務(A)をクリア（紐づくAのリストが変わるため）
                 majorInput.value = '';
                 majorInput.dataset.id = '';
+                updateNetCommentUI(entryDiv); // Aクリアに伴いコメント選択を非表示・クリア
             }
             updateWorkTimeSummary();
         } catch (error) { /* キャンセル時は何もしない */ }
@@ -547,6 +632,29 @@ function addTaskEntry(task = null) {
             }, 10);
         }
     });
+
+    // --- ネット・梱包室(n_logistics)専用: コメント選択（3択タップ）---
+    if (isReportNetPage) {
+        const commentSelect = entryDiv.querySelector('.net-comment-select');
+        if (commentSelect) {
+            commentSelect.addEventListener('click', async () => {
+                const bId = minorInput.dataset.id || '';
+                const aId = majorInput.dataset.id || '';
+                const options = getNetLogisticsCommentOptions(bId, aId);
+                if (!options) return; // 条件外（本来この時点では非表示なので通常到達しない）
+                try {
+                    const chosen = await showSelectionModal('コメントを選択', options, commentSelect, { skipOfficeFilter: true });
+                    if (typeof chosen === 'string' && chosen) {
+                        entryDiv.dataset.comment = chosen;
+                        commentSelect.textContent = chosen;
+                    }
+                } catch (error) { /* キャンセル時は何もしない */ }
+            });
+        }
+        // 初期表示（既存日報の読み込み時など）にも条件判定して表示/既定を反映
+        updateNetCommentUI(entryDiv);
+    }
+
     return entryDiv;
 }
 
