@@ -1,4 +1,4 @@
-// liff-app.js version: 2.7.62 (index.html の ?v= と一致させること)
+// liff-app.js version: 2.7.63 (index.html の ?v= と一致させること)
 // --- 設定 ---
 const LIFF_ID = "2008638177-G9M9XKOd";
 const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
@@ -372,7 +372,7 @@ function addTaskEntry(task = null) {
             <div class="net-task-major-wrap" style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
                 <input type="text" class="task-category-major" placeholder="業務" style="width: 100%; box-sizing: border-box;" required readonly>
                 <div class="net-comment-wrap" style="display: none;">
-                    <span class="net-comment-select" style="font-size: 0.7rem; color: #06c755; text-decoration: underline; cursor: pointer; line-height: 1.2; word-break: break-all;"></span>
+                    <span class="net-comment-select" style="font-size: 0.7rem; color: #c02691; text-decoration: underline; cursor: pointer; line-height: 1.2; word-break: break-all;"></span>
                 </div>
             </div>
             <div class="task-time-range-wrap" style="flex: 0 0 84px; display: flex; flex-direction: column; gap: 2px; justify-content: center;">
