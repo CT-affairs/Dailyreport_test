@@ -4183,6 +4183,20 @@ function setupCategoryModal() {
 }
 
 /**
+ * allCategoryData（kind='engineering'）のうち有効(active)なものの中から、
+ * 工事番号(label)の最大値+1を算出する。数値化できないlabelは無視する。
+ */
+function getNextEngineeringCategoryLabel() {
+    const maxLabel = allCategoryData
+        .filter(cat => cat.active && cat.kind === 'engineering')
+        .map(cat => parseInt(cat.label, 10))
+        .filter(n => !isNaN(n))
+        .reduce((max, n) => Math.max(max, n), 0);
+
+    return String(maxLabel + 1);
+}
+
+/**
  * 新規カテゴリ作成モーダルを開く
  */
 function openAddCategoryModal(categoryId = null) {
@@ -4196,6 +4210,7 @@ function openAddCategoryModal(categoryId = null) {
     const saveBtn = document.getElementById('add-category-save-btn');
     const messageDiv = document.getElementById('add-category-message');
     const modalTitle = modal.querySelector('.modal-header h2');
+    const labelInput = document.getElementById('new-cat-label');
     const clientInput = document.getElementById('new-cat-client');
     const checkboxes = document.querySelectorAll('input[name="new-cat-office"]');
 
@@ -4206,6 +4221,9 @@ function openAddCategoryModal(categoryId = null) {
 
     // チェックボックスをリセット
     checkboxes.forEach(cb => cb.checked = false);
+
+    // 工事番号の初期値（有効な工事番号の最大値+1）をセット。変更は可能。
+    labelInput.value = getNextEngineeringCategoryLabel();
 
     if (categoryId) {
         // コピーモード: IDからデータを検索
