@@ -2144,6 +2144,10 @@ function handleNavigation(target, params = {}, options = { push: true }) {
             window.location.href = 'https://clean-techno.com/liff2/purchase-order-dashboard.html';
             break;
 
+        case 'drawing_support':
+            window.location.href = '/liff3/drawing-support.html';
+            break;
+
         case 'system_admin':
             pageTitle.textContent = 'システム管理';
             renderSystemAdminUI(contentArea);
