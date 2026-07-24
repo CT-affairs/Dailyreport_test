@@ -1,4 +1,4 @@
-// liff-app.js version: 2.7.65 (index.html の ?v= と一致させること)
+// liff-app.js version: 2.7.66 (index.html の ?v= と一致させること)
 // --- 設定 ---
 const LIFF_ID = "2008638177-G9M9XKOd";
 const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
@@ -165,8 +165,10 @@ async function handleOrderTempRegisterClick() {
         const result = await response.json();
         if (!result.token) throw new Error("内部トークンを取得できませんでした。");
 
-        messageDiv.textContent = `認証確認OK（line_user_id: ${result.line_user_id}）。この先の発注_仮登録画面は次のステップで接続します。`;
+        messageDiv.textContent = `認証確認OK。発注_仮登録画面へ移動します...`;
         messageDiv.className = 'message success';
+        window.location.href = `${INVOICE_OCR_BASE_URL}/liff2/purchase-order-mobile.html`;
+        return;
 
     } catch (error) {
         console.error('invoice-ocr auth check failed:', error);
