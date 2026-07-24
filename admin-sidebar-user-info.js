@@ -166,16 +166,18 @@
                 showNet();
                 showSomu();
             } else {
-                hideSomu();
                 if (mainGroupId === '3' || mainGroupId === 3) {
                     hideKoumu();
                     showNet();
+                    hideSomu();
                 } else if (mainGroupId === null || mainGroupId === undefined) {
                     showKoumu();
                     showNet();
+                    showSomu();
                 } else {
                     showKoumu();
                     hideNet();
+                    showSomu();
                 }
             }
         } else {

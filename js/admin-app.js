@@ -305,19 +305,21 @@ async function updateUserInfo() {
                 showNet();
                 showSomu();
             } else {
-                hideSomu();
                 if (mainGroupId === '3' || mainGroupId === 3) {
                     // ネット事業部
                     hideKoumu();
                     showNet();
+                    hideSomu();
                 } else if (mainGroupId === null || mainGroupId === undefined) {
                     // 全社/その他
                     showKoumu();
                     showNet();
+                    showSomu();
                 } else {
                     // 工務部 (3以外のID)
                     showKoumu();
                     hideNet();
+                    showSomu();
                 }
             }
         } else {
