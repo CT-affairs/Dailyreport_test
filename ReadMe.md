@@ -123,12 +123,25 @@
 - **フロント**: `deploy_frontend.txt` に記載のファイルを静的ホスティング先に配置する想定。
 - **主要コード**: `routes/api.py`、`routes/webhook.py`、`app_core/utils.py`、`liff-app.js`、`js/admin-app.js`。
 
+### 9.1 スマホ（LIFF）フロント更新時のバージョンアップ（必須）
+
+スマホ側の静的 JS（特に `liff-app.js`）を更新したときは、**必ず `index.html` 内のクエリバージョンを上げること**。
+
+- 参照箇所: `index.html` の `<script src="liff-app.js?v=x.y.z" ...>`
+- 理由: FTP デプロイは変更ファイルだけを上げる。`liff-app.js` 本体だけ更新しても、端末・中間キャッシュは **同じ `?v=` URL** の古い内容を返し続けることがある。
+- 手順の目安:
+  1. `liff-app.js`（など）を修正する
+  2. `index.html` の `liff-app.js?v=` をインクリメントする（例: `2.7.63` → `2.7.64`）
+  3. **`index.html` と `liff-app.js` の両方**をコミットしてフロントデプロイする
+- 管理画面（`admin.html` の `js/admin-app.js?v=` 等）も同様に、JS を変えたら HTML 側の `?v=` を上げる。
+
 ---
 
 ## 10. 更新履歴（任意）
 
 | 日付 | 変更内容 |
 |------|----------|
+| 2026-07-24 | §9.1: スマホ（LIFF）フロント更新時は `index.html` の `liff-app.js?v=` 更新が必須である旨を追記 |
 | 2026-04-18 | 締め: `GET /api/manager/monthly-closing/status`（本番のみ）とダッシュボード表示の同期 |
 | 2026-04-18 | 締め: `date`/`group_id` ルール・月度一本化・テストモード分離・`POST /api/manager/monthly-closing`（スナップショット実コピー、管理 running/completed/failed、409 条件拡張） |
 | 2026-04-16 | `context.md.example` に沿った README 初版 |

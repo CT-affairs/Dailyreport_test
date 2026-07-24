@@ -1,3 +1,11 @@
+# フロント FTP デプロイ対象（変更があったファイルのみアップロード）
+#
+# 【必須】スマホ（LIFF）の JS を更新したら index.html のバージョンも上げる
+#   - index.html 内: <script src="liff-app.js?v=x.y.z" ...>
+#   - liff-app.js だけ上げても ?v= が同じだと端末キャッシュで旧JSのままになる
+#   - 詳細は ReadMe.md 「9.1 スマホ（LIFF）フロント更新時のバージョンアップ」
+# 管理画面も同様: admin.html の js/admin-app.js?v= 等を JS 変更時に更新する
+
 admin.html
 admin_net.html
 css/admin.css

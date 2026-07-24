@@ -1,7 +1,10 @@
-// liff-app.js version: 2.7.63 (index.html の ?v= と一致させること)
+// liff-app.js version: 2.7.65 (index.html の ?v= と一致させること)
 // --- 設定 ---
 const LIFF_ID = "2008638177-G9M9XKOd";
 const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
+// invoice-ocr（発注/請求ツール）連携用。同一LINEログインチャネルのため、このページで
+// 取得済みの liff.getIDToken() をそのまま invoice-ocr 側の /api/auth/line-login に渡せる。
+const INVOICE_OCR_BASE_URL = "https://invoice-ocr-1088643883290.asia-northeast1.run.app";
 
 /** カレンダー「完了」判定: 勤務と日報の差がこの分数以内なら一致（締め前の半端な勤務時間対策） */
 const CALENDAR_COMPLETION_TOLERANCE_MINUTES = 14;
@@ -131,6 +134,49 @@ function setupModalStyles() {
 }
 
 // ID登録フォームの送信処理
+// 発注_仮登録：第一段階として、invoice-ocr 側の LINE ログイン認証（内部JWT発行）が
+// このページの LIFF セッションから通ることだけを確認する。実際の発注仮登録画面への
+// 接続は、この認証確認が済んでから行う。
+async function handleOrderTempRegisterClick() {
+    const button = document.getElementById('order-temp-register-button');
+    const messageDiv = document.getElementById('order-temp-message');
+
+    button.disabled = true;
+    messageDiv.className = 'message';
+    messageDiv.textContent = "認証確認中...";
+
+    try {
+        const lineIdToken = await liff.getIDToken();
+        if (!lineIdToken) throw new Error("LINEのIDトークンを取得できませんでした。");
+
+        const response = await fetch(`${INVOICE_OCR_BASE_URL}/api/auth/line-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-cache',
+            body: JSON.stringify({ line_id_token: lineIdToken }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => null);
+            const errorMessage = errorData?.message || `認証に失敗しました (コード: ${response.status})`;
+            throw new Error(errorMessage);
+        }
+
+        const result = await response.json();
+        if (!result.token) throw new Error("内部トークンを取得できませんでした。");
+
+        messageDiv.textContent = `認証確認OK（line_user_id: ${result.line_user_id}）。この先の発注_仮登録画面は次のステップで接続します。`;
+        messageDiv.className = 'message success';
+
+    } catch (error) {
+        console.error('invoice-ocr auth check failed:', error);
+        messageDiv.textContent = `認証確認エラー: ${error.message}`;
+        messageDiv.className = 'message error';
+    } finally {
+        button.disabled = false;
+    }
+}
+
 async function handleRegisterSubmit(e) {
     if (e) e.preventDefault();
 
@@ -2019,10 +2065,16 @@ async function main() {
                 orderTempButton.type = 'button';
                 orderTempButton.className = 'sub-button';
                 orderTempButton.style.width = '100%';
-                // TODO: 遷移先・処理は後続で接続
-                orderTempButton.onclick = () => {};
+                // 第一段階: invoice-ocr側の認証確認のみ。実機能への接続は次のステップで行う。
+                orderTempButton.onclick = handleOrderTempRegisterClick;
                 insertAfterEl.insertAdjacentElement('afterend', orderTempButton);
                 insertAfterEl = orderTempButton;
+
+                const orderTempMessage = document.createElement('div');
+                orderTempMessage.id = 'order-temp-message';
+                orderTempMessage.className = 'message';
+                insertAfterEl.insertAdjacentElement('afterend', orderTempMessage);
+                insertAfterEl = orderTempMessage;
             }
 
             // --- 管理者画面への入口を挿入 ---
