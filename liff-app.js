@@ -2008,6 +2008,23 @@ async function main() {
             // 変更後のHTML全体をコンテナに挿入
             registerContainer.innerHTML = doc.body.innerHTML;
 
+            const registerForm = document.getElementById('register-form');
+            let insertAfterEl = registerForm;
+
+            // --- 発注_仮登録（設置のみ。登録済みユーザー全員に表示） ---
+            if (cachedEmployeeInfo && cachedEmployeeInfo.employeeId) {
+                const orderTempButton = document.createElement('button');
+                orderTempButton.id = 'order-temp-register-button';
+                orderTempButton.textContent = '発注_仮登録';
+                orderTempButton.type = 'button';
+                orderTempButton.className = 'sub-button';
+                orderTempButton.style.width = '100%';
+                // TODO: 遷移先・処理は後続で接続
+                orderTempButton.onclick = () => {};
+                insertAfterEl.insertAdjacentElement('afterend', orderTempButton);
+                insertAfterEl = orderTempButton;
+            }
+
             // --- 管理者画面への入口を挿入 ---
             if (cachedEmployeeInfo && cachedEmployeeInfo.is_manager === true) {
                 const managerButton = document.createElement('button');
@@ -2018,7 +2035,7 @@ async function main() {
                 managerButton.style.width = '100%'; // 幅を100%に
                 managerButton.onclick = () => { window.location.href = '?page=manager'; };
 
-                document.getElementById('register-form').insertAdjacentElement('afterend', managerButton);
+                insertAfterEl.insertAdjacentElement('afterend', managerButton);
             }
             registerContainer.style.display = 'block';
 

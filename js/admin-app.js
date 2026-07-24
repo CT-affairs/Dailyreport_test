@@ -2927,26 +2927,8 @@ async function renderDashboardHome(container) {
             <div class="dashboard-home-two-col" style="--dashboard-left-col-width: ${DASHBOARD_BASE_WIDTH_PX}px; --dashboard-right-col-width: ${SHIME_COLUMN_WIDTH_PX}px;">
                 <div class="dashboard-home-col-left">
 
-            <!-- 上部: 改修情報 -->
-            <div class="card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; position: relative;">
-                <!-- 隠しボタン: システム管理へ -->
-                <div id="goto-sys-admin-btn" style="position: absolute; top: 10px; right: 10px; width: 20px; height: 20px; border: 1px solid rgba(0,0,0,0.1); cursor: pointer; z-index: 100;" title="管理"></div>
-                <h3 style="margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; font-size: 1.2em; color: #2c3e50;">システム改修情報</h3>
-                <div style="display: flex; gap: 40px; flex-wrap: wrap;">
-                    <div style="flex: 1; min-width: 300px;">
-                        <h4 style="color: #e67e22; margin-bottom: 10px; border-left: 4px solid #e67e22; padding-left: 10px;">改修予定</h4>
-                        <div style="height: 120px; overflow-y: auto; border: 1px solid #f0f0f0; border-radius: 4px; padding: 5px; background-color: #fafafa;">
-                            <ul id="dashboard-plan-list" style="margin: 0; font-size: 0.9em; line-height: 1.6; padding-left: 20px; color: #555;"><li>読み込み中...</li></ul>
-                        </div>
-                    </div>
-                    <div style="flex: 1; min-width: 300px;">
-                        <h4 style="color: #2ecc71; margin-bottom: 10px; border-left: 4px solid #2ecc71; padding-left: 10px;">改修履歴</h4>
-                        <div style="height: 120px; overflow-y: auto; border: 1px solid #f0f0f0; border-radius: 4px; padding: 5px; background-color: #fafafa;">
-                            <ul id="dashboard-history-list" style="margin: 0; font-size: 0.9em; line-height: 1.6; padding-left: 20px; color: #666;"><li>読み込み中...</li></ul>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <!-- 上部: 改修情報（js/system-notices.js） -->
+            <div id="system-notices-dashboard-root"></div>
 
             <!-- 中部: 集計表ダウンロード -->
             <div class="card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
@@ -3085,10 +3067,15 @@ async function renderDashboardHome(container) {
     //     { id: 'setting-unit-price-chitose', key: 'admin_unit_price_chitose' }
     // ];
 
-    // 隠しボタンのイベント
-    document.getElementById('goto-sys-admin-btn').addEventListener('click', () => {
-        handleNavigation('system_admin');
-    });
+    if (typeof SystemNotices !== 'undefined' && SystemNotices.mountDashboard) {
+        await SystemNotices.mountDashboard('#system-notices-dashboard-root', {
+            apiBaseUrl: API_BASE_URL,
+            fetchWithAuth,
+            onOpenAdmin: () => handleNavigation('system_admin'),
+        });
+    } else {
+        console.warn('SystemNotices が未読込です。js/system-notices.js を確認してください。');
+    }
 
     await refreshDashboardMonthlyClosingStatus();
     updateDashboardShimePanel();
@@ -3347,46 +3334,6 @@ async function renderDashboardHome(container) {
     // 全社連絡送信ボタンイベント
     // document.getElementById('announcement-send-btn')?.addEventListener('click', async () => { ... });
 
-    // お知らせデータの取得と表示
-    try {
-        const response = await fetchWithAuth(`${API_BASE_URL}/api/system-notices`);
-        if (response.ok) {
-            const notices = await response.json();
-            
-            const planList = document.getElementById('dashboard-plan-list');
-            const historyList = document.getElementById('dashboard-history-list');
-            
-            if (planList) planList.innerHTML = '';
-            if (historyList) historyList.innerHTML = '';
-
-            // 履歴(history)と予定(plan)に分割
-            const historyItems = notices.filter(n => n.type === 'history'); // APIが新しい順なので、そのままでOK
-            const planItems = notices.filter(n => n.type === 'plan');
-            
-            // 予定は古い順(昇順)にソート
-            planItems.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-
-            // 履歴を描画 (新しい順)
-            historyItems.forEach(notice => {
-                const li = document.createElement('li');
-                li.innerHTML = `<strong>${escapeHTML(notice.date)}:</strong> ${escapeHTML(notice.content)}`;
-                if (historyList) historyList.appendChild(li);
-            });
-
-            // 予定を描画 (古い順)
-            planItems.forEach(notice => {
-                const li = document.createElement('li');
-                li.textContent = escapeHTML(notice.content);
-                if (planList) planList.appendChild(li);
-            });
-
-            if (planList && planList.children.length === 0) planList.innerHTML = '<li>予定はありません</li>';
-            if (historyList && historyList.children.length === 0) historyList.innerHTML = '<li>履歴はありません</li>';
-        }
-    } catch (error) {
-        console.error("お知らせの取得に失敗:", error);
-        // エラー表示は控えめに
-    }
 }
 
 /**
@@ -6579,164 +6526,17 @@ function updateProxyWorkTimeSummary() {
 
 /**
  * システム管理画面（改修情報マスタ）のUIを描画
+ * 実装本体は js/system-notices.js（別リポへコピー可能な単一ファイル）
  */
 function renderSystemAdminUI(container) {
-    container.innerHTML = `
-        <div style="padding: 20px; max-width: 800px;">
-            <div style="margin-bottom: 30px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
-                <h3 style="margin-top: 0; margin-bottom: 15px; font-size: 1.1em; color: #333;">改修情報の追加・編集</h3>
-                <input type="hidden" id="sys-notice-id">
-                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                    <select id="sys-notice-type" style="padding: 8px; border-radius: 4px; border: 1px solid #ccc;">
-                        <option value="plan">改修予定 (plan)</option>
-                        <option value="history">改修履歴 (history)</option>
-                    </select>
-                    <input type="date" id="sys-notice-date" style="padding: 8px; border-radius: 4px; border: 1px solid #ccc;">
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <input type="text" id="sys-notice-content" placeholder="内容を入力してください" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; box-sizing: border-box;">
-                </div>
-                <div style="display: flex; gap: 10px;">
-                    <button id="sys-notice-save-btn" class="btn-primary" style="padding: 8px 20px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;">保存</button>
-                    <button id="sys-notice-clear-btn" class="btn-secondary" style="padding: 8px 20px; background-color: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer;">クリア</button>
-                </div>
-            </div>
-
-            <h3 style="font-size: 1.1em; color: #333; border-bottom: 2px solid #333; padding-bottom: 5px;">登録済み一覧</h3>
-            <div id="sys-notice-list-container">読み込み中...</div>
-        </div>
-    `;
-
-    // イベントリスナー
-    document.getElementById('sys-notice-save-btn').addEventListener('click', saveSystemNotice);
-    document.getElementById('sys-notice-clear-btn').addEventListener('click', clearSystemNoticeForm);
-
-    // 一覧読み込み
-    loadSystemNoticesForAdmin();
-}
-
-async function loadSystemNoticesForAdmin() {
-    const container = document.getElementById('sys-notice-list-container');
-    try {
-        const response = await fetchWithAuth(`${API_BASE_URL}/api/system-notices`);
-        if (!response.ok) throw new Error('取得失敗');
-        const notices = await response.json();
-        
-        // 日付の新しい順にソート
-        notices.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-
-        if (notices.length === 0) {
-            container.innerHTML = '<p>データがありません。</p>';
-            return;
-        }
-
-        let html = '<table class="data-table" style="width: 100%;"><thead><tr><th>Type</th><th>Date</th><th>Content</th><th>Action</th></tr></thead><tbody>';
-        notices.forEach(notice => {
-            const typeLabel = notice.type === 'plan' ? '<span style="color:#e67e22">予定</span>' : '<span style="color:#2ecc71">履歴</span>';
-            // 編集用にデータをJSON文字列として埋め込む
-            const jsonStr = escapeHTML(JSON.stringify(notice));
-            html += `
-                <tr>
-                    <td style="text-align:center;">${typeLabel}</td>
-                    <td>${escapeHTML(notice.date)}</td>
-                    <td>${escapeHTML(notice.content)}</td>
-                    <td style="text-align:center; width: 120px;">
-                        <button class="btn-secondary edit-notice-btn" data-notice="${jsonStr}" style="padding: 4px 8px; margin-right: 5px;">編集</button>
-                        <button class="btn-secondary delete-notice-btn" data-id="${notice.id}" style="padding: 4px 8px; background-color: #e74c3c; color: white;">削除</button>
-                    </td>
-                </tr>
-            `;
-        });
-        html += '</tbody></table>';
-        container.innerHTML = html;
-
-        // 動的に生成したボタンへのイベントリスナー（イベント委譲）
-        container.querySelectorAll('.edit-notice-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const notice = JSON.parse(e.target.dataset.notice);
-                document.getElementById('sys-notice-id').value = notice.id;
-                document.getElementById('sys-notice-type').value = notice.type;
-                document.getElementById('sys-notice-date').value = notice.date;
-                document.getElementById('sys-notice-content').value = notice.content;
-                document.getElementById('sys-notice-save-btn').textContent = '更新';
-                window.scrollTo(0, 0);
-            });
-        });
-        container.querySelectorAll('.delete-notice-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => deleteSystemNotice(e.target.dataset.id));
-        });
-
-    } catch (error) {
-        container.innerHTML = `<p style="color:red;">エラー: ${error.message}</p>`;
-    }
-}
-
-async function saveSystemNotice() {
-    const id = document.getElementById('sys-notice-id').value;
-    const type = document.getElementById('sys-notice-type').value;
-    const date = document.getElementById('sys-notice-date').value;
-    const content = document.getElementById('sys-notice-content').value.trim();
-
-    if (!date || !content) {
-        alert('日付と内容は必須です。');
+    if (typeof SystemNotices === 'undefined' || !SystemNotices.mountAdmin) {
+        container.innerHTML = '<div style="padding:20px;color:red;">SystemNotices が未読込です。js/system-notices.js を確認してください。</div>';
         return;
     }
-
-    const btn = document.getElementById('sys-notice-save-btn');
-    btn.disabled = true;
-    btn.textContent = '保存中...';
-
-    try {
-        const method = id ? 'PUT' : 'POST';
-        const url = id ? `${API_BASE_URL}/api/system-notices/${id}` : `${API_BASE_URL}/api/system-notices`;
-        
-        const response = await fetchWithAuth(url, {
-            method: method,
-            body: JSON.stringify({ type, date, content })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.message || `保存に失敗しました (Status: ${response.status})`);
-        }
-
-        alert('保存しました。');
-        clearSystemNoticeForm();
-        loadSystemNoticesForAdmin();
-
-    } catch (error) {
-        console.error(error);
-        alert(`エラー: ${error.message}`);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = id ? '更新' : '保存';
-    }
-}
-
-async function deleteSystemNotice(id) {
-    if (!confirm('本当に削除しますか？')) return;
-
-    try {
-        const response = await fetchWithAuth(`${API_BASE_URL}/api/system-notices/${id}`, {
-            method: 'DELETE'
-        });
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.message || `削除失敗 (Status: ${response.status})`);
-        }
-        
-        loadSystemNoticesForAdmin();
-    } catch (error) {
-        alert(`エラー: ${error.message}`);
-    }
-}
-
-function clearSystemNoticeForm() {
-    document.getElementById('sys-notice-id').value = '';
-    document.getElementById('sys-notice-type').value = 'plan';
-    document.getElementById('sys-notice-date').value = '';
-    document.getElementById('sys-notice-content').value = '';
-    document.getElementById('sys-notice-save-btn').textContent = '保存';
+    void SystemNotices.mountAdmin(container, {
+        apiBaseUrl: API_BASE_URL,
+        fetchWithAuth,
+    });
 }
 
 /**

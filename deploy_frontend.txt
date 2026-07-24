@@ -2,6 +2,7 @@ admin.html
 admin_net.html
 css/admin.css
 js/admin-app.js
+js/system-notices.js
 index.html
 liff-app.js
 
