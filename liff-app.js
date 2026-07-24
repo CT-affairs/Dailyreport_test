@@ -1,4 +1,4 @@
-// liff-app.js version: 2.7.66 (index.html の ?v= と一致させること)
+// liff-app.js version: 2.7.67 (index.html の ?v= と一致させること)
 // --- 設定 ---
 const LIFF_ID = "2008638177-G9M9XKOd";
 const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
@@ -167,7 +167,9 @@ async function handleOrderTempRegisterClick() {
 
         messageDiv.textContent = `認証確認OK。発注_仮登録画面へ移動します...`;
         messageDiv.className = 'message success';
-        window.location.href = `${INVOICE_OCR_BASE_URL}/liff2/purchase-order-mobile.html`;
+        // invoice-ocr の HTML/JS 本番配信元は Cloud Run ではなく clean-techno（FTP、/liff2/ 配下）。
+        // Cloud Run 側の静的ファイルは .py 変更時のみ再ビルドされるため古くなりがち（docs/deploy.md）。
+        window.location.href = 'https://clean-techno.com/liff2/purchase-order-mobile.html';
         return;
 
     } catch (error) {
