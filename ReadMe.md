@@ -22,7 +22,7 @@
 
 | 名称 | 関係 | メモ |
 |------|------|------|
-| 帳票ツール（CT_invoice-ocr） | 兄弟リポ | 請求・帳票 OCR。`users` / `employee_mappings` 等の共有前提の整理は両 README・`context.md` で揃える。 |
+| 帳票ツール（CT_invoice-ocr） | 兄弟リポ | 請求・帳票 OCR。`users` / `employee_mappings` 等の共有前提の整理は両 README・`context.md` で揃える。スマホ ID 登録画面から「発注_仮登録」導線あり（本番稼働中、詳細は §7）。 |
 | Jobcan | 外部連携 | 勤務時間・休暇種別などの取得・同期。 |
 | LINE | 認証・配信 | Messaging API、LIFF、Webhook（`routes/webhook.py`）。 |
 
@@ -103,6 +103,7 @@
 - **管理画面**: `admin.html` — 日報一覧（予実突合）、社員カレンダー、代理入力（`_manager_proxy_report*.html`）、カテゴリ設定など。
 - **勤務時間の更新**: 一覧の「更新」や `work-time` 系 API（反映待ち・再取得の注意は UI メッセージ参照）。
 - **バッチ**: `/api/batch/refresh-all-work-times` 等（Scheduler トークン・認証は `routes/api.py` 参照）。
+- **発注_仮登録（スマホ入口・本番稼働中）**: ID登録画面（`index.html?page=register`、`liff-app.js` 内 `handleOrderTempRegisterClick`）に「発注_仮登録」ボタンを設置。表示条件は権限（`is_manager` 等）を問わず、**社員ID登録済みユーザー全員**（`cachedEmployeeInfo.employeeId` あり）。押下時、本ページの LIFF セッションで取得した LINE ID トークンを帳票ツール（CT_invoice-ocr）の `POST /api/auth/line-login` に渡して認証確認し、成功後に `https://clean-techno.com/liff2/purchase-order-mobile.html`（invoice-ocr 提供、FTP/clean-techno 配信）へ遷移する。遷移先画面自体の権限差異・処理ロジックは帳票ツール側の責務・実装を参照。
 
 ---
 
@@ -141,6 +142,7 @@
 
 | 日付 | 変更内容 |
 |------|----------|
+| 2026-07-27 | §7: 「発注_仮登録」（スマホ ID登録画面からの導線、帳票ツール CT_invoice-ocr への遷移）が本番稼働中であることを追記。権限に関わらずID登録済み全ユーザーに表示される旨を明記。あわせて `liff-app.js` 内の「第一段階／設置のみ」表現のコメントを稼働中の実態に合わせて更新（v2.7.68） |
 | 2026-07-24 | §9.1: スマホ（LIFF）フロント更新時は `index.html` の `liff-app.js?v=` 更新が必須である旨を追記 |
 | 2026-04-18 | 締め: `GET /api/manager/monthly-closing/status`（本番のみ）とダッシュボード表示の同期 |
 | 2026-04-18 | 締め: `date`/`group_id` ルール・月度一本化・テストモード分離・`POST /api/manager/monthly-closing`（スナップショット実コピー、管理 running/completed/failed、409 条件拡張） |

@@ -1,4 +1,4 @@
-// liff-app.js version: 2.7.67 (index.html の ?v= と一致させること)
+// liff-app.js version: 2.7.68 (index.html の ?v= と一致させること)
 // --- 設定 ---
 const LIFF_ID = "2008638177-G9M9XKOd";
 const API_BASE_URL = "https://dailyreport-service-1088643883290.asia-northeast1.run.app";
@@ -134,9 +134,9 @@ function setupModalStyles() {
 }
 
 // ID登録フォームの送信処理
-// 発注_仮登録：第一段階として、invoice-ocr 側の LINE ログイン認証（内部JWT発行）が
-// このページの LIFF セッションから通ることだけを確認する。実際の発注仮登録画面への
-// 接続は、この認証確認が済んでから行う。
+// 発注_仮登録：本番稼働中。invoice-ocr 側の LINE ログイン認証（内部JWT発行）が
+// このページの LIFF セッションから通ることを確認したうえで、
+// 発注_仮登録画面（invoice-ocr 提供、clean-techno 配信）へ遷移する。
 async function handleOrderTempRegisterClick() {
     const button = document.getElementById('order-temp-register-button');
     const messageDiv = document.getElementById('order-temp-message');
@@ -2061,7 +2061,7 @@ async function main() {
             const registerForm = document.getElementById('register-form');
             let insertAfterEl = registerForm;
 
-            // --- 発注_仮登録（設置のみ。登録済みユーザー全員に表示） ---
+            // --- 発注_仮登録（本番稼働中。権限に関わらず、ID登録済みユーザー全員に表示） ---
             if (cachedEmployeeInfo && cachedEmployeeInfo.employeeId) {
                 const orderTempButton = document.createElement('button');
                 orderTempButton.id = 'order-temp-register-button';
@@ -2069,7 +2069,7 @@ async function main() {
                 orderTempButton.type = 'button';
                 orderTempButton.className = 'sub-button';
                 orderTempButton.style.width = '100%';
-                // 第一段階: invoice-ocr側の認証確認のみ。実機能への接続は次のステップで行う。
+                // invoice-ocr側の認証確認後、発注_仮登録画面（clean-techno配信）へ遷移する。
                 orderTempButton.onclick = handleOrderTempRegisterClick;
                 insertAfterEl.insertAdjacentElement('afterend', orderTempButton);
                 insertAfterEl = orderTempButton;
