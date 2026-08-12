@@ -96,6 +96,13 @@ def _get_pc_session_secret() -> str:
         abort(500, "Server configuration error: PC session secret is not set.")
     return secret
 
+def _get_auth_jwt_secret() -> str:
+    secret = os.environ.get("AUTH_JWT_SECRET")
+    if not secret:
+        current_app.logger.critical("AUTH_JWT_SECRET environment variable is not set!")
+        abort(500, "Server configuration error: Auth JWT secret is not set.")
+    return secret
+
 
 def _build_period_key(start_date: datetime, end_date: datetime) -> str:
     return f"{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}"
@@ -762,6 +769,29 @@ def delete_pc_session():
         path="/",
     )
     return resp
+
+@api_bp.route("/auth/comarobo-token", methods=["POST"])
+@token_required
+def issue_comarobo_token():
+    """
+    コマロボ（社内ツール）連携用の短命署名付きトークンを発行する。
+    sub はクライアントから受け取らず、認証済みセッションの company_employee_id を使う
+    （なりすまし防止）。
+    """
+    user_info = get_authenticated_user_info()
+    company_employee_id = user_info.get("company_employee_id")
+    if not company_employee_id:
+        abort(400, "company_employee_id が取得できませんでした。")
+
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(company_employee_id),
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=120)).timestamp()),
+        "jti": str(uuid.uuid4()),
+    }
+    token = jwt.encode(payload, _get_auth_jwt_secret(), algorithm="HS256")
+    return jsonify({"token": token}), 200
 
 def scheduler_token_required(f):
     """Cloud Schedulerからのリクエストを認証するデコレータ"""

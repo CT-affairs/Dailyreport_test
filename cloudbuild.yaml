@@ -24,7 +24,7 @@ steps:
         '--image', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/dailyreport/app',
         '--region', 'asia-northeast1',
         '--allow-unauthenticated',
-        '--set-secrets', 'PC_SESSION_JWT_SECRET=PC_SESSION_JWT_SECRET:latest'        
+        '--set-secrets', 'PC_SESSION_JWT_SECRET=PC_SESSION_JWT_SECRET:latest,AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest'
       ]
 
 images:

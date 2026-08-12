@@ -1966,6 +1966,26 @@ async function renderStaffListUI(container) {
 }
 
 /**
+ * コマロボ連携用の短命トークンをサーバーに発行してもらい、認証コールバックへ遷移する。
+ */
+async function handleComaroboSupportNavigation(contentArea) {
+    contentArea.innerHTML = '<div style="padding:20px;">コマロボへ接続中...</div>';
+    try {
+        const response = await fetchWithAuth(`${API_BASE_URL}/api/auth/comarobo-token`, { method: 'POST' });
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData?.message || `トークン発行に失敗しました (${response.status})`);
+        }
+        const { token } = await response.json();
+        if (!token) throw new Error('トークンを取得できませんでした。');
+        window.location.href = `http://192.168.24.8:5000/auth/callback?token=${encodeURIComponent(token)}`;
+    } catch (error) {
+        console.error('コマロボ連携エラー:', error);
+        contentArea.innerHTML = `<div style="padding:20px; color:#c0392b;">コマロボへの接続に失敗しました: ${error.message}</div>`;
+    }
+}
+
+/**
  * 画面の切り替え処理
  */
 function handleNavigation(target, params = {}, options = { push: true }) {
@@ -2148,6 +2168,11 @@ function handleNavigation(target, params = {}, options = { push: true }) {
 
         case 'drawing_support':
             window.location.href = '/liff3/drawing-support.html';
+            break;
+
+        case 'comarobo_support':
+            pageTitle.textContent = 'コマロボ_補助';
+            void handleComaroboSupportNavigation(contentArea);
             break;
 
         case 'system_admin':
