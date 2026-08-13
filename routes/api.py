@@ -790,6 +790,12 @@ def issue_comarobo_token():
         "exp": int((now + timedelta(seconds=120)).timestamp()),
         "jti": str(uuid.uuid4()),
     }
+    # コマロボ側の画面表示用。get_authenticated_user_info() が
+    # employee_mappings の name を既に取得済みのため、追加のFirestore問い合わせは発生しない。
+    # 未登録（"名前未登録"）の場合は含めず、コマロボ側でIDそのものを表示させる。
+    name = user_info.get("name")
+    if name and name != "名前未登録":
+        payload["name"] = name
     token = jwt.encode(payload, _get_auth_jwt_secret(), algorithm="HS256")
     return jsonify({"token": token}), 200
 
