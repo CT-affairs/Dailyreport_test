@@ -2145,6 +2145,7 @@ async function main() {
             // --- 管理者画面への入口を挿入 ---
             if (cachedEmployeeInfo && cachedEmployeeInfo.is_manager === true) {
                 const managerButton = document.createElement('button');
+                managerButton.id = 'manager-page-button';
                 managerButton.textContent = '管理者画面へ';
                 managerButton.type = 'button'; // submitを防ぐ
                 managerButton.className = 'sub-button'; // 既存のスタイルを適用

@@ -84,6 +84,22 @@
         #order-request-button:hover:not(:disabled) { background-color: #0b2236; }
         #order-temp-register-button { background-color: #741b35; /* ワインレッド */ }
         #order-temp-register-button:hover:not(:disabled) { background-color: #5b1229; }
+        /* ID登録画面：4つの主要ボタンの大きさと縦間隔を統一する */
+        #register-container #register-button,
+        #register-container #order-request-button,
+        #register-container #order-temp-register-button,
+        #register-container #manager-page-button {
+            width: 100%;
+            padding: 1em;
+            margin-top: 14px;
+            font-size: 1em;
+        }
+        /* 空の通知欄がボタン間に余分な空白を作らないようにする */
+        #register-container #register-message:empty,
+        #register-container #order-request-message:empty,
+        #register-container #order-temp-message:empty {
+            display: none;
+        }
 
         /* --- 横並びフォーム用のスタイル --- */
         .form-row {
@@ -580,7 +596,7 @@
 </div>
 
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-<script src="liff-app.js?v=2.7.69" defer></script>
+<script src="liff-app.js?v=2.7.70" defer></script>
 
 </body>
 
