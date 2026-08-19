@@ -181,6 +181,48 @@ async function handleOrderTempRegisterClick() {
     }
 }
 
+// 発注依頼：発注先を決めず、必要な資材を発注担当者へ依頼するスマホ画面へ遷移する。
+async function handleOrderRequestClick() {
+    const button = document.getElementById('order-request-button');
+    const messageDiv = document.getElementById('order-request-message');
+
+    button.disabled = true;
+    messageDiv.className = 'message';
+    messageDiv.textContent = "認証確認中...";
+
+    try {
+        const lineIdToken = await liff.getIDToken();
+        if (!lineIdToken) throw new Error("LINEのIDトークンを取得できませんでした。");
+
+        const response = await fetch(`${INVOICE_OCR_BASE_URL}/api/auth/line-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-cache',
+            body: JSON.stringify({ line_id_token: lineIdToken }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => null);
+            const errorMessage = errorData?.message || `認証に失敗しました (コード: ${response.status})`;
+            throw new Error(errorMessage);
+        }
+
+        const result = await response.json();
+        if (!result.token) throw new Error("内部トークンを取得できませんでした。");
+
+        messageDiv.textContent = '認証確認OK。発注依頼画面へ移動します...';
+        messageDiv.className = 'message success';
+        window.location.href = 'https://clean-techno.com/liff2/purchase-order-request-mobile.html';
+        return;
+    } catch (error) {
+        console.error('invoice-ocr request auth check failed:', error);
+        messageDiv.textContent = `認証確認エラー: ${error.message}`;
+        messageDiv.className = 'message error';
+    } finally {
+        button.disabled = false;
+    }
+}
+
 async function handleRegisterSubmit(e) {
     if (e) e.preventDefault();
 
@@ -2060,6 +2102,25 @@ async function main() {
 
             const registerForm = document.getElementById('register-form');
             let insertAfterEl = registerForm;
+
+            // --- 発注依頼（発注先未定の資材依頼。発注_仮登録の直上に表示） ---
+            if (cachedEmployeeInfo && cachedEmployeeInfo.employeeId) {
+                const orderRequestButton = document.createElement('button');
+                orderRequestButton.id = 'order-request-button';
+                orderRequestButton.textContent = '発注依頼';
+                orderRequestButton.type = 'button';
+                orderRequestButton.className = 'sub-button';
+                orderRequestButton.style.width = '100%';
+                orderRequestButton.onclick = handleOrderRequestClick;
+                insertAfterEl.insertAdjacentElement('afterend', orderRequestButton);
+                insertAfterEl = orderRequestButton;
+
+                const orderRequestMessage = document.createElement('div');
+                orderRequestMessage.id = 'order-request-message';
+                orderRequestMessage.className = 'message';
+                insertAfterEl.insertAdjacentElement('afterend', orderRequestMessage);
+                insertAfterEl = orderRequestMessage;
+            }
 
             // --- 発注_仮登録（本番稼働中。権限に関わらず、ID登録済みユーザー全員に表示） ---
             if (cachedEmployeeInfo && cachedEmployeeInfo.employeeId) {
