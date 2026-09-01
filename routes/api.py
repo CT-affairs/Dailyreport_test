@@ -3686,6 +3686,11 @@ def _net_task_comment_for_csv(task: dict) -> str:
     return str(c).strip()
 
 
+NET_TASK_SUMMARY_STANDARD = "standard"
+NET_TASK_SUMMARY_LOGISTICS_COMMENT = "logistics_comment"
+NET_LOGISTICS_CATEGORY_B_ID = "n_logistics"
+
+
 def _is_net_daily_report_group(group_id) -> bool:
     """ネット事業部の日報（group_id=3）のみ。"""
     if group_id is None:
@@ -4975,11 +4980,19 @@ def download_net_staff_summary_excel_placeholder():
 def download_net_task_summary_csv():
     """
     ネット事業部の日報データを月度単位で集計し、ピボット用の縦持ちCSVを返す。
-    集計キー: (company_employee_id, date, categoryA_id, categoryB_id) ／ time は分で合算。
+    通常版の集計キー: (company_employee_id, date, categoryA_id, categoryB_id) ／ time は分で合算。
+    logistics_comment 版では梱包室（categoryB_id=n_logistics）のみ comment も集計キーに加える。
     comment は同一キーに複数タスクがある場合、重複を除き「 | 」で連結する。
     """
     try:
         data = request.get_json() or {}
+        aggregation_mode = str(data.get("aggregation_mode") or NET_TASK_SUMMARY_STANDARD).strip()
+        if aggregation_mode not in {
+            NET_TASK_SUMMARY_STANDARD,
+            NET_TASK_SUMMARY_LOGISTICS_COMMENT,
+        }:
+            abort(400, "ネット業務別集計の集計方式が不正です。")
+        use_logistics_comment = aggregation_mode == NET_TASK_SUMMARY_LOGISTICS_COMMENT
         start_date, end_date, allow_snapshot = _resolve_summary_period_from_request(data)
 
         current_app.logger.info(
@@ -5003,7 +5016,7 @@ def download_net_task_summary_csv():
         )
         docs = query.stream()
 
-        # key: (emp_id, date_str, cat_a_id, cat_b_id)
+        # key: (emp_id, date_str, cat_a_id, cat_b_id[, comment_key])
         # value: { time, categoryA_label, categoryB_label, employee_name, comments(list[str]) }
         agg: dict = {}
 
@@ -5035,7 +5048,10 @@ def download_net_task_summary_csv():
                     continue
 
                 cmt = _net_task_comment_for_csv(task)
-                key = (emp_id, date_str, cat_a, cat_b)
+                comment_key = None
+                if use_logistics_comment and cat_b == NET_LOGISTICS_CATEGORY_B_ID:
+                    comment_key = cmt or "（コメントなし）"
+                key = (emp_id, date_str, cat_a, cat_b, comment_key)
                 if key not in agg:
                     agg[key] = {
                         "time": tmin,
@@ -5043,6 +5059,7 @@ def download_net_task_summary_csv():
                         "categoryB_label": str(task.get("categoryB_label") or ""),
                         "employee_name": employee_name,
                         "comments": [cmt] if cmt else [],
+                        "comment_key": comment_key,
                     }
                 else:
                     agg[key]["time"] += tmin
@@ -5051,10 +5068,14 @@ def download_net_task_summary_csv():
 
         # 出力行のソート（安定したピボット向け）
         rows = []
-        for (emp_id, date_str, cat_a, cat_b), v in sorted(
+        for (emp_id, date_str, cat_a, cat_b, comment_key), v in sorted(
             agg.items(), key=lambda x: (x[0][0], x[0][1], x[0][2], x[0][3])
         ):
-            comment_cell = " | ".join(v["comments"]) if v.get("comments") else ""
+            comment_cell = (
+                comment_key
+                if comment_key is not None
+                else " | ".join(v["comments"]) if v.get("comments") else ""
+            )
             rows.append(
                 [
                     emp_id,
@@ -5088,7 +5109,8 @@ def download_net_task_summary_csv():
         csv_bytes = buf.getvalue().encode("utf-8-sig")
         b64_data = base64.b64encode(csv_bytes).decode("utf-8")
 
-        file_name = f"業務別集計_ネット_{end_date.strftime('%Y年%m月度')}.csv"
+        file_suffix = "_梱包室コメント別" if use_logistics_comment else ""
+        file_name = f"業務別集計_ネット{file_suffix}_{end_date.strftime('%Y年%m月度')}.csv"
         return jsonify({"file_name": file_name, "file_content": b64_data}), 200
 
     except Exception as e:

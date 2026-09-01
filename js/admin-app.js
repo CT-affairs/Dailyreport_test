@@ -3269,7 +3269,7 @@ async function renderDashboardHome(container) {
     attachDashboardSpecifiedMonthPicker('shukuhaku-zenkoku-spec-btn', ({ year, month }) =>
         handleAllowanceDownload(null, 'shukuhaku-zenkoku-spec-btn', { year, month }));
 
-    // 業務別(ネット): ピボット用縦持ちCSV（/api/manager/net-task-summary/csv）
+    // 業務別(ネット): 通常版と梱包室コメント別版のCSVを連続ダウンロード
     const handleNetGyomuCsvDownload = async (targetMonth, btnId, periodEnd = null) => {
         const btn = document.getElementById(btnId);
         const originalText = btn.textContent;
@@ -3277,22 +3277,30 @@ async function renderDashboardHome(container) {
         btn.textContent = '生成中...';
 
         try {
-            const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/net-task-summary/csv`, {
-                method: 'POST',
-                body: JSON.stringify(buildSummaryDownloadRequestBody({
-                    targetMonth,
-                    year: periodEnd?.year,
-                    month: periodEnd?.month,
-                })),
+            const requestBase = buildSummaryDownloadRequestBody({
+                targetMonth,
+                year: periodEnd?.year,
+                month: periodEnd?.month,
             });
+            const aggregationModes = ['standard', 'logistics_comment'];
+            for (let i = 0; i < aggregationModes.length; i += 1) {
+                btn.textContent = `生成中... (${i + 1}/${aggregationModes.length})`;
+                const response = await fetchWithAuth(`${API_BASE_URL}/api/manager/net-task-summary/csv`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        ...requestBase,
+                        aggregation_mode: aggregationModes[i],
+                    }),
+                });
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || `ダウンロード失敗: ${response.status}`);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `ダウンロード失敗: ${response.status}`);
+                }
+
+                const result = await response.json();
+                downloadCsvFromBase64(result.file_name, result.file_content);
             }
-
-            const result = await response.json();
-            downloadCsvFromBase64(result.file_name, result.file_content);
         } catch (error) {
             console.error('Net task summary CSV download error:', error);
             alert(`エラーが発生しました: ${error.message}`);
