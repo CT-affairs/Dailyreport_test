@@ -223,6 +223,48 @@ async function handleOrderRequestClick() {
     }
 }
 
+// 発注依頼_マスタあり：資材マスタから品名を選択する発注依頼画面へ遷移する。
+async function handleOrderRequestMasterClick() {
+    const button = document.getElementById('order-request-master-button');
+    const messageDiv = document.getElementById('order-request-master-message');
+
+    button.disabled = true;
+    messageDiv.className = 'message';
+    messageDiv.textContent = "認証確認中...";
+
+    try {
+        const lineIdToken = await liff.getIDToken();
+        if (!lineIdToken) throw new Error("LINEのIDトークンを取得できませんでした。");
+
+        const response = await fetch(`${INVOICE_OCR_BASE_URL}/api/auth/line-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-cache',
+            body: JSON.stringify({ line_id_token: lineIdToken }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => null);
+            const errorMessage = errorData?.message || `認証に失敗しました (コード: ${response.status})`;
+            throw new Error(errorMessage);
+        }
+
+        const result = await response.json();
+        if (!result.token) throw new Error("内部トークンを取得できませんでした。");
+
+        messageDiv.textContent = '認証確認OK。発注依頼_マスタあり画面へ移動します...';
+        messageDiv.className = 'message success';
+        window.location.href = `${INVOICE_OCR_BASE_URL}/liff2/purchase-order-request-master-mobile.html`;
+        return;
+    } catch (error) {
+        console.error('invoice-ocr master request auth check failed:', error);
+        messageDiv.textContent = `認証確認エラー: ${error.message}`;
+        messageDiv.className = 'message error';
+    } finally {
+        button.disabled = false;
+    }
+}
+
 async function handleRegisterSubmit(e) {
     if (e) e.preventDefault();
 
@@ -2120,6 +2162,39 @@ async function main() {
                 orderRequestMessage.className = 'message';
                 insertAfterEl.insertAdjacentElement('afterend', orderRequestMessage);
                 insertAfterEl = orderRequestMessage;
+            }
+
+            // --- 発注依頼_マスタあり（資材マスタから品名を選択） ---
+            if (cachedEmployeeInfo && cachedEmployeeInfo.employeeId) {
+                const orderRequestMasterButton = document.createElement('button');
+                orderRequestMasterButton.id = 'order-request-master-button';
+                orderRequestMasterButton.textContent = '発注依頼_マスタあり';
+                orderRequestMasterButton.type = 'button';
+                orderRequestMasterButton.className = 'sub-button purchase-order-request-master-button';
+                orderRequestMasterButton.style.width = '100%';
+                orderRequestMasterButton.style.backgroundColor = '#b01868';
+                orderRequestMasterButton.style.color = '#fff';
+                orderRequestMasterButton.onmouseenter = () => {
+                    orderRequestMasterButton.style.backgroundColor = '#7d0d49';
+                };
+                orderRequestMasterButton.onmouseleave = () => {
+                    orderRequestMasterButton.style.backgroundColor = '#b01868';
+                };
+                orderRequestMasterButton.onmousedown = () => {
+                    orderRequestMasterButton.style.backgroundColor = '#7d0d49';
+                };
+                orderRequestMasterButton.onmouseup = () => {
+                    orderRequestMasterButton.style.backgroundColor = '#b01868';
+                };
+                orderRequestMasterButton.onclick = handleOrderRequestMasterClick;
+                insertAfterEl.insertAdjacentElement('afterend', orderRequestMasterButton);
+                insertAfterEl = orderRequestMasterButton;
+
+                const orderRequestMasterMessage = document.createElement('div');
+                orderRequestMasterMessage.id = 'order-request-master-message';
+                orderRequestMasterMessage.className = 'message';
+                insertAfterEl.insertAdjacentElement('afterend', orderRequestMasterMessage);
+                insertAfterEl = orderRequestMasterMessage;
             }
 
             // --- 発注_仮登録（本番稼働中。権限に関わらず、ID登録済みユーザー全員に表示） ---
