@@ -254,7 +254,9 @@ async function handleOrderRequestMasterClick() {
 
         messageDiv.textContent = '認証確認OK。発注依頼_マスタあり画面へ移動します...';
         messageDiv.className = 'message success';
-        window.location.href = `${INVOICE_OCR_BASE_URL}/liff2/purchase-order-request-master-mobile.html`;
+        // LIFF登録URLと同じホスト上の相対パスへ遷移する。
+        // Cloud Runの絶対URLへ遷移すると、遷移先のliff.loginでURL不一致の400になる。
+        window.location.href = '/liff2/purchase-order-request-master-mobile.html';
         return;
     } catch (error) {
         console.error('invoice-ocr master request auth check failed:', error);
