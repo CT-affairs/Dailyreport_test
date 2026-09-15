@@ -378,10 +378,10 @@ class JobcanService:
         }
         return self._request("GET", url, scope, params=params)
 
-    def get_selection_notes(self, employee_id: str, from_date: str, to_date: str) -> Dict[str, str]:
+    def get_selection_notes(self, employee_id: str, from_date: str, to_date: str) -> Optional[Dict[str, str]]:
         """
         指定期間の選択備考（ID=1 または Code=1）を取得する。
-        戻り値: { "YYYY-MM-DD": "選択肢名" }
+        戻り値: { "YYYY-MM-DD": "選択肢名" }。取得失敗時はNone。
         """
         scope = "dailySelectionRemarks.read"
         url = f"{self.ATTENDANCE_API_BASE_URL}/employees/{employee_id}/summaries/daily/selection-remarks"
@@ -392,7 +392,7 @@ class JobcanService:
             end = datetime.strptime(to_date, '%Y-%m-%d')
         except ValueError:
             print(f"Error: Invalid date format. from: {from_date}, to: {to_date}")
-            return {}
+            return None
 
         dates = []
         curr = start
@@ -409,12 +409,27 @@ class JobcanService:
             params = [("date", d) for d in chunk]
             
             response_data = self._request("GET", url, scope, params=params)
+
+            # 通信・認証・JSON解析の失敗と「正常取得だが備考なし」を区別する。
+            # 呼び出し側が失敗時の空結果を根拠に既存の宿泊情報を消さないために必要。
+            if response_data is None:
+                return None
+
+            # 宿泊情報を解除する同期にも利用するため、想定外レスポンスを
+            # 「正常取得した結果、宿泊が0件」と誤認しないよう厳密に確認する。
+            if (
+                not isinstance(response_data, dict)
+                or "daily_selection_remarks" not in response_data
+                or not isinstance(response_data["daily_selection_remarks"], list)
+            ):
+                print(f"[WARN] Unexpected selection remarks response: {response_data}")
+                return None
             
             # ★デバッグ用: レスポンスの中身を整形して出力
             # print(f"[DEBUG] API Response: {json.dumps(response_data, indent=2, ensure_ascii=False)}")
             
             # 実機レスポンスに合わせて解析ロジックを修正
-            if response_data and "daily_selection_remarks" in response_data:
+            if response_data:
                 for employee_data in response_data["daily_selection_remarks"]:
                     summaries = employee_data.get("summaries", [])
                     for summary in summaries:

@@ -5905,39 +5905,74 @@ def sync_paid_holidays():
     # --- B. 選択備考（宿泊など）の取得と反映 ---
     try:
         selection_notes = jobcan_service.get_selection_notes(target_jobcan_id, from_str, to_str)
+        if selection_notes is None:
+            raise RuntimeError("Jobcanの選択備考を取得できなかったため、宿泊情報の同期を中止しました。")
         current_app.logger.info(f"Syncing selection notes for {target_company_id}. Found {len(selection_notes)} notes.")
-        
-        for note_date_str, note_content in selection_notes.items():
-            # get_selection_notesで既にID=1(宿泊)に絞り込んでいるため、データが存在すれば宿泊ありとみなす
-            # note_contentには "1" (コード) や "宿泊" (名称) などが入る
+
+        # Jobcanの正常な取得結果を同期対象期間の全日と照合する。
+        # 備考が削除された日は、以前保存した宿泊フラグと備考も解除する。
+        accommodation_dates = []
+        curr = start_date
+        while curr <= end_date:
+            accommodation_dates.append(curr)
+            curr += timedelta(days=1)
+
+        accommodation_refs = []
+        for target_day in accommodation_dates:
+            target_day_str = target_day.strftime('%Y-%m-%d')
+            doc_id = f"{target_company_id}_{target_day_str}"
+            accommodation_refs.append(db.collection(COLLECTION_DAILY_REPORTS).document(doc_id))
+
+        accommodation_docs = {
+            doc.id: doc
+            for doc in db.get_all(accommodation_refs)
+        }
+        accommodation_batch = db.batch()
+        accommodation_update_count = 0
+
+        for target_day, doc_ref in zip(accommodation_dates, accommodation_refs):
+            target_day_str = target_day.strftime('%Y-%m-%d')
+            note_content = selection_notes.get(target_day_str)
+            doc = accommodation_docs.get(doc_ref.id)
+            doc_exists = bool(doc and doc.exists)
+
             if note_content:
-                doc_id = f"{target_company_id}_{note_date_str}"
-                doc_ref = db.collection(COLLECTION_DAILY_REPORTS).document(doc_id)
-                
-                doc = doc_ref.get()
-                if doc.exists:
-                    doc_ref.update({
+                if doc_exists:
+                    accommodation_batch.update(doc_ref, {
                         "has_accommodation": True,
-                        "jobcan_note": note_content, # 念のため内容も保存
-                        "report_updated_at": firestore.SERVER_TIMESTAMP
+                        "jobcan_note": note_content,
+                        "report_updated_at": firestore.SERVER_TIMESTAMP,
                     })
                 else:
-                    # 日報が存在しない場合、新規作成する
-                    try:
-                        note_date = datetime.strptime(note_date_str, '%Y-%m-%d')
-                        doc_ref.set({
-                            "company_employee_id": target_company_id,
-                            "date": note_date,
-                            "has_accommodation": True,
-                            "jobcan_note": note_content,
-                            "report_updated_at": firestore.SERVER_TIMESTAMP,
-                            "task_total_minutes": 0 # 初期値
-                        })
-                    except ValueError:
-                        current_app.logger.error(f"Invalid date format for note: {note_date_str}")
-                
-                # processed_count は有休と重複する可能性があるため、ここではインクリメントしないか、
-                # 別途カウントするかは仕様次第です。
+                    # 宿泊ありの日は、日報未作成でも従来どおり最小限の文書を作成する。
+                    accommodation_batch.set(doc_ref, {
+                        "company_employee_id": target_company_id,
+                        "date": target_day,
+                        "has_accommodation": True,
+                        "jobcan_note": note_content,
+                        "report_updated_at": firestore.SERVER_TIMESTAMP,
+                        "task_total_minutes": 0,
+                    })
+                accommodation_update_count += 1
+                continue
+
+            # 宿泊なしの日は文書を新規作成せず、以前の宿泊情報が残っている場合だけ解除する。
+            if doc_exists:
+                doc_data = doc.to_dict() or {}
+                if doc_data.get("has_accommodation") or doc_data.get("jobcan_note"):
+                    accommodation_batch.update(doc_ref, {
+                        "has_accommodation": False,
+                        "jobcan_note": "",
+                        "report_updated_at": firestore.SERVER_TIMESTAMP,
+                    })
+                    accommodation_update_count += 1
+
+        if accommodation_update_count > 0:
+            accommodation_batch.commit()
+        current_app.logger.info(
+            f"Synchronized accommodation status for {target_company_id}. "
+            f"Updated {accommodation_update_count} reports."
+        )
 
     except Exception as e:
         # 選択備考の取得失敗は全体のエラーにせず、ログ出力に留める
