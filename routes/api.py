@@ -171,6 +171,21 @@ def _is_current_monthly_period(start_date: datetime, end_date: datetime, now_jst
     return _is_same_calendar_date(start_date, cur_start) and _is_same_calendar_date(end_date, cur_end)
 
 
+def _normalize_summary_period_bounds(start_date: datetime, end_date: datetime) -> tuple[datetime, datetime]:
+    """Firestore の日付保存形式に合わせ、月度の両端を naive datetime に正規化する。"""
+    start_date = datetime(start_date.year, start_date.month, start_date.day)
+    end_date = datetime(
+        end_date.year,
+        end_date.month,
+        end_date.day,
+        23,
+        59,
+        59,
+        999999,
+    )
+    return start_date, end_date
+
+
 def _resolve_summary_period_from_request(data: dict) -> tuple[datetime, datetime, bool]:
     """
     集計ダウンロード API 共通: JSON から月度の開始・終了を解決する。
@@ -200,6 +215,7 @@ def _resolve_summary_period_from_request(data: dict) -> tuple[datetime, datetime
             abort(400, "period_end_year out of range")
         start_date, end_date = _monthly_period_from_period_end(y, m)
         allow_snapshot = not _is_current_monthly_period(start_date, end_date, now_jst)
+        start_date, end_date = _normalize_summary_period_bounds(start_date, end_date)
         return start_date, end_date, allow_snapshot
 
     target_month = str(data.get("target_month", "current")).strip().lower()
@@ -210,15 +226,15 @@ def _resolve_summary_period_from_request(data: dict) -> tuple[datetime, datetime
     if target_month == "previous":
         prev_base = start_date - timedelta(days=1)
         start_date, end_date = calculate_monthly_period(prev_base)
+        start_date, end_date = _normalize_summary_period_bounds(start_date, end_date)
         return start_date, end_date, True
+    start_date, end_date = _normalize_summary_period_bounds(start_date, end_date)
     return start_date, end_date, False
 
 
 def _normalize_allowance_period_bounds(start_date: datetime, end_date: datetime) -> tuple[datetime, datetime]:
     """宿泊/現場 Excel: 月度を日付境界（00:00〜23:59:59.999999）で扱う。"""
-    start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-    return start_date, end_date
+    return _normalize_summary_period_bounds(start_date, end_date)
 
 
 def _resolve_summary_source_collection(
