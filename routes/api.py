@@ -1476,7 +1476,7 @@ def get_work_time():
 
             if response_data and response_data.get("daily_summaries"):
                 summary = response_data["daily_summaries"][0]
-                work_minutes = summary.get("work", 0)
+                work_minutes = jobcan_service.effective_work_minutes_from_daily_summary(summary)
         
         # --- 取得した最新の勤務時間でFirestoreの日報データを更新する ---
         if target_company_id:
@@ -2351,7 +2351,9 @@ def batch_notify_unreported():
             summary_res = jobcan_service.get_daily_summaries(employee_id=jobcan_employee_id, dates=[today_str])
             work_minutes = 0
             if summary_res and summary_res.get("daily_summaries"):
-                work_minutes = summary_res["daily_summaries"][0].get("work", 0)
+                work_minutes = jobcan_service.effective_work_minutes_from_daily_summary(
+                    summary_res["daily_summaries"][0]
+                )
 
             # 条件2: 当日の工数報告時間を取得
             report_doc_ref = db.collection(COLLECTION_DAILY_REPORTS).document(f"{company_employee_id}_{today_str}")
@@ -2978,7 +2980,9 @@ def get_all_employee_work_times():
                 response_data = jobcan_service.get_daily_summaries(employee_id=jobcan_id, dates=[target_date_str])
                 work_minutes = 0
                 if response_data and response_data.get("daily_summaries"):
-                    work_minutes = response_data["daily_summaries"][0].get("work", 0)
+                    work_minutes = jobcan_service.effective_work_minutes_from_daily_summary(
+                        response_data["daily_summaries"][0]
+                    )
                 results.append({'employeeId': company_id, 'workTime': work_minutes})
             except Exception as e:
                 current_app.logger.error(f"Failed to get work time for employee {jobcan_id} on {target_date_str}: {e}")

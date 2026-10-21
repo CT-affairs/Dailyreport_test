@@ -10,6 +10,33 @@ from google.cloud.firestore import Client as FirestoreClient
 class JobcanService:
     """Jobcan APIと連携するための汎用サービスクラス"""
 
+    @staticmethod
+    def effective_work_minutes_from_daily_summary(summary: Dict[str, Any]) -> int:
+        """
+        Jobcanの日別サマリーから、日報ツール上で勤務時間として扱う分数を返す。
+
+        special3（看護休暇）はJobcanの work に vacation_time が含まれるため、
+        その休暇時間を差し引く。その他の休暇タイプは従来どおり work を使う。
+        """
+        if not isinstance(summary, dict):
+            return 0
+
+        try:
+            work_minutes = int(float(summary.get("work", 0) or 0))
+        except (TypeError, ValueError):
+            work_minutes = 0
+        work_minutes = max(0, work_minutes)
+
+        if summary.get("vacation_type") != "special3":
+            return work_minutes
+
+        try:
+            vacation_minutes = int(float(summary.get("vacation_time", 0) or 0))
+        except (TypeError, ValueError):
+            vacation_minutes = 0
+        vacation_minutes = max(0, vacation_minutes)
+        return max(0, work_minutes - vacation_minutes)
+
     def __init__(self, client_id: str = None, client_secret: str = None, db: Optional[FirestoreClient] = None, raw_responses_collection: Optional[str] = None, sandbox: bool = True):
         self.client_id = client_id
         self.client_secret = client_secret
@@ -220,7 +247,7 @@ class JobcanService:
         work_minutes = 0
         if response_data and response_data.get("daily_summaries"):
             summary = response_data["daily_summaries"][0]
-            work_minutes = summary.get("work", 0)
+            work_minutes = self.effective_work_minutes_from_daily_summary(summary)
 
         return work_minutes
 

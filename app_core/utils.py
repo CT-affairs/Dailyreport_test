@@ -225,7 +225,9 @@ def get_calendar_statuses(jobcan_employee_id: str, company_employee_id: str, dat
         for summary in jobcan_data["daily_summaries"]:
             date = summary["date"]
             if date in calendar_statuses:
-                calendar_statuses[date]["jobcan_minutes"] = summary.get("work", 0)
+                calendar_statuses[date]["jobcan_minutes"] = (
+                    jobcan_service.effective_work_minutes_from_daily_summary(summary)
+                )
 
     # --- 5. Firestoreから報告済み工数を取得 ---
     all_docs = []
