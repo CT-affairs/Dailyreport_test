@@ -1107,16 +1107,20 @@ function _monthlyOverviewCellColorFromCalendarStatus(statusData) {
     return GRAY;
 }
 
-/** 当月一覧モーダル: 社員名・差分の固定列幅（px） */
+/** 当月一覧モーダル: 固定列幅（px） */
 const MONTHLY_OVERVIEW_STICKY_COL_PX = 90;
 /** 当月一覧モーダル最大幅（1400 + 差分列1本分） */
 const MONTHLY_OVERVIEW_MODAL_MAX_WIDTH_PX = 1400 + MONTHLY_OVERVIEW_STICKY_COL_PX;
 
 async function openMonthlyOverviewModal() {
-    const monthlyOverviewModalTitle =
-        document.querySelector('.nav-item.active')?.dataset?.target === 'dashboard_net'
-            ? '当月一覧(全員)'
-            : '当月一覧';
+    const isNetDashboardMonthlyOverview =
+        document.querySelector('.nav-item.active')?.dataset?.target === 'dashboard_net';
+    const monthlyOverviewModalTitle = isNetDashboardMonthlyOverview
+        ? '当月一覧(全員)'
+        : '当月一覧';
+    const showDiffColumn = !isNetDashboardMonthlyOverview;
+    const modalMaxWidthPx = MONTHLY_OVERVIEW_MODAL_MAX_WIDTH_PX
+        - (showDiffColumn ? 0 : MONTHLY_OVERVIEW_STICKY_COL_PX);
     const targetDate = document.getElementById('target-date')?.value;
     if (!targetDate) {
         alert('日付を選択してから実行してください。');
@@ -1135,7 +1139,7 @@ async function openMonthlyOverviewModal() {
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:120000;display:flex;align-items:center;justify-content:center;padding:20px;';
     const modal = document.createElement('div');
-    modal.style.cssText = `width:min(96vw,${MONTHLY_OVERVIEW_MODAL_MAX_WIDTH_PX}px);height:min(88vh,900px);background:#fff;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.25);`;
+    modal.style.cssText = `width:min(96vw,${modalMaxWidthPx}px);height:min(88vh,900px);background:#fff;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.25);`;
     const head = document.createElement('div');
     head.style.cssText = 'padding:10px 14px;border-bottom:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center;';
     const titleEl = document.createElement('div');
@@ -1284,19 +1288,23 @@ async function openMonthlyOverviewModal() {
                     fetchWithAuth(
                         `${API_BASE_URL}/api/manager/calendar-statuses?employee_id=${empKey}&start_date=${startDateStr}&end_date=${endDateStr}&_ts=${cacheBuster}`,
                     ),
-                    fetchWithAuth(
-                        `${API_BASE_URL}/api/manager/monthly-overview/work-shift-diff?employee_id=${empKey}&start_date=${encodeURIComponent(startDateStr)}&end_date=${encodeURIComponent(endDateStr)}&_ts=${cacheBuster}`,
-                    ),
+                    showDiffColumn
+                        ? fetchWithAuth(
+                            `${API_BASE_URL}/api/manager/monthly-overview/work-shift-diff?employee_id=${empKey}&start_date=${encodeURIComponent(startDateStr)}&end_date=${encodeURIComponent(endDateStr)}&_ts=${cacheBuster}`,
+                        )
+                        : Promise.resolve(null),
                 ]);
                 if (!calRes.ok) {
                     const err = await calRes.json().catch(() => ({}));
                     throw new Error(err.message || `calendar-statuses取得失敗: ${calRes.status}`);
                 }
                 statusByEmployee[String(u.employeeId)] = await calRes.json();
-                if (diffRes.ok) {
-                    workShiftDiffByEmployee[String(u.employeeId)] = await diffRes.json();
-                } else {
-                    workShiftDiffByEmployee[String(u.employeeId)] = { diff_minutes: null };
+                if (showDiffColumn) {
+                    if (diffRes?.ok) {
+                        workShiftDiffByEmployee[String(u.employeeId)] = await diffRes.json();
+                    } else {
+                        workShiftDiffByEmployee[String(u.employeeId)] = { diff_minutes: null };
+                    }
                 }
             }
         } catch (e) {
@@ -1313,7 +1321,9 @@ async function openMonthlyOverviewModal() {
 
         let html = '<table style="border-collapse:collapse;font-size:10px;min-width:100%;">';
         html += `<thead><tr><th style="${stickyHeadBase}left:0;">社員名</th>`;
-        html += `<th style="${stickyHeadBase}left:${stickyColW}px;">差分</th>`;
+        if (showDiffColumn) {
+            html += `<th style="${stickyHeadBase}left:${stickyColW}px;">差分</th>`;
+        }
         columns.forEach((c) => {
             html += `<th style="border:1px solid #ddd;padding:3px 5px;text-align:center;min-width:22px;">${escapeHTML(c.label)}</th>`;
         });
@@ -1321,21 +1331,23 @@ async function openMonthlyOverviewModal() {
 
         shownUsers.forEach((u) => {
             html += `<tr><td style="${stickyBodyBase}left:0;">${escapeHTML(u.name)}</td>`;
-            const diffData = workShiftDiffByEmployee[String(u.employeeId)] || {};
-            const diffMinutes = Number.isFinite(Number(diffData.diff_minutes))
-                ? Number(diffData.diff_minutes)
-                : null;
-            const diffLabel = formatDiffMinutesAsJaForComparison(diffMinutes);
-            const diffTitle = diffData.jobcan_id_missing
-                ? 'Jobcan IDなし（シフト外0）'
-                : diffData.monthly_data_missing
-                    ? 'Jobcan月次サマリー取得不可'
-                    : diffMinutes !== null
-                        ? (diffData.work_minutes != null
-                            ? `勤務:${diffData.work_minutes}分 シフト外:${diffData.shift_over_minutes ?? diffMinutes}分`
-                            : `シフト外労働:${diffData.shift_over_minutes ?? diffMinutes}分`)
-                        : 'Jobcan月次サマリーなし';
-            html += `<td title="${escapeHTML(diffTitle)}" style="${stickyBodyBase}left:${stickyColW}px;text-align:right;">${escapeHTML(diffLabel)}</td>`;
+            if (showDiffColumn) {
+                const diffData = workShiftDiffByEmployee[String(u.employeeId)] || {};
+                const diffMinutes = Number.isFinite(Number(diffData.diff_minutes))
+                    ? Number(diffData.diff_minutes)
+                    : null;
+                const diffLabel = formatDiffMinutesAsJaForComparison(diffMinutes);
+                const diffTitle = diffData.jobcan_id_missing
+                    ? 'Jobcan IDなし（シフト外0）'
+                    : diffData.monthly_data_missing
+                        ? 'Jobcan月次サマリー取得不可'
+                        : diffMinutes !== null
+                            ? (diffData.work_minutes != null
+                                ? `勤務:${diffData.work_minutes}分 シフト外:${diffData.shift_over_minutes ?? diffMinutes}分`
+                                : `シフト外労働:${diffData.shift_over_minutes ?? diffMinutes}分`)
+                            : 'Jobcan月次サマリーなし';
+                html += `<td title="${escapeHTML(diffTitle)}" style="${stickyBodyBase}left:${stickyColW}px;text-align:right;">${escapeHTML(diffLabel)}</td>`;
+            }
             columns.forEach((c) => {
                 if (!c.ymd) {
                     html += '<td style="border:1px solid #ddd;background:#fff;"></td>';
