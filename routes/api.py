@@ -234,13 +234,14 @@ def _resolve_summary_period_from_request(data: dict) -> tuple[datetime, datetime
 
 
 def _is_summary_period_range_request(data: dict) -> bool:
+    # period_end_year/month は単月指定でも使用するため、期間指定の判定には
+    # 開始年月度だけを使う。これにより、従来の単月リクエストが期間処理へ
+    # 誤って分岐することを防ぐ。
     return any(
         data.get(key) is not None
         for key in (
             "period_start_year",
             "period_start_month",
-            "period_end_year",
-            "period_end_month",
         )
     )
 
