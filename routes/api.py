@@ -44,6 +44,7 @@ from app_core.config import (
 )
 from functools import wraps
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 
 # --- Blueprintの作成 ---
 api_bp = Blueprint('api', __name__)
@@ -230,6 +231,87 @@ def _resolve_summary_period_from_request(data: dict) -> tuple[datetime, datetime
         return start_date, end_date, True
     start_date, end_date = _normalize_summary_period_bounds(start_date, end_date)
     return start_date, end_date, False
+
+
+def _is_summary_period_range_request(data: dict) -> bool:
+    return any(
+        data.get(key) is not None
+        for key in (
+            "period_start_year",
+            "period_start_month",
+            "period_end_year",
+            "period_end_month",
+        )
+    )
+
+
+def _summary_period_end_index(year: int, month: int) -> int:
+    return year * 12 + month
+
+
+def _resolve_engineering_summary_periods(data: dict) -> tuple[list[tuple[datetime, datetime, str]], bool]:
+    """工務集計用に、単月または締め済み月度の期間一覧を解決する。"""
+    if not _is_summary_period_range_request(data):
+        start_date, end_date, allow_snapshot = _resolve_summary_period_from_request(data)
+        source_collection = _resolve_summary_source_collection(
+            start_date, end_date, "enj", allow_snapshot=allow_snapshot
+        )
+        return [(start_date, end_date, source_collection)], False
+
+    required = (
+        "period_start_year",
+        "period_start_month",
+        "period_end_year",
+        "period_end_month",
+    )
+    if any(data.get(key) is None for key in required):
+        abort(400, "期間指定には開始・終了の年度と月度が必要です。")
+
+    try:
+        start_year = int(data["period_start_year"])
+        start_month = int(data["period_start_month"])
+        end_year = int(data["period_end_year"])
+        end_month = int(data["period_end_month"])
+    except (TypeError, ValueError):
+        abort(400, "開始・終了の年度と月度は整数で指定してください。")
+
+    for year, month in ((start_year, start_month), (end_year, end_month)):
+        if not (1900 <= year <= 2100):
+            abort(400, "年度は1900〜2100の範囲で指定してください。")
+        if not (1 <= month <= 12):
+            abort(400, "月度は1〜12の範囲で指定してください。")
+
+    start_index = _summary_period_end_index(start_year, start_month)
+    end_index = _summary_period_end_index(end_year, end_month)
+    period_count = end_index - start_index + 1
+    if period_count < 1:
+        abort(400, "開始月は終了月以前にしてください。")
+    if period_count > 12:
+        abort(400, "指定できる期間は最大12か月です。")
+
+    periods = []
+    year, month = start_year, start_month
+    for _ in range(period_count):
+        period_start, period_end = _monthly_period_from_period_end(year, month)
+        period_key = _build_period_key(period_start, period_end)
+        completed, snapshot_collection = _is_monthly_closing_completed(period_key, "enj")
+        if not completed:
+            abort(400, f"{year}年{month}月度は締め済みではないため、集計できません。")
+        period_start, period_end = _normalize_summary_period_bounds(period_start, period_end)
+        periods.append((period_start, period_end, snapshot_collection))
+        if month == 12:
+            year += 1
+            month = 1
+        else:
+            month += 1
+
+    return periods, True
+
+
+def _summary_period_file_label(periods: list[tuple[datetime, datetime, str]]) -> str:
+    first_period_end = periods[0][1]
+    last_period_end = periods[-1][1]
+    return f"{first_period_end.strftime('%Y年%m月度')}〜{last_period_end.strftime('%Y年%m月度')}"
 
 
 def _normalize_allowance_period_bounds(start_date: datetime, end_date: datetime) -> tuple[datetime, datetime]:
@@ -3145,13 +3227,15 @@ def download_project_summary_excel():
     """
     try:
         data = request.get_json() or {}
-        start_date, end_date, allow_snapshot = _resolve_summary_period_from_request(data)
+        summary_periods, is_period_range = _resolve_engineering_summary_periods(data)
+        start_date = summary_periods[0][0]
+        end_date = summary_periods[-1][1]
 
         current_app.logger.info(
-            "Excel generation period: %s to %s allow_snapshot=%s",
+            "Excel generation period: %s to %s range=%s",
             start_date.strftime("%Y-%m-%d"),
             end_date.strftime("%Y-%m-%d"),
-            allow_snapshot,
+            is_period_range,
         )
 
         # --- categoryA_id に基づく工数分類の定義 ---
@@ -3173,14 +3257,20 @@ def download_project_summary_excel():
             current_app.logger.error(f"Failed to load category_a work_types: {e}")
 
         # --- 2. 期間内の日報データを取得し、集計 ---
-        source_collection = _resolve_summary_source_collection(
-            start_date, end_date, "enj", allow_snapshot=allow_snapshot
-        )
-        current_app.logger.info(
-            "project-summary/excel source collection: %s", source_collection
-        )
-        query = db.collection(source_collection).where(filter=FieldFilter("date", ">=", start_date)).where(filter=FieldFilter("date", "<=", end_date))
-        docs = list(query.stream()) # リスト化して保持
+        docs = []
+        for period_start, period_end, source_collection in summary_periods:
+            current_app.logger.info(
+                "project-summary/excel period/source: %s to %s / %s",
+                period_start.strftime("%Y-%m-%d"),
+                period_end.strftime("%Y-%m-%d"),
+                source_collection,
+            )
+            query = (
+                db.collection(source_collection)
+                .where(filter=FieldFilter("date", ">=", period_start))
+                .where(filter=FieldFilter("date", "<=", period_end))
+            )
+            docs.extend(list(query.stream()))
 
         unique_kouban_ids = set()
         # { "kouban_label": { "employee_name": { "YYYY-MM-DD": {"加工": minutes, "現場": minutes} } } }
@@ -3240,7 +3330,8 @@ def download_project_summary_excel():
             output.seek(0)
             excel_data = output.read()
             b64_data = base64.b64encode(excel_data).decode('utf-8')
-            file_name = f"工番別集計_{end_date.strftime('%Y年%m月度')}_no_data.xlsx"
+            period_label = _summary_period_file_label(summary_periods) if is_period_range else end_date.strftime('%Y年%m月度')
+            file_name = f"工番別集計_{period_label}_no_data.xlsx"
             return jsonify({"file_name": file_name, "file_content": b64_data}), 200
 
         # 'e_240001' -> '240001'
@@ -3435,6 +3526,35 @@ def download_project_summary_excel():
                 if daily_genba_total_minutes > 0:
                     new_sheet.cell(row=target_row, column=3, value=daily_genba_total_minutes / 60.0)
 
+            if is_period_range:
+                total_row = 36
+                new_sheet.cell(row=total_row, column=1, value="期間合計")
+                for row in range(5, 36):
+                    new_sheet.row_dimensions[row].hidden = True
+
+                total_kako_minutes = 0
+                total_genba_minutes = 0
+                for i, emp_name in enumerate(sorted_kako_employees):
+                    minutes = sum(
+                        day_data.get("加工", 0)
+                        for day_data in employee_data_for_kouban.get(emp_name, {}).values()
+                    )
+                    total_kako_minutes += minutes
+                    new_sheet.cell(row=total_row, column=start_col_idx + i, value=minutes / 60.0 if minutes else None)
+                for i, emp_name in enumerate(sorted_genba_employees):
+                    minutes = sum(
+                        day_data.get("現場", 0)
+                        for day_data in employee_data_for_kouban.get(emp_name, {}).values()
+                    )
+                    total_genba_minutes += minutes
+                    new_sheet.cell(
+                        row=total_row,
+                        column=start_col_idx + len(sorted_kako_employees) + i,
+                        value=minutes / 60.0 if minutes else None,
+                    )
+                new_sheet.cell(row=total_row, column=2, value=total_kako_minutes / 60.0 if total_kako_minutes else None)
+                new_sheet.cell(row=total_row, column=3, value=total_genba_minutes / 60.0 if total_genba_minutes else None)
+
             # --- 8. 不要な列の削除 ---
             # 使用した最終列(merge_end_col)より右側の列を削除して、テンプレートに残っている書式等をクリアする
             try:
@@ -3458,9 +3578,12 @@ def download_project_summary_excel():
         excel_data = output.read()
         b64_data = base64.b64encode(excel_data).decode('utf-8')
 
-        file_name = f"{end_date.strftime('%Y年%m月度')}_工番別集計表.xlsx"
+        period_label = _summary_period_file_label(summary_periods) if is_period_range else end_date.strftime('%Y年%m月度')
+        file_name = f"{period_label}_工番別集計表.xlsx"
         return jsonify({"file_name": file_name, "file_content": b64_data}), 200
 
+    except HTTPException:
+        raise
     except Exception as e:
         current_app.logger.error(f"Excel generation failed: {e}", exc_info=True)
         abort(500, f"Excel生成中にエラーが発生しました: {str(e)}")
@@ -3474,13 +3597,15 @@ def download_staff_summary_excel():
     """
     try:
         data = request.get_json() or {}
-        start_date, end_date, allow_snapshot = _resolve_summary_period_from_request(data)
+        summary_periods, is_period_range = _resolve_engineering_summary_periods(data)
+        start_date = summary_periods[0][0]
+        end_date = summary_periods[-1][1]
 
         current_app.logger.info(
-            "Staff summary Excel period: %s to %s allow_snapshot=%s",
+            "Staff summary Excel period: %s to %s range=%s",
             start_date.strftime("%Y-%m-%d"),
             end_date.strftime("%Y-%m-%d"),
-            allow_snapshot,
+            is_period_range,
         )
 
         # 2. 全アクティブ従業員を取得
@@ -3498,14 +3623,20 @@ def download_staff_summary_excel():
         employees.sort(key=lambda x: x['id']) # ID順
 
         # 3. 日報データを取得
-        source_collection = _resolve_summary_source_collection(
-            start_date, end_date, "enj", allow_snapshot=allow_snapshot
-        )
-        current_app.logger.info(
-            "staff-summary/excel source collection: %s", source_collection
-        )
-        query = db.collection(source_collection).where(filter=FieldFilter("date", ">=", start_date)).where(filter=FieldFilter("date", "<=", end_date))
-        docs = query.stream()
+        docs = []
+        for period_start, period_end, source_collection in summary_periods:
+            current_app.logger.info(
+                "staff-summary/excel period/source: %s to %s / %s",
+                period_start.strftime("%Y-%m-%d"),
+                period_end.strftime("%Y-%m-%d"),
+                source_collection,
+            )
+            query = (
+                db.collection(source_collection)
+                .where(filter=FieldFilter("date", ">=", period_start))
+                .where(filter=FieldFilter("date", "<=", period_end))
+            )
+            docs.extend(list(query.stream()))
 
         # data_map[employee_id][date_str][category_a_id] = minutes
         data_map = {}
@@ -3629,6 +3760,33 @@ def download_staff_summary_excel():
                 
                 curr += timedelta(days=1)
                 row_idx += 1
+
+            if is_period_range:
+                total_row = 34
+                ws.cell(row=total_row, column=1, value="期間合計")
+                for row in range(3, 34):
+                    ws.row_dimensions[row].hidden = True
+
+                total_minutes = 0
+                for i, cat_id in enumerate(cat_a_order):
+                    minutes = sum(
+                        day_data.get(cat_id, 0)
+                        for day_data in data_map.get(emp_id, {}).values()
+                    )
+                    total_minutes += minutes
+                    ws.cell(row=total_row, column=3 + i, value=minutes / 60.0 if minutes else None)
+                ws.cell(row=total_row, column=2, value=total_minutes / 60.0 if total_minutes else None)
+
+                for i, proj_label in enumerate(emp_proj_list):
+                    minutes = sum(
+                        day_data.get(proj_label, 0)
+                        for day_data in data_map_b.get(emp_id, {}).values()
+                    )
+                    ws.cell(
+                        row=total_row,
+                        column=staff_summary_cat_b_start_col + i,
+                        value=minutes / 60.0 if minutes else None,
+                    )
         
         # テンプレートシートを削除
         if template_sheet in wb._sheets:
@@ -3640,9 +3798,12 @@ def download_staff_summary_excel():
         output.seek(0)
         b64_data = base64.b64encode(output.read()).decode('utf-8')
         
-        file_name = f"スタッフ別集計_{end_date.strftime('%Y年%m月度')}.xlsx"
+        period_label = _summary_period_file_label(summary_periods) if is_period_range else end_date.strftime('%Y年%m月度')
+        file_name = f"スタッフ別集計_{period_label}.xlsx"
         return jsonify({"file_name": file_name, "file_content": b64_data}), 200
 
+    except HTTPException:
+        raise
     except Exception as e:
         current_app.logger.error(f"Staff summary Excel generation failed: {e}", exc_info=True)
         abort(500, f"Excel生成中にエラーが発生しました: {str(e)}")

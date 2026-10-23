@@ -801,7 +801,18 @@ function dashboardFiscalPeriodKey(year, month) {
  * 集計ダウンロード API 共通リクエスト body。
  * 指定月: period_end_year / period_end_month。当月/前月度: target_month。
  */
-function buildSummaryDownloadRequestBody({ targetMonth, year, month } = {}) {
+function buildSummaryDownloadRequestBody({ targetMonth, year, month, startYear, startMonth, endYear, endMonth } = {}) {
+    if (
+        Number.isFinite(startYear) && Number.isFinite(startMonth) &&
+        Number.isFinite(endYear) && Number.isFinite(endMonth)
+    ) {
+        return {
+            period_start_year: startYear,
+            period_start_month: startMonth,
+            period_end_year: endYear,
+            period_end_month: endMonth,
+        };
+    }
     if (Number.isFinite(year) && Number.isFinite(month)) {
         return { period_end_year: year, period_end_month: month };
     }
@@ -943,6 +954,9 @@ function populateDashboardSpecifiedMonthMonthSelect(
  * @param {() => void|Promise<void>} [onConfirm] - 確定時コールバック（未実装時は省略可）
  */
 async function openDashboardSpecifiedMonthModal(downloadKind, onConfirm) {
+    if (downloadKind === 'koumu-kouban' || downloadKind === 'koumu-staff') {
+        return openDashboardSpecifiedPeriodModal(downloadKind, onConfirm);
+    }
     const defaults = getDashboardSpecifiedMonthDefaultYearMonth();
     const { years } = buildDashboardSpecifiedMonthYearOptions();
     const selectableKeys = buildDashboardSpecifiedMonthSelectablePeriodKeys();
@@ -1065,6 +1079,130 @@ async function openDashboardSpecifiedMonthModal(downloadKind, onConfirm) {
             alert('指定月ダウンロードの処理が未設定です。');
         }
     });
+}
+
+/** 工務の指定月モーダル: 従来の単月指定と、締め済み月度の期間指定を併設する。 */
+async function openDashboardSpecifiedPeriodModal(downloadKind, onConfirm) {
+    const defaults = getDashboardSpecifiedMonthDefaultYearMonth();
+    const { years } = buildDashboardSpecifiedMonthYearOptions();
+    const selectableKeys = buildDashboardSpecifiedMonthSelectablePeriodKeys();
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:120000;display:flex;align-items:center;justify-content:center;padding:20px;';
+    const panel = document.createElement('div');
+    panel.style.cssText = 'background:#fff;border-radius:10px;padding:20px 24px;min-width:620px;max-width:96vw;box-shadow:0 10px 30px rgba(0,0,0,0.25);';
+    const title = document.createElement('h3');
+    title.style.cssText = 'margin:0 0 12px;font-size:1.1em;';
+    title.textContent = '指定月・期間を選択';
+    const hint = document.createElement('p');
+    hint.style.cssText = 'margin:0 0 14px;font-size:12px;color:#666;line-height:1.5;';
+    hint.textContent = '単月度または期間全体の合算を選択してください。期間指定は最大12か月で、選択した月度はすべて締め済みである必要があります。';
+    const columns = document.createElement('div');
+    columns.style.cssText = 'display:flex;gap:24px;align-items:stretch;flex-wrap:wrap;margin-bottom:16px;';
+    const radioName = `summary-mode-${Date.now()}`;
+    const createSelect = () => {
+        const select = document.createElement('select');
+        select.style.cssText = 'padding:6px 8px;border-radius:4px;border:1px solid #ccc;min-width:100px;';
+        return select;
+    };
+    const createColumn = (labelText, modeValue) => {
+        const col = document.createElement('div');
+        col.style.cssText = 'flex:1;min-width:260px;padding:12px;border:1px solid #ddd;border-radius:6px;';
+        const label = document.createElement('label');
+        label.style.cssText = 'display:block;font-weight:bold;margin-bottom:8px;';
+        const radio = document.createElement('input');
+        radio.type = 'radio'; radio.name = radioName; radio.value = modeValue;
+        if (modeValue === 'single') radio.checked = true;
+        label.append(radio, ` ${labelText}`);
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:8px;align-items:center;';
+        const yearSelect = createSelect();
+        const monthSelect = createSelect();
+        row.append(yearSelect, monthSelect);
+        col.append(label, row);
+        return { col, radio, yearSelect, monthSelect };
+    };
+    const single = createColumn('単月度指定', 'single');
+    const start = createColumn('期間指定：開始', 'range');
+    const end = createColumn('期間指定：終了', 'range');
+    const rangeCol = document.createElement('div');
+    rangeCol.style.cssText = 'flex:1;min-width:300px;padding:12px;border:1px solid #ddd;border-radius:6px;';
+    rangeCol.append(start.col.querySelector('label'), start.col.querySelector('div'));
+    const endLabel = end.col.querySelector('label');
+    endLabel.firstChild.checked = false;
+    endLabel.remove();
+    rangeCol.append(endLabel, end.col.querySelector('div'));
+    columns.append(single.col, rangeCol);
+    const status = document.createElement('p');
+    status.style.cssText = 'margin:0 0 12px;font-size:12px;color:#888;min-height:18px;';
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;';
+    const cancelBtn = document.createElement('button'); cancelBtn.type = 'button'; cancelBtn.className = 'btn-secondary'; cancelBtn.textContent = 'キャンセル';
+    const okBtn = document.createElement('button'); okBtn.type = 'button'; okBtn.className = 'btn-primary'; okBtn.textContent = 'ダウンロード';
+    const close = () => overlay.remove();
+    cancelBtn.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    const populateYear = (select, selectedYear) => {
+        select.innerHTML = '';
+        for (const y of years) {
+            const opt = document.createElement('option'); opt.value = String(y); opt.textContent = `${y}年`;
+            opt.disabled = ![...selectableKeys].some((key) => key.startsWith(`${y}-`));
+            if (y === selectedYear && !opt.disabled) opt.selected = true;
+            select.appendChild(opt);
+        }
+        if (!select.value) {
+            const firstEnabled = [...select.options].find((o) => !o.disabled);
+            if (firstEnabled) firstEnabled.selected = true;
+        }
+    };
+    const populateMonth = (select, year, selectedMonth) => {
+        select.innerHTML = '';
+        for (let m = 1; m <= 12; m += 1) {
+            const opt = document.createElement('option'); opt.value = String(m); opt.textContent = `${m}月度`;
+            opt.disabled = !selectableKeys.has(dashboardFiscalPeriodKey(year, m));
+            if (m === selectedMonth && !opt.disabled) opt.selected = true;
+            select.appendChild(opt);
+        }
+        if (!select.value) {
+            const firstEnabled = [...select.options].find((o) => !o.disabled);
+            if (firstEnabled) firstEnabled.selected = true;
+        }
+    };
+    const periodIndex = (year, month) => year * 12 + month;
+    const sync = () => {
+        const mode = single.radio.checked ? 'single' : 'range';
+        const sy = Number(start.yearSelect.value), sm = Number(start.monthSelect.value);
+        const ey = Number(end.yearSelect.value), em = Number(end.monthSelect.value);
+        if (mode === 'single') {
+            status.textContent = '単月度をダウンロードします。'; status.style.color = '#888'; okBtn.disabled = false; return;
+        }
+        const count = periodIndex(ey, em) - periodIndex(sy, sm) + 1;
+        if (count < 1) { status.textContent = '開始月は終了月以前にしてください。'; status.style.color = '#c00'; okBtn.disabled = true; }
+        else if (count > 12) { status.textContent = '指定できる期間は最大12か月です。'; status.style.color = '#c00'; okBtn.disabled = true; }
+        else { status.textContent = `${count}か月を合算します。締め済みでない月度が含まれる場合はダウンロードできません。`; status.style.color = '#888'; okBtn.disabled = false; }
+    };
+    populateYear(single.yearSelect, defaults.year); populateMonth(single.monthSelect, Number(single.yearSelect.value), defaults.month);
+    populateYear(start.yearSelect, defaults.year); populateMonth(start.monthSelect, Number(start.yearSelect.value), defaults.month);
+    populateYear(end.yearSelect, defaults.year); populateMonth(end.monthSelect, Number(end.yearSelect.value), defaults.month);
+    for (const item of [single, start, end]) {
+        item.yearSelect.addEventListener('change', () => { populateMonth(item.monthSelect, Number(item.yearSelect.value), Number(item.monthSelect.value)); sync(); });
+        item.monthSelect.addEventListener('change', sync);
+        item.radio?.addEventListener('change', sync);
+    }
+    okBtn.addEventListener('click', async () => {
+        const mode = single.radio.checked ? 'single' : 'range';
+        const values = mode === 'single'
+            ? { year: Number(single.yearSelect.value), month: Number(single.monthSelect.value), downloadKind }
+            : { startYear: Number(start.yearSelect.value), startMonth: Number(start.monthSelect.value), endYear: Number(end.yearSelect.value), endMonth: Number(end.monthSelect.value), downloadKind };
+        if (mode === 'range') {
+            const count = periodIndex(values.endYear, values.endMonth) - periodIndex(values.startYear, values.startMonth) + 1;
+            if (count < 1 || count > 12) return;
+        }
+        okBtn.disabled = true;
+        try { await onConfirm(values); close(); }
+        catch (err) { console.error(err); alert(`エラーが発生しました: ${err.message}`); }
+        finally { okBtn.disabled = false; }
+    });
+    btnRow.append(cancelBtn, okBtn); panel.append(title, hint, columns, status, btnRow); overlay.appendChild(panel); document.body.appendChild(overlay); sync();
 }
 
 /** カレンダー「完了」判定: 勤務と日報の差がこの分数以内なら一致（締め前の半端な勤務時間対策） */
@@ -3151,6 +3289,10 @@ async function renderDashboardHome(container) {
                     targetMonth,
                     year: periodEnd?.year,
                     month: periodEnd?.month,
+                    startYear: periodEnd?.startYear,
+                    startMonth: periodEnd?.startMonth,
+                    endYear: periodEnd?.endYear,
+                    endMonth: periodEnd?.endMonth,
                 })),
             });
 
@@ -3189,6 +3331,10 @@ async function renderDashboardHome(container) {
                     targetMonth,
                     year: periodEnd?.year,
                     month: periodEnd?.month,
+                    startYear: periodEnd?.startYear,
+                    startMonth: periodEnd?.startMonth,
+                    endYear: periodEnd?.endYear,
+                    endMonth: periodEnd?.endMonth,
                 })),
             });
 
@@ -3261,19 +3407,27 @@ async function renderDashboardHome(container) {
             openDashboardSpecifiedMonthModal(kind, onConfirm);
         });
     };
+    const attachDashboardSpecifiedPeriodPicker = (btnId, onConfirm) => {
+        const btn = document.getElementById(btnId);
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            const kind = DASHBOARD_SPEC_DOWNLOAD_KIND[btnId] || btnId;
+            openDashboardSpecifiedPeriodModal(kind, onConfirm);
+        });
+    };
 
     // --- 新しいボタンIDに対応したイベントリスナー ---
     // 工番別(工務)
     document.getElementById('koumu-kouban-curr-btn').addEventListener('click', () => handleExcelDownload('current', 'koumu-kouban-curr-btn'));
     document.getElementById('koumu-kouban-prev-btn').addEventListener('click', () => handleExcelDownload('previous', 'koumu-kouban-prev-btn'));
-    attachDashboardSpecifiedMonthPicker('koumu-kouban-spec-btn', ({ year, month }) =>
-        handleExcelDownload(null, 'koumu-kouban-spec-btn', { year, month }));
+    attachDashboardSpecifiedPeriodPicker('koumu-kouban-spec-btn', (values) =>
+        handleExcelDownload(null, 'koumu-kouban-spec-btn', values));
 
     // スタッフ別(工務)
     document.getElementById('koumu-staff-curr-btn').addEventListener('click', () => handleStaffSummaryDownload('current', 'koumu-staff-curr-btn'));
     document.getElementById('koumu-staff-prev-btn').addEventListener('click', () => handleStaffSummaryDownload('previous', 'koumu-staff-prev-btn'));
-    attachDashboardSpecifiedMonthPicker('koumu-staff-spec-btn', ({ year, month }) =>
-        handleStaffSummaryDownload(null, 'koumu-staff-spec-btn', 'enj', { year, month }));
+    attachDashboardSpecifiedPeriodPicker('koumu-staff-spec-btn', (values) =>
+        handleStaffSummaryDownload(null, 'koumu-staff-spec-btn', 'enj', values));
 
     // 宿泊/現場(全社) - 手当集計Excel（template_allowance → allowance_YYYYMM.xlsx）
     document.getElementById('shukuhaku-zenkoku-curr-btn').addEventListener('click', () => handleAllowanceDownload('current', 'shukuhaku-zenkoku-curr-btn'));
