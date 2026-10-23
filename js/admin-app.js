@@ -801,11 +801,8 @@ function dashboardFiscalPeriodKey(year, month) {
  * 集計ダウンロード API 共通リクエスト body。
  * 指定月: period_end_year / period_end_month。当月/前月度: target_month。
  */
-function buildSummaryDownloadRequestBody({ targetMonth, year, month, startYear, startMonth, endYear, endMonth } = {}) {
-    if (
-        Number.isFinite(startYear) && Number.isFinite(startMonth) &&
-        Number.isFinite(endYear) && Number.isFinite(endMonth)
-    ) {
+function buildSummaryDownloadRequestBody({ targetMonth, year, month, startYear, startMonth, endYear, endMonth, summaryMode = 'single' } = {}) {
+    if (summaryMode === 'range') {
         return {
             period_start_year: startYear,
             period_start_month: startMonth,
@@ -1168,8 +1165,9 @@ async function openDashboardSpecifiedPeriodModal(downloadKind, onConfirm) {
         }
     };
     const periodIndex = (year, month) => year * 12 + month;
+    let selectedMode = 'single';
     const sync = () => {
-        const mode = single.radio.checked ? 'single' : 'range';
+        const mode = selectedMode;
         const sy = Number(start.yearSelect.value), sm = Number(start.monthSelect.value);
         const ey = Number(end.yearSelect.value), em = Number(end.monthSelect.value);
         if (mode === 'single') {
@@ -1186,13 +1184,16 @@ async function openDashboardSpecifiedPeriodModal(downloadKind, onConfirm) {
     for (const item of [single, start, end]) {
         item.yearSelect.addEventListener('change', () => { populateMonth(item.monthSelect, Number(item.yearSelect.value), Number(item.monthSelect.value)); sync(); });
         item.monthSelect.addEventListener('change', sync);
-        item.radio?.addEventListener('change', sync);
+        item.radio?.addEventListener('change', () => {
+            selectedMode = item.radio === single.radio ? 'single' : 'range';
+            sync();
+        });
     }
     okBtn.addEventListener('click', async () => {
-        const mode = single.radio.checked ? 'single' : 'range';
+        const mode = selectedMode;
         const values = mode === 'single'
-            ? { year: Number(single.yearSelect.value), month: Number(single.monthSelect.value), downloadKind }
-            : { startYear: Number(start.yearSelect.value), startMonth: Number(start.monthSelect.value), endYear: Number(end.yearSelect.value), endMonth: Number(end.monthSelect.value), downloadKind };
+            ? { summaryMode: 'single', year: Number(single.yearSelect.value), month: Number(single.monthSelect.value), downloadKind }
+            : { summaryMode: 'range', startYear: Number(start.yearSelect.value), startMonth: Number(start.monthSelect.value), endYear: Number(end.yearSelect.value), endMonth: Number(end.monthSelect.value), downloadKind };
         if (mode === 'range') {
             const count = periodIndex(values.endYear, values.endMonth) - periodIndex(values.startYear, values.startMonth) + 1;
             if (count < 1 || count > 12) return;
@@ -3293,6 +3294,7 @@ async function renderDashboardHome(container) {
                     startMonth: periodEnd?.startMonth,
                     endYear: periodEnd?.endYear,
                     endMonth: periodEnd?.endMonth,
+                    summaryMode: periodEnd?.summaryMode,
                 })),
             });
 
@@ -3335,6 +3337,7 @@ async function renderDashboardHome(container) {
                     startMonth: periodEnd?.startMonth,
                     endYear: periodEnd?.endYear,
                     endMonth: periodEnd?.endMonth,
+                    summaryMode: periodEnd?.summaryMode,
                 })),
             });
 
